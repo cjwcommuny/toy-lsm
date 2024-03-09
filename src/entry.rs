@@ -24,3 +24,13 @@ impl Ord for Entry {
         self.key.cmp(&other.key)
     }
 }
+
+#[cfg(test)]
+impl Entry {
+    pub fn from_slice(key: &[u8], value: &[u8]) -> Self {
+        Self {
+            key: Bytes::copy_from_slice(key),
+            value: Bytes::copy_from_slice(value),
+        }
+    }
+}

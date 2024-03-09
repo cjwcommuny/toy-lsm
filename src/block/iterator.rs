@@ -28,12 +28,6 @@ impl BlockIterator {
         iter
     }
 
-    /// Seeks to the first key in the block.
-    /// 避免 mutation，不好的设计
-    pub fn seek_to_first(&mut self) {
-        self.idx = 0;
-    }
-
     /// Seek to the first key that >= `key`.
     /// Note: You should assume the key-value pairs in the block are sorted when being added by
     /// callers.

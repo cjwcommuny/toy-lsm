@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use std::fmt::Debug;
+use std::ops::Bound;
 
 pub struct Key<T: AsRef<[u8]>>(T);
 
@@ -163,4 +164,8 @@ impl<T: AsRef<[u8]> + Ord> Ord for Key<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.cmp(&other.0)
     }
+}
+
+pub fn bound_bytes_as_ref(b: &Bound<Bytes>) -> Bound<&[u8]> {
+    b.as_ref().map(Bytes::as_ref)
 }
