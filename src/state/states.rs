@@ -165,22 +165,14 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::persistent::Memory;
+    use crate::persistent::{Memory, Persistent};
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
-    use futures::StreamExt;
-    use std::ops::Bound;
-    use std::pin::pin;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
-        let persistent = Memory::default();
-        let options = SstOptions::builder()
-            .target_sst_size(1)
-            .block_size(1)
-            .compaction_option(Default::default())
-            .build();
-        let storage = LsmStorageState::new(options, persistent);
+        let storage = build_storage();
 
         assert_eq!(None, storage.get_for_test(b"0").await.unwrap());
 
@@ -205,5 +197,72 @@ mod test {
 
         assert!(storage.get_for_test(b"2").await.unwrap().is_none());
         storage.delete_for_test(b"0").await.unwrap(); // should NOT report any error
+    }
+
+    #[tokio::test]
+    async fn test_task3_storage_integration() {
+        let storage = build_storage();
+
+        assert_eq!(storage.imm_memtables.read().await.len(), 0);
+
+        storage.put_for_test(b"1", b"233").await.unwrap();
+        storage.put_for_test(b"2", b"2333").await.unwrap();
+        storage.put_for_test(b"3", b"23333").await.unwrap();
+
+        force_freeze_memtable(&storage).await;
+        assert_eq!(storage.imm_memtables.read().await.len(), 1);
+
+        let previous_approximate_size = storage.imm_memtables.read().await[0].approximate_size();
+        assert!(previous_approximate_size >= 15);
+
+        storage.put_for_test(b"1", b"2333").await.unwrap();
+        storage.put_for_test(b"2", b"23333").await.unwrap();
+        storage.put_for_test(b"3", b"233333").await.unwrap();
+
+        force_freeze_memtable(&storage).await;
+        assert_eq!(storage.imm_memtables.read().await.len(), 2);
+        assert_eq!(
+            storage.imm_memtables.read().await[1].approximate_size(),
+            previous_approximate_size,
+            "wrong order of memtables?"
+        );
+        assert!(
+            storage.imm_memtables.read().await[0].approximate_size() > previous_approximate_size
+        );
+    }
+
+    #[tokio::test]
+    async fn test_task3_freeze_on_capacity() {
+        let storage = build_storage();
+        for _ in 0..1000 {
+            storage.put_for_test(b"1", b"2333").await.unwrap();
+        }
+        let num_imm_memtables = storage.imm_memtables.read().await.len();
+        println!("num_imm_memtables: {}", num_imm_memtables);
+        assert!(num_imm_memtables >= 1, "no memtable frozen?");
+        for _ in 0..1000 {
+            storage.delete_for_test(b"1").await.unwrap();
+        }
+        assert!(
+            storage.imm_memtables.read().await.len() > num_imm_memtables,
+            "no more memtable frozen?"
+        );
+    }
+
+    fn build_storage() -> LsmStorageState<Memory> {
+        let persistent = Memory::default();
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .build();
+        LsmStorageState::new(options, persistent)
+    }
+
+    pub async fn force_freeze_memtable<P: Persistent>(storage: &LsmStorageState<P>) {
+        let mut memtable = storage.memtable.write().await;
+        let mut imm_memtable = storage.imm_memtables.write().await;
+        storage.force_freeze_memtable(&mut memtable, &mut imm_memtable);
     }
 }

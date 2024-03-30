@@ -8,5 +8,7 @@ pub struct SstOptions {
     block_size: usize,
     // SST size in bytes, also the approximate memtable capacity limit
     target_sst_size: usize,
+    // Maximum number of memtables in memory, flush to L0 when exceeding this limit
+    num_memtable_limit: usize,
     compaction_option: CompactionOptions,
 }
