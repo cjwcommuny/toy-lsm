@@ -8,8 +8,16 @@ use tokio::task::spawn_blocking;
 
 use crate::persistent::{Persistent, PersistentHandle};
 
-#[derive(Default, new)]
-pub struct LocalFs(());
+#[derive(new)]
+pub struct LocalFs {
+    dir: PathBuf,
+}
+
+impl LocalFs {
+    fn build_path(&self, id: usize) -> PathBuf {
+        self.dir.join(format!("{}.sst", id))
+    }
+}
 
 impl Persistent for LocalFs {
     type Handle = FileObject;
@@ -17,8 +25,8 @@ impl Persistent for LocalFs {
     /// Create a new file object (day 2) and write the file to the disk (day 4).
     async fn create(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::Handle> {
         let size = data.len().try_into()?;
+        let path = self.build_path(id);
         let file = spawn_blocking(move || {
-            let path = build_path(id);
             std::fs::write(&path, &data)?;
             File::open(&path)?.sync_all()?;
             let file = File::options().read(true).write(false).open(&path)?;
@@ -30,7 +38,7 @@ impl Persistent for LocalFs {
     }
 
     async fn open(&self, id: usize) -> anyhow::Result<Self::Handle> {
-        let path = build_path(id);
+        let path = self.build_path(id);
         let handle = spawn_blocking(|| {
             let file = File::options().read(true).write(false).open(path)?;
             let file = Arc::new(file);
@@ -66,8 +74,4 @@ impl PersistentHandle for FileObject {
     }
 }
 
-fn build_path(id: usize) -> impl AsRef<Path> {
-    // todo
 
-    PathBuf::new().join(format!("todo-{}", id))
-}

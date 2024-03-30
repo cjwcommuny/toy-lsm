@@ -169,6 +169,8 @@ mod test {
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
     use std::sync::Arc;
+    use tempfile::tempdir;
+    use crate::persistent::file_object::LocalFs;
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
@@ -249,8 +251,9 @@ mod test {
         );
     }
 
-    fn build_storage() -> LsmStorageState<Memory> {
-        let persistent = Memory::default();
+    fn build_storage() -> LsmStorageState<impl Persistent> {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.into_path());
         let options = SstOptions::builder()
             .target_sst_size(1024)
             .block_size(4096)
