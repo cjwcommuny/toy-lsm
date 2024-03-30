@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use crate::iterators::LockedLsmIter;
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::{Persistent, PersistentHandle};
-use crate::sst::{Sstables, SstOptions};
+use crate::sst::{SstOptions, Sstables};
 use crate::state::Map;
 
 #[derive(Getters)]
