@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use crate::iterators::LockedLsmIter;
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::{Persistent, PersistentHandle};
-use crate::sst::{SstOptions, Sstables};
+use crate::sst::{Sstables, SstOptions};
 use crate::state::Map;
 
 #[derive(Getters)]
@@ -165,12 +165,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::persistent::{Memory, Persistent};
+    use tempfile::tempdir;
+
+    use crate::persistent::file_object::LocalFs;
+    use crate::persistent::Persistent;
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
-    use std::sync::Arc;
-    use tempfile::tempdir;
-    use crate::persistent::file_object::LocalFs;
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
@@ -248,6 +248,42 @@ mod test {
         assert!(
             storage.imm_memtables.read().await.len() > num_imm_memtables,
             "no more memtable frozen?"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_task4_storage_integration() {
+        let storage = build_storage();
+
+        assert_eq!(&storage.get_for_test(b"0").await.unwrap(), &None);
+        storage.put_for_test(b"1", b"233").await.unwrap();
+        storage.put_for_test(b"2", b"2333").await.unwrap();
+        storage.put_for_test(b"3", b"23333").await.unwrap();
+
+        force_freeze_memtable(&storage).await;
+
+        storage.delete_for_test(b"1").await.unwrap();
+        storage.delete_for_test(b"2").await.unwrap();
+        storage.put_for_test(b"3", b"2333").await.unwrap();
+        storage.put_for_test(b"4", b"23333").await.unwrap();
+
+        force_freeze_memtable(&storage).await;
+
+        storage.put_for_test(b"1", b"233333").await.unwrap();
+        storage.put_for_test(b"3", b"233333").await.unwrap();
+        assert_eq!(storage.imm_memtables.read().await.len(), 2);
+        assert_eq!(
+            &storage.get_for_test(b"1").await.unwrap().unwrap()[..],
+            b"233333"
+        );
+        assert_eq!(&storage.get_for_test(b"2").await.unwrap(), &None);
+        assert_eq!(
+            &storage.get_for_test(b"3").await.unwrap().unwrap()[..],
+            b"233333"
+        );
+        assert_eq!(
+            &storage.get_for_test(b"4").await.unwrap().unwrap()[..],
+            b"23333"
         );
     }
 

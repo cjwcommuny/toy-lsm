@@ -73,5 +73,3 @@ impl PersistentHandle for FileObject {
         self.size
     }
 }
-
-
