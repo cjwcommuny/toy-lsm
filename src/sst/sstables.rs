@@ -6,8 +6,6 @@ use std::fmt::{Debug, Formatter};
 use std::future::ready;
 use std::mem;
 
-use crossbeam_channel::internal::SelectHandle;
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 use tokio::sync::RwLock;

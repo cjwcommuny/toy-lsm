@@ -4,19 +4,21 @@ use crate::iterators::{
     create_merge_iter_from_non_empty_iters, create_two_merge_iter, iter_fut_to_stream,
     MergeIterator, NoDeletedIterator, TwoMergeIterator,
 };
-use crate::memtable::{ImmutableMemTable, MemTable, MemTableIterator};
-use crate::persistent::PersistentHandle;
+use crate::memtable::MemTableIterator;
+use crate::persistent::Persistent;
 use crate::sst::iterator::MergedSstIterator;
-use crate::sst::Sstables;
+
 use derive_new::new;
 use futures::StreamExt;
 use std::collections::Bound;
 use std::future::ready;
 use std::iter;
 use std::ops::Deref;
-use tokio::sync::RwLockReadGuard;
+use std::sync::Arc;
 
-type LsmIterator<'a, File> = NoDeletedIterator<LsmIteratorInner<'a, File>, anyhow::Error>;
+use crate::state::LsmStorageStateInner;
+
+pub type LsmIterator<'a, File> = NoDeletedIterator<LsmIteratorInner<'a, File>, anyhow::Error>;
 
 type LsmIteratorInner<'a, File> = TwoMergeIterator<
     Entry,
@@ -25,23 +27,22 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
 >;
 
 #[derive(new)]
-pub struct LockedLsmIter<'lock, 'bound, File> {
-    memtable: RwLockReadGuard<'lock, MemTable>,
-    imm_memtables: RwLockReadGuard<'lock, Vec<ImmutableMemTable>>,
-    sstables: RwLockReadGuard<'lock, Sstables<File>>,
-    lower: Bound<&'bound [u8]>,
-    upper: Bound<&'bound [u8]>,
+pub struct LockedLsmIter<'a, P: Persistent> {
+    state: &'a LsmStorageStateInner<P>,
+    lower: Bound<&'a [u8]>,
+    upper: Bound<&'a [u8]>,
 }
 
-impl<'lock, 'bound, File> LockedLsmIter<'lock, 'bound, File>
+impl<'a, P> LockedLsmIter<'a, P>
 where
-    File: PersistentHandle,
+    P: Persistent,
 {
-    pub async fn iter(&self) -> anyhow::Result<LsmIterator<File>> {
+    pub async fn iter(&self) -> anyhow::Result<LsmIterator<P::Handle>> {
         let a = {
-            let memtable = self.memtable.deref();
-            let imm_memtables = self.imm_memtables.deref();
-            let iters = iter::once(memtable.as_immutable_ref())
+            let memtable = self.state.memtable().deref().as_immutable_ref();
+            let imm_memtables = self.state.imm_memtables().as_slice();
+            let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
+            let iters = iter::once(memtable)
                 .chain(imm_memtables)
                 .map(|table| table.scan(self.lower, self.upper));
             let iters = iter_fut_to_stream(iters)
@@ -51,7 +52,11 @@ where
             create_merge_iter_from_non_empty_iters(iters).await
         };
 
-        let b = self.sstables.scan_sst(self.lower, self.upper).await?;
+        let b = self
+            .state
+            .sstables_state()
+            .scan_sst(self.lower, self.upper)
+            .await?;
         let merge = create_two_merge_iter(a, b).await?;
         let iter = new_no_deleted_iter(merge);
         Ok(iter)

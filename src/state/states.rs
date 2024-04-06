@@ -1,27 +1,25 @@
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
-use std::mem;
-use std::ops::{Deref, DerefMut};
+
+use arc_swap::ArcSwap;
+use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use derive_getters::Getters;
 use futures::StreamExt;
-use tokio::sync::RwLock;
 
 use crate::iterators::LockedLsmIter;
-use crate::memtable::{ImmutableMemTable, MemTable};
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::memtable::MemTable;
+use crate::persistent::Persistent;
 use crate::sst::{SstOptions, Sstables};
+use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
 
 #[derive(Getters)]
 pub struct LsmStorageState<P: Persistent> {
-    /// The current memtable.
-    memtable: RwLock<MemTable>,
-    /// Immutable memtables, from latest to earliest.
-    imm_memtables: RwLock<Vec<ImmutableMemTable>>,
-    sstables_state: RwLock<Sstables<P::Handle>>,
+    inner: ArcSwap<LsmStorageStateInner<P>>,
     persistent: P,
     options: SstOptions,
     sst_id: AtomicUsize,
@@ -32,10 +30,11 @@ where
     P: Persistent,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let snapshot = self.inner.load();
         f.debug_struct("LsmStorageState")
-            .field("memtable", &self.memtable)
-            .field("imm_memtables", &self.imm_memtables)
-            .field("sstables_state", &self.sstables_state)
+            .field("memtable", snapshot.memtable())
+            .field("imm_memtables", snapshot.imm_memtables())
+            .field("sstables_state", snapshot.sstables_state())
             .finish()
     }
 }
@@ -45,10 +44,13 @@ where
     P: Persistent,
 {
     pub fn new(options: SstOptions, persistent: P) -> Self {
+        let snapshot = LsmStorageStateInner::builder()
+            .memtable(Arc::new(MemTable::create(0)))
+            .imm_memtables(Vec::new())
+            .sstables_state(Arc::new(Sstables::new(&options)))
+            .build();
         Self {
-            memtable: RwLock::new(MemTable::create(0)),
-            imm_memtables: Default::default(),
-            sstables_state: RwLock::new(Sstables::new(&options)),
+            inner: ArcSwap::new(Arc::new(snapshot)),
             persistent,
             options,
             sst_id: AtomicUsize::new(1),
@@ -64,7 +66,9 @@ where
     type Error = anyhow::Error;
 
     async fn get(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>> {
-        let guard = self.scan(Bound::Included(key), Bound::Included(key)).await;
+        let snapshot = self.inner.load();
+        let snapshot = snapshot.deref().deref();
+        let guard = LockedLsmIter::new(snapshot, Bound::Included(key), Bound::Included(key));
         let value = guard
             .iter()
             .await?
@@ -76,13 +80,17 @@ where
     }
 
     async fn put(&self, key: impl Into<Bytes>, value: impl Into<Bytes>) -> anyhow::Result<()> {
-        self.try_freeze_memtable().await;
-        self.memtable.read().await.put(key.into(), value.into())
+        let snapshot = self.inner.load();
+        snapshot.memtable().put(key.into(), value.into())?;
+        self.try_freeze_memtable(&snapshot);
+        Ok(())
     }
 
     async fn delete(&self, key: impl Into<Bytes>) -> anyhow::Result<()> {
-        self.try_freeze_memtable().await;
-        self.memtable.read().await.put(key.into(), Bytes::new())
+        let snapshot = self.inner.load();
+        snapshot.memtable().put(key.into(), Bytes::new())?;
+        self.try_freeze_memtable(&snapshot);
+        Ok(())
     }
 }
 
@@ -90,21 +98,6 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    pub async fn scan<'a, 'bound>(
-        &'a self,
-        lower: Bound<&'bound [u8]>,
-        upper: Bound<&'bound [u8]>,
-    ) -> LockedLsmIter<'a, 'bound, P::Handle> {
-        // 目前需要同时持有三个 read lock，可以减少锁冲突
-        LockedLsmIter::new(
-            self.memtable.read().await,
-            self.imm_memtables.read().await,
-            self.sstables_state.read().await,
-            lower,
-            upper,
-        )
-    }
-
     fn next_sst_id(&self) -> usize {
         self.sst_id()
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -116,15 +109,9 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    async fn try_freeze_memtable(&self) {
-        // 这里希望 exceed_memtable_size_limit 和 freeze_memtable 的调用是一个 transaction，没有其他
-        // transaction 插入执行的中间，所以需要 double check
-        if self.exceed_memtable_size_limit(&self.memtable.read().await) {
-            let mut memtable = self.memtable.write().await;
-            if self.exceed_memtable_size_limit(&memtable) {
-                let mut imm_memtable = self.imm_memtables.write().await;
-                self.force_freeze_memtable(&mut memtable, &mut imm_memtable);
-            }
+    fn try_freeze_memtable(&self, snapshot: &LsmStorageStateInner<P>) {
+        if self.exceed_memtable_size_limit(snapshot.memtable()) {
+            self.force_freeze_memtable();
         }
     }
 
@@ -132,16 +119,30 @@ where
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
-    fn force_freeze_memtable(
-        &self,
-        memtable: &mut impl DerefMut<Target = MemTable>,
-        imm_memtables: &mut impl DerefMut<Target = Vec<ImmutableMemTable>>,
-    ) {
-        let empty_memtable = MemTable::create(self.next_sst_id());
-        let old_memtable = mem::replace(memtable.deref_mut(), empty_memtable);
-
-        imm_memtables.deref_mut().insert(0, old_memtable.into());
+    fn force_freeze_memtable(&self) {
+        self.inner
+            .rcu(|snapshot| freeze_memtable(snapshot, self.next_sst_id()));
     }
+}
+
+fn freeze_memtable<P: Persistent>(
+    old: &Arc<LsmStorageStateInner<P>>,
+    next_sst_id: usize,
+) -> Arc<LsmStorageStateInner<P>> {
+    let new_memtable = Arc::new(MemTable::create(next_sst_id));
+    let new_imm_memtables = {
+        let old_memtable = old.memtable().clone().into_imm();
+        let mut new = Vec::with_capacity(old.imm_memtables().len() + 1);
+        new.push(old_memtable);
+        new.extend_from_slice(old.imm_memtables());
+        new
+    };
+    let new_state = LsmStorageStateInner::builder()
+        .memtable(new_memtable)
+        .imm_memtables(new_imm_memtables)
+        .sstables_state(old.sstables_state().clone())
+        .build();
+    Arc::new(new_state)
 }
 
 #[cfg(test)]
@@ -205,31 +206,31 @@ mod test {
     async fn test_task3_storage_integration() {
         let storage = build_storage();
 
-        assert_eq!(storage.imm_memtables.read().await.len(), 0);
+        assert_eq!(storage.inner.load().imm_memtables().len(), 0);
 
         storage.put_for_test(b"1", b"233").await.unwrap();
         storage.put_for_test(b"2", b"2333").await.unwrap();
         storage.put_for_test(b"3", b"23333").await.unwrap();
 
-        force_freeze_memtable(&storage).await;
-        assert_eq!(storage.imm_memtables.read().await.len(), 1);
+        storage.force_freeze_memtable();
+        assert_eq!(storage.inner.load().imm_memtables().len(), 1);
 
-        let previous_approximate_size = storage.imm_memtables.read().await[0].approximate_size();
+        let previous_approximate_size = storage.inner.load().imm_memtables()[0].approximate_size();
         assert!(previous_approximate_size >= 15);
 
         storage.put_for_test(b"1", b"2333").await.unwrap();
         storage.put_for_test(b"2", b"23333").await.unwrap();
         storage.put_for_test(b"3", b"233333").await.unwrap();
 
-        force_freeze_memtable(&storage).await;
-        assert_eq!(storage.imm_memtables.read().await.len(), 2);
+        storage.force_freeze_memtable();
+        assert_eq!(storage.inner.load().imm_memtables().len(), 2);
         assert_eq!(
-            storage.imm_memtables.read().await[1].approximate_size(),
+            storage.inner.load().imm_memtables()[1].approximate_size(),
             previous_approximate_size,
             "wrong order of memtables?"
         );
         assert!(
-            storage.imm_memtables.read().await[0].approximate_size() > previous_approximate_size
+            storage.inner.load().imm_memtables()[0].approximate_size() > previous_approximate_size
         );
     }
 
@@ -239,14 +240,14 @@ mod test {
         for _ in 0..1000 {
             storage.put_for_test(b"1", b"2333").await.unwrap();
         }
-        let num_imm_memtables = storage.imm_memtables.read().await.len();
+        let num_imm_memtables = storage.inner.load().imm_memtables().len();
         println!("num_imm_memtables: {}", num_imm_memtables);
         assert!(num_imm_memtables >= 1, "no memtable frozen?");
         for _ in 0..1000 {
             storage.delete_for_test(b"1").await.unwrap();
         }
         assert!(
-            storage.imm_memtables.read().await.len() > num_imm_memtables,
+            storage.inner.load().imm_memtables().len() > num_imm_memtables,
             "no more memtable frozen?"
         );
     }
@@ -260,18 +261,18 @@ mod test {
         storage.put_for_test(b"2", b"2333").await.unwrap();
         storage.put_for_test(b"3", b"23333").await.unwrap();
 
-        force_freeze_memtable(&storage).await;
+        storage.force_freeze_memtable();
 
         storage.delete_for_test(b"1").await.unwrap();
         storage.delete_for_test(b"2").await.unwrap();
         storage.put_for_test(b"3", b"2333").await.unwrap();
         storage.put_for_test(b"4", b"23333").await.unwrap();
 
-        force_freeze_memtable(&storage).await;
+        storage.force_freeze_memtable();
 
         storage.put_for_test(b"1", b"233333").await.unwrap();
         storage.put_for_test(b"3", b"233333").await.unwrap();
-        assert_eq!(storage.imm_memtables.read().await.len(), 2);
+        assert_eq!(storage.inner.load().imm_memtables().len(), 2);
         assert_eq!(
             &storage.get_for_test(b"1").await.unwrap().unwrap()[..],
             b"233333"
@@ -297,11 +298,5 @@ mod test {
             .compaction_option(Default::default())
             .build();
         LsmStorageState::new(options, persistent)
-    }
-
-    pub async fn force_freeze_memtable<P: Persistent>(storage: &LsmStorageState<P>) {
-        let mut memtable = storage.memtable.write().await;
-        let mut imm_memtable = storage.imm_memtables.write().await;
-        storage.force_freeze_memtable(&mut memtable, &mut imm_memtable);
     }
 }

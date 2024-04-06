@@ -2,7 +2,6 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::mem;
 use std::pin::{pin, Pin};
-use std::task::Poll::{Pending, Ready};
 use std::task::{Context, Poll};
 
 use futures::Stream;
@@ -91,6 +90,8 @@ fn handle_next<Item, I, A>(
 where
     I: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
+    use Poll::{Pending, Ready};
+
     let _ = mem::replace(position2, iter2);
     let fut = pin!(iter1.next());
     match fut.poll(cx) {
@@ -109,7 +110,7 @@ where
 mod test {
     use crate::iterators::create_two_merge_iter;
     use futures::{stream, StreamExt};
-    use proptest::collection::vec;
+
     use std::fmt::Debug;
 
     #[tokio::test]

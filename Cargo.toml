@@ -38,6 +38,7 @@ futures = "0.3.30"
 pin-project = "1.1.5"
 proptest = "1.4.0"
 test-strategy = "0.3.1"
+bytemuck = { version = "1.15.0", features = ["extern_crate_alloc", "derive"] }
 
 [dev-dependencies]
 tempfile = "3"

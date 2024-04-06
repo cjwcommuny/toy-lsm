@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
+use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
@@ -58,6 +59,10 @@ impl MemTable {
             id,
             approximate_size: Arc::default(),
         }
+    }
+
+    pub fn into_imm(self: Arc<Self>) -> Arc<ImmutableMemTable> {
+        TransparentWrapperAlloc::wrap_arc(self)
     }
 
     pub fn as_immutable_ref(&self) -> &ImmutableMemTable {
