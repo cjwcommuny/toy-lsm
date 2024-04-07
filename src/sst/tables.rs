@@ -131,12 +131,12 @@ impl<File: PersistentHandle> SsTable<File> {
     pub async fn get_block_iter_with_key(
         &self,
         block_index: usize,
-        key: KeySlice<'_>,
+        key: KeyBytes,
     ) -> BlockFallibleIter {
         let iterator = self
             .read_block_cached(block_index)
             .await
-            .map(|block| BlockIterator::create_and_seek_to_key(block, key));
+            .map(|block| BlockIterator::create_and_seek_to_key(block, key.as_key_slice()));
         transpose_try_iter(iterator)
     }
 

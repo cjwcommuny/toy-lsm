@@ -79,7 +79,11 @@ where
         Ok(value)
     }
 
-    async fn put(&self, key: impl Into<Bytes> + Send, value: impl Into<Bytes> + Send) -> anyhow::Result<()> {
+    async fn put(
+        &self,
+        key: impl Into<Bytes> + Send,
+        value: impl Into<Bytes> + Send,
+    ) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
         snapshot.memtable().put(key.into(), value.into())?;
         self.try_freeze_memtable(&snapshot);

@@ -9,7 +9,8 @@ pub trait Persistent: Send + Sync {
 }
 
 pub trait PersistentHandle: Send + Sync {
-    fn read(&self, offset: u64, len: usize) -> impl Future<Output = anyhow::Result<Vec<u8>>> + Send;
+    fn read(&self, offset: u64, len: usize)
+        -> impl Future<Output = anyhow::Result<Vec<u8>>> + Send;
 
     fn size(&self) -> u64;
 }

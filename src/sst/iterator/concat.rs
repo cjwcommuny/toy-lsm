@@ -1,6 +1,7 @@
 use std::ops::Bound;
 
 use anyhow::Result;
+use bytes::Bytes;
 use futures::{stream, Stream, StreamExt};
 
 use crate::entry::Entry;
@@ -39,10 +40,10 @@ where
     todo!()
 }
 
-pub fn scan_sst_concat<'a, 'b, File, I>(
+pub fn scan_sst_concat<'a, File, I>(
     sstables: I,
-    lower: Bound<&'a [u8]>,
-    upper: Bound<&'a [u8]>,
+    lower: Bound<Bytes>,
+    upper: Bound<Bytes>,
 ) -> Result<SstConcatIterator<'a>>
 where
     File: PersistentHandle + 'a,
