@@ -106,7 +106,7 @@ mod test {
         memtable: &'a MemTable,
         lower: Bound<&[u8]>,
         upper: Bound<&[u8]>,
-    ) -> impl Stream<Item = anyhow::Result<Entry>> + 'a {
+    ) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a {
         let iter = memtable.for_testing_scan_slice(lower, upper).await.unwrap();
 
         create_merge_iter_from_non_empty_iters(stream::iter(iter.into_iter())).await

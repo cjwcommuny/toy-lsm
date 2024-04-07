@@ -13,7 +13,7 @@ use crate::sst::SsTable;
 /// iterators when initializing this iterator to reduce the overhead of seeking.
 
 // todo: 这里应该用 type alias impl trait 去除 Box
-pub type SstConcatIterator<'a> = Box<dyn Stream<Item = Result<Entry>> + Unpin + 'a>;
+pub type SstConcatIterator<'a> = Box<dyn Stream<Item = Result<Entry>> + Send + Unpin + 'a>;
 
 pub fn create_sst_concat_and_seek_to_first<File>(
     sstables: Vec<&SsTable<File>>,
@@ -39,13 +39,15 @@ where
     todo!()
 }
 
-pub fn scan_sst_concat<'a, 'b, File>(
-    sstables: impl IntoIterator<Item = &'a SsTable<File>> + 'a,
+pub fn scan_sst_concat<'a, 'b, File, I>(
+    sstables: I,
     lower: Bound<&'a [u8]>,
     upper: Bound<&'a [u8]>,
 ) -> Result<SstConcatIterator<'a>>
 where
     File: PersistentHandle + 'a,
+    I: IntoIterator<Item = &'a SsTable<File>> + 'a,
+    I::IntoIter: Send,
 {
     let iter =
         stream::iter(sstables).flat_map(move |table| SsTableIterator::scan(table, lower, upper));

@@ -79,14 +79,14 @@ where
         Ok(value)
     }
 
-    async fn put(&self, key: impl Into<Bytes>, value: impl Into<Bytes>) -> anyhow::Result<()> {
+    async fn put(&self, key: impl Into<Bytes> + Send, value: impl Into<Bytes> + Send) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
         snapshot.memtable().put(key.into(), value.into())?;
         self.try_freeze_memtable(&snapshot);
         Ok(())
     }
 
-    async fn delete(&self, key: impl Into<Bytes>) -> anyhow::Result<()> {
+    async fn delete(&self, key: impl Into<Bytes> + Send) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
         snapshot.memtable().put(key.into(), Bytes::new())?;
         self.try_freeze_memtable(&snapshot);

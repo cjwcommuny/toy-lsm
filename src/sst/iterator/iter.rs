@@ -21,13 +21,13 @@ use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::{BlockMeta, SsTable};
 
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
-type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + 'a>>;
+type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + Send + 'a>>;
 
 fn build_iter<'a, File>(
     table: &'a SsTable<File>,
     lower: Bound<&'a [u8]>,
     upper: Bound<Bytes>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + 'a
+) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a
 where
     File: PersistentHandle,
 {
