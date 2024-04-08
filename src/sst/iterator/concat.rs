@@ -1,6 +1,7 @@
 use std::ops::Bound;
 
 use anyhow::Result;
+use bytes::Bytes;
 use futures::{stream, Stream, StreamExt};
 
 use crate::entry::Entry;
@@ -13,7 +14,7 @@ use crate::sst::SsTable;
 /// iterators when initializing this iterator to reduce the overhead of seeking.
 
 // todo: 这里应该用 type alias impl trait 去除 Box
-pub type SstConcatIterator<'a> = Box<dyn Stream<Item = Result<Entry>> + Unpin + 'a>;
+pub type SstConcatIterator<'a> = Box<dyn Stream<Item = Result<Entry>> + Send + Unpin + 'a>;
 
 pub fn create_sst_concat_and_seek_to_first<File>(
     sstables: Vec<&SsTable<File>>,
@@ -39,16 +40,18 @@ where
     todo!()
 }
 
-pub fn scan_sst_concat<'a, 'b, File>(
-    sstables: impl IntoIterator<Item = &'a SsTable<File>> + 'a,
-    lower: Bound<&'a [u8]>,
-    upper: Bound<&'a [u8]>,
+pub fn scan_sst_concat<'a, File, I>(
+    sstables: I,
+    lower: Bound<Bytes>,
+    upper: Bound<Bytes>,
 ) -> Result<SstConcatIterator<'a>>
 where
     File: PersistentHandle + 'a,
+    I: IntoIterator<Item = &'a SsTable<File>> + 'a,
+    I::IntoIter: Send,
 {
-    let iter =
-        stream::iter(sstables).flat_map(move |table| SsTableIterator::scan(table, lower, upper));
+    let iter = stream::iter(sstables)
+        .flat_map(move |table| SsTableIterator::scan(table, lower.clone(), upper.clone()));
 
     Ok(Box::new(iter) as _)
 }

@@ -1,17 +1,15 @@
-use futures::{stream, FutureExt, Stream, StreamExt};
-
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
-
-use std::future::ready;
+use std::future::{ready, Future};
 use std::mem;
-
-use crossbeam_channel::internal::SelectHandle;
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
+use bytes::Bytes;
+use deref_ext::DerefExt;
+use futures::{stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
 
+use crate::bound::map_bound_own;
 use crate::entry::Entry;
 use crate::iterators::{
     create_merge_iter, create_merge_iter_from_non_empty_iters, create_two_merge_iter,
@@ -26,7 +24,7 @@ use crate::sst::iterator::{
     create_sst_concat_and_seek_to_first, scan_sst_concat, MergedSstIterator, SsTableIterator,
 };
 use crate::sst::option::SstOptions;
-use crate::sst::{SsTable, SsTableBuilder};
+use crate::sst::{bloom, SsTable, SsTableBuilder};
 
 #[derive(Default)]
 pub struct Sstables<File> {
@@ -90,30 +88,45 @@ where
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<MergedSstIterator<'a, File>> {
-        // todo: Because SsTableIterator::create involves I/O operations and might be slow,
-        // todo: we do not want to do this in the state critical section.
-        // todo: Therefore, you should firstly take read the state and clone the Arc of the LSM state snapshot.
+        let sstables = &self.sstables;
+
+        let lower = map_bound_own(lower);
+        let upper = map_bound_own(upper);
+
+        let lower2 = lower.clone();
+        let upper2 = upper.clone();
+
         let l0 = {
-            let iters = self
-                .l0_sstables
-                .iter()
-                .map(|id| self.sstables.get(id).unwrap())
-                .map(|table| SsTableIterator::scan(table, lower, upper))
-                // todo: 这样用bloom filter 效率如何？
-                .filter(|table| filter_sst_by_bloom(table, lower, upper))
-                // todo: 这里避免 Box？
-                .map(|iter| async { NonEmptyStream::try_new(Box::new(iter)).await.ok().flatten() });
-            let iters = iter_fut_to_stream(iters).filter_map(ready);
+            let iters = stream::iter(self.l0_sstables.iter()).filter_map(|id| {
+                let lower = lower.clone();
+                let upper = upper.clone();
+
+                let table = sstables.get(id).unwrap();
+                async {
+                    if !filter_sst_by_bloom(
+                        table,
+                        lower.as_ref().map(Bytes::as_ref),
+                        upper.as_ref().map(Bytes::as_ref),
+                    ) {
+                        None
+                    } else {
+                        let iter = SsTableIterator::scan(table, lower, upper);
+                        NonEmptyStream::try_new(Box::new(iter)).await.ok().flatten()
+                    }
+                }
+            });
             create_merge_iter_from_non_empty_iters(iters).await
         };
 
         let levels = {
+            let lower = lower.clone();
+            let upper = upper.clone();
             let iters = self
                 .levels
                 .iter()
-                .filter_map(|(_, ids)| {
+                .filter_map(move |(_, ids)| {
                     let tables = ids.iter().map(|id| self.sstables.get(id).unwrap());
-                    scan_sst_concat(tables, lower, upper).ok()
+                    scan_sst_concat(tables, lower.clone(), upper.clone()).ok()
                 })
                 .map(Box::new);
             let iters = stream::iter(iters);
@@ -215,14 +228,14 @@ where
 }
 
 fn filter_sst_by_bloom<File>(
-    iter: &SsTableIterator<File>,
+    table: &SsTable<File>,
     lower: Bound<&[u8]>,
     upper: Bound<&[u8]>,
 ) -> bool {
     use Bound::Included;
     if let (Included(lower), Included(upper)) = (lower, upper) {
         if lower == upper {
-            return iter.may_contain(lower);
+            return bloom::may_contain(table.bloom.as_ref(), lower);
         }
     }
     true

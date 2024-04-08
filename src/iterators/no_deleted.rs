@@ -26,7 +26,6 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::fmt::Debug;
 
     use futures::stream;
     use futures::stream::StreamExt;

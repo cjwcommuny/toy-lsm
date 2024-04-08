@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::os::unix::fs::FileExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use derive_new::new;

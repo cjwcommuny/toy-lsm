@@ -1,3 +1,4 @@
+use bytemuck::TransparentWrapper;
 use std::collections::Bound;
 
 use crate::key::KeySlice;
@@ -9,7 +10,7 @@ use derive_new::new;
 use nom::AsBytes;
 use ref_cast::RefCast;
 
-#[derive(RefCast, new, Debug)]
+#[derive(RefCast, TransparentWrapper, new, Debug)]
 #[repr(transparent)]
 pub struct ImmutableMemTable(MemTable);
 
@@ -27,8 +28,8 @@ impl ImmutableMemTable {
 
     pub async fn scan(
         &self,
-        lower: Bound<&[u8]>,
-        upper: Bound<&[u8]>,
+        lower: Bound<Bytes>,
+        upper: Bound<Bytes>,
     ) -> anyhow::Result<MaybeEmptyMemTableIterRef> {
         self.0.scan(lower, upper).await
     }

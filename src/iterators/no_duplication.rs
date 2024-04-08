@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use async_iter_ext::{Dedup, StreamTools};
-use futures::{Stream, StreamExt};
+use futures::Stream;
 
 pub type NoDuplication<I> =
     Dedup<I, <I as Stream>::Item, fn(&<I as Stream>::Item, &<I as Stream>::Item) -> bool>;

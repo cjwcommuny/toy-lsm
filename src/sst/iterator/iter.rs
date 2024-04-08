@@ -18,29 +18,29 @@ use crate::key::{KeyBytes, KeySlice};
 use crate::persistent::PersistentHandle;
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::concat::SstConcatIterator;
-use crate::sst::{BlockMeta, SsTable};
+use crate::sst::{bloom, BlockMeta, SsTable};
 
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
-type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + 'a>>;
+type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + Send + 'a>>;
 
-fn build_iter<'a, File>(
-    table: &'a SsTable<File>,
-    lower: Bound<&'a [u8]>,
+fn build_iter<File>(
+    table: &SsTable<File>,
+    lower: Bound<Bytes>,
     upper: Bound<Bytes>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + 'a
+) -> impl Stream<Item = anyhow::Result<Entry>> + Send + '_
 where
     File: PersistentHandle,
 {
     let iter = match lower {
         Bound::Included(key) => future::Either::Left(future::Either::Left(build_bounded_iter(
             table,
-            KeySlice::from_slice(key),
+            KeyBytes::from_bytes(key),
             upper.clone(),
             |meta: &BlockMeta, key| meta.last_key.raw_ref() < key,
         ))),
         Bound::Excluded(key) => future::Either::Left(future::Either::Right(build_bounded_iter(
             table,
-            KeySlice::from_slice(key),
+            KeyBytes::from_bytes(key),
             upper.clone(),
             |meta, key| meta.last_key.raw_ref() <= key,
         ))),
@@ -77,7 +77,7 @@ fn transform_stop_iter<'a>(
 
 fn build_bounded_iter<'a, File>(
     table: &'a SsTable<File>,
-    low: KeySlice<'a>,
+    low: KeyBytes,
     upper: Bound<Bytes>,
     partition: impl for<'c> Fn(&'c BlockMeta, &'c [u8]) -> bool,
 ) -> impl Stream<Item = anyhow::Result<Entry>> + 'a
@@ -136,10 +136,7 @@ pub struct SsTableIterator<'a, File> {
 
 impl<'a, File> SsTableIterator<'a, File> {
     pub fn may_contain(&self, key: &[u8]) -> bool {
-        match self.bloom {
-            Some(bloom) => bloom.may_contain(farmhash::fingerprint32(key)),
-            None => true,
-        }
+        bloom::may_contain(self.bloom, key)
     }
 }
 
@@ -152,8 +149,8 @@ where
     }
 
     // todo: 能不能删除
-    pub fn create_and_seek_to_key(table: &'a SsTable<File>, key: KeySlice<'a>) -> Self {
-        Self::scan(table, Bound::Included(key.raw_ref()), Bound::Unbounded)
+    pub fn create_and_seek_to_key(table: &'a SsTable<File>, key: Bytes) -> Self {
+        Self::scan(table, Bound::Included(key), Bound::Unbounded)
     }
 }
 
@@ -161,12 +158,8 @@ impl<'a, File> SsTableIterator<'a, File>
 where
     File: PersistentHandle,
 {
-    pub fn scan<'b>(
-        table: &'a SsTable<File>,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'b [u8]>,
-    ) -> Self {
-        let iter = build_iter(table, lower, map_bound_own(upper));
+    pub fn scan<'b>(table: &'a SsTable<File>, lower: Bound<Bytes>, upper: Bound<Bytes>) -> Self {
+        let iter = build_iter(table, lower, upper);
         let this = Self {
             table,
             inner: Box::pin(iter) as _,
