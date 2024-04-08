@@ -107,10 +107,10 @@ impl MemTable {
     /// Get an iterator over a range of keys.
     pub async fn scan<'a>(
         &'a self,
-        lower: Bound<&[u8]>,
-        upper: Bound<&[u8]>,
+        lower: Bound<Bytes>,
+        upper: Bound<Bytes>,
     ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
-        let range = (map_bound_own(lower), map_bound_own(upper));
+        let range = (lower, upper);
         let iter = self.map.range(range);
         let iter = new_memtable_iter(iter);
         NonEmptyStream::try_new(Box::new(iter)).await
@@ -132,7 +132,7 @@ impl MemTable {
         lower: Bound<&[u8]>,
         upper: Bound<&[u8]>,
     ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
-        self.scan(lower, upper).await
+        self.scan(map_bound_own(lower), map_bound_own(upper)).await
     }
 }
 

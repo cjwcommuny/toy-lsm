@@ -4,14 +4,15 @@ use crate::iterators::{
     create_merge_iter_from_non_empty_iters, create_two_merge_iter, iter_fut_to_stream,
     MergeIterator, NoDeletedIterator, TwoMergeIterator,
 };
-use crate::memtable::MemTableIterator;
+use crate::memtable::{ImmutableMemTable, MemTableIterator};
 use crate::persistent::Persistent;
 use crate::sst::iterator::MergedSstIterator;
 
+use crate::bound::map_bound_own;
 use derive_new::new;
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use std::collections::Bound;
-use std::future::ready;
+use std::future::{ready, Future};
 use std::iter;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -39,16 +40,17 @@ where
 {
     pub async fn iter(&self) -> anyhow::Result<LsmIterator<P::Handle>> {
         let a = {
+            let lower = map_bound_own(self.lower);
+            let upper = map_bound_own(self.upper);
             let memtable = self.state.memtable().deref().as_immutable_ref();
             let imm_memtables = self.state.imm_memtables().as_slice();
             let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
-            let iters = iter::once(memtable)
-                .chain(imm_memtables)
-                .map(|table| table.scan(self.lower, self.upper));
-            let iters = iter_fut_to_stream(iters)
-                .map(Result::ok)
-                .map(Option::flatten)
-                .filter_map(ready);
+            let iters =
+                stream::iter(iter::once(memtable).chain(imm_memtables)).filter_map(move |table| {
+                    let lower = lower.clone();
+                    let upper = upper.clone();
+                    async { table.scan(lower, upper).await.ok().flatten() }
+                });
             create_merge_iter_from_non_empty_iters(iters).await
         };
 

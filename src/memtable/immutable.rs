@@ -28,8 +28,8 @@ impl ImmutableMemTable {
 
     pub async fn scan(
         &self,
-        lower: Bound<&[u8]>,
-        upper: Bound<&[u8]>,
+        lower: Bound<Bytes>,
+        upper: Bound<Bytes>,
     ) -> anyhow::Result<MaybeEmptyMemTableIterRef> {
         self.0.scan(lower, upper).await
     }

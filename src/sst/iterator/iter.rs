@@ -18,16 +18,16 @@ use crate::key::{KeyBytes, KeySlice};
 use crate::persistent::PersistentHandle;
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::concat::SstConcatIterator;
-use crate::sst::{BlockMeta, SsTable};
+use crate::sst::{bloom, BlockMeta, SsTable};
 
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
 type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + Send + 'a>>;
 
-fn build_iter<'a, File>(
-    table: &'a SsTable<File>,
+fn build_iter<File>(
+    table: &SsTable<File>,
     lower: Bound<Bytes>,
     upper: Bound<Bytes>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a
+) -> impl Stream<Item = anyhow::Result<Entry>> + Send + '_
 where
     File: PersistentHandle,
 {
@@ -136,10 +136,7 @@ pub struct SsTableIterator<'a, File> {
 
 impl<'a, File> SsTableIterator<'a, File> {
     pub fn may_contain(&self, key: &[u8]) -> bool {
-        match self.bloom {
-            Some(bloom) => bloom.may_contain(farmhash::fingerprint32(key)),
-            None => true,
-        }
+        bloom::may_contain(self.bloom, key)
     }
 }
 

@@ -1,20 +1,15 @@
-use futures::{stream, FutureExt, Stream, StreamExt};
-
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
-
 use std::future::{ready, Future};
 use std::mem;
+use std::pin::Pin;
 
 use bytes::Bytes;
 use deref_ext::DerefExt;
-use std::pin::Pin;
-use std::process::Output;
-use either::Either;
-
-use crate::bound::map_bound_own;
+use futures::{stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
 
+use crate::bound::map_bound_own;
 use crate::entry::Entry;
 use crate::iterators::{
     create_merge_iter, create_merge_iter_from_non_empty_iters, create_two_merge_iter,
@@ -29,7 +24,7 @@ use crate::sst::iterator::{
     create_sst_concat_and_seek_to_first, scan_sst_concat, MergedSstIterator, SsTableIterator,
 };
 use crate::sst::option::SstOptions;
-use crate::sst::{SsTable, SsTableBuilder};
+use crate::sst::{bloom, SsTable, SsTableBuilder};
 
 #[derive(Default)]
 pub struct Sstables<File> {
@@ -79,35 +74,6 @@ impl<File> Sstables<File> {
     }
 }
 
-// fn type_hint<'a, F, File: 'a>(f: F) -> F
-// where
-//     F: for<'b> FnMut(&'b usize) -> &'a SsTable<File> + 'a,
-// {
-//     f
-// }
-//
-// fn type_hint2<F, File>(f: F) -> F
-// where
-//     for<'a> F: FnMut(&'a SsTable<File>) -> SsTableIterator<'a, File>,
-// {
-//     f
-// }
-//
-// fn type_hint3<F, File>(f: F) -> F
-// where
-//     F: for<'b> FnMut(&'b SsTableIterator<File>) -> bool,
-// {
-//     f
-// }
-//
-// fn type_hint4<F, File, Fut>(f: F) -> F
-// where
-//     F: for<'b> FnMut(SsTableIterator<File>) -> Fut,
-//     Fut: Future<Output = NonEmptyStream<anyhow::Result<Entry>, Box<SsTableIterator<File>>>>,
-// {
-//     f
-// }
-
 impl<File> Sstables<File>
 where
     File: PersistentHandle,
@@ -122,9 +88,6 @@ where
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<MergedSstIterator<'a, File>> {
-        // todo: Because SsTableIterator::create involves I/O operations and might be slow,
-        // todo: we do not want to do this in the state critical section.
-        // todo: Therefore, you should firstly take read the state and clone the Arc of the LSM state snapshot.
         let sstables = &self.sstables;
 
         let lower = map_bound_own(lower);
@@ -133,52 +96,25 @@ where
         let lower2 = lower.clone();
         let upper2 = upper.clone();
 
-        let lower3 = lower.clone();
-        let upper3 = upper.clone();
-
         let l0 = {
-            let iters = stream::iter(self.l0_sstables.iter())
-                .filter_map(|id| {
-                    let table = sstables.get(id).unwrap();
-                    let iter = SsTableIterator::scan(table, lower2.clone(), upper2.clone());
-                    // if !filter_sst_by_bloom(
-                    //     table,
-                    //     lower3.as_ref().map(Bytes::as_ref),
-                    //     upper3.as_ref().map(Bytes::as_ref),
-                    // ) {
-                    //     return Either::Left(stream::empty());
-                    // }
-                    let s = async {
-                        let s = NonEmptyStream::try_new(Box::new(iter))
-                            .await
-                            .ok()
-                            .flatten();
-                        s
-                    };
-                    s
-                });
+            let iters = stream::iter(self.l0_sstables.iter()).filter_map(|id| {
+                let lower = lower.clone();
+                let upper = upper.clone();
 
-
-            // let iters = self.l0_sstables.iter();
-            // let iters = iters.map(type_hint(move |id| sstables.get(id).unwrap()));
-            // let iters = iters.map(type_hint2(move |table| {
-            //     SsTableIterator::scan(table, lower2.clone(), upper2.clone())
-            // }));
-            // let iters = iters.filter(type_hint3(move |table| {
-            //     filter_sst_by_bloom(
-            //         table,
-            //         lower3.as_ref().map(Bytes::as_ref),
-            //         upper3.as_ref().map(Bytes::as_ref),
-            //     )
-            // }));
-            // let iters = iters
-            //     // todo: 这样用bloom filter 效率如何？
-            //     // todo: 这里避免 Box？
-            //     .map(|iter| {
-            //         let x = NonEmptyStream::try_new(Box::new(iter)).map(|s| s.ok().flatten());
-            //         x
-            //     });
-            // let iters = iter_fut_to_stream(iters).filter_map(ready);
+                let table = sstables.get(id).unwrap();
+                async {
+                    if !filter_sst_by_bloom(
+                        table,
+                        lower.as_ref().map(Bytes::as_ref),
+                        upper.as_ref().map(Bytes::as_ref),
+                    ) {
+                        None
+                    } else {
+                        let iter = SsTableIterator::scan(table, lower, upper);
+                        NonEmptyStream::try_new(Box::new(iter)).await.ok().flatten()
+                    }
+                }
+            });
             create_merge_iter_from_non_empty_iters(iters).await
         };
 
@@ -292,14 +228,14 @@ where
 }
 
 fn filter_sst_by_bloom<File>(
-    iter: &SsTableIterator<File>,
+    table: &SsTable<File>,
     lower: Bound<&[u8]>,
     upper: Bound<&[u8]>,
 ) -> bool {
     use Bound::Included;
     if let (Included(lower), Included(upper)) = (lower, upper) {
         if lower == upper {
-            return iter.may_contain(lower.as_ref());
+            return bloom::may_contain(table.bloom.as_ref(), lower);
         }
     }
     true

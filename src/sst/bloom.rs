@@ -112,3 +112,10 @@ fn compute_index(value: u32, num_hash: u8, nbits: usize) -> impl Iterator<Item =
         Some(new_h as usize % nbits)
     })
 }
+
+pub fn may_contain(bloom: Option<&Bloom>, key: &[u8]) -> bool {
+    match bloom {
+        Some(bloom) => bloom.may_contain(farmhash::fingerprint32(key)),
+        None => true,
+    }
+}
