@@ -42,7 +42,14 @@ bytemuck = { version = "1.15.0", features = ["extern_crate_alloc", "derive"] }
 
 [dev-dependencies]
 tempfile = "3"
+ycsb = { git = "https://github.com/cjwcommuny/ycsb-rs.git", rev = "3d3a23c" }
+criterion = { version = "0.5.1", features = ["async_tokio"] }
+maplit = "1.0.2"
 
 [lints.rust]
 unused = "allow"
 unsafe_code = "forbid"
+
+[[bench]]
+name = "ycsb"
+harness = false
