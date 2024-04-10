@@ -4,8 +4,12 @@ use std::sync::Arc;
 pub trait Persistent: Send + Sync {
     type Handle: PersistentHandle;
 
-    async fn create(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::Handle>;
-    async fn open(&self, id: usize) -> anyhow::Result<Self::Handle>;
+    fn create(
+        &self,
+        id: usize,
+        data: Vec<u8>,
+    ) -> impl Future<Output = anyhow::Result<Self::Handle>>;
+    fn open(&self, id: usize) -> impl Future<Output = anyhow::Result<Self::Handle>>;
 }
 
 pub trait PersistentHandle: Send + Sync {
