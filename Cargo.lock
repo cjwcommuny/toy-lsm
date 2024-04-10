@@ -2299,7 +2299,7 @@ checksum = "6c2861d76f58ec8fc95708b9b1e417f7b12fd72ad33c01fa6886707092dea0d3"
 [[package]]
 name = "ycsb"
 version = "0.0.0"
-source = "git+https://github.com/cjwcommuny/ycsb-rs.git?rev=3d3a23c#3d3a23cbbe87f4eb105174a2fbec386896490b80"
+source = "git+https://github.com/cjwcommuny/ycsb-rs.git?rev=b82522d#b82522d9851e432a064d878cba313fc909c18ef5"
 dependencies = [
  "anyhow",
  "futures",
