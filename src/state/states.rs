@@ -9,6 +9,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use derive_getters::Getters;
 use futures::StreamExt;
+use parking_lot::{Mutex, MutexGuard};
 
 use crate::iterators::LockedLsmIter;
 use crate::memtable::MemTable;
@@ -20,6 +21,7 @@ use crate::state::Map;
 #[derive(Getters)]
 pub struct LsmStorageState<P: Persistent> {
     inner: ArcSwap<LsmStorageStateInner<P>>,
+    state_lock: Mutex<()>,
     persistent: P,
     options: SstOptions,
     sst_id: AtomicUsize,
@@ -51,6 +53,7 @@ where
             .build();
         Self {
             inner: ArcSwap::new(Arc::new(snapshot)),
+            state_lock: Mutex::default(),
             persistent,
             options,
             sst_id: AtomicUsize::new(1),
@@ -115,7 +118,10 @@ where
 {
     fn try_freeze_memtable(&self, snapshot: &LsmStorageStateInner<P>) {
         if self.exceed_memtable_size_limit(snapshot.memtable()) {
-            self.force_freeze_memtable();
+            let guard = self.state_lock.lock();
+            if self.exceed_memtable_size_limit(snapshot.memtable()) {
+                self.force_freeze_memtable(&guard);
+            }
         }
     }
 
@@ -123,7 +129,7 @@ where
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
-    fn force_freeze_memtable(&self) {
+    fn force_freeze_memtable(&self, _guard: &MutexGuard<()>) {
         self.inner
             .rcu(|snapshot| freeze_memtable(snapshot, self.next_sst_id()));
     }
@@ -216,7 +222,10 @@ mod test {
         storage.put_for_test(b"2", b"2333").await.unwrap();
         storage.put_for_test(b"3", b"23333").await.unwrap();
 
-        storage.force_freeze_memtable();
+        {
+            let guard = storage.state_lock.lock();
+            storage.force_freeze_memtable(&guard);
+        }
         assert_eq!(storage.inner.load().imm_memtables().len(), 1);
 
         let previous_approximate_size = storage.inner.load().imm_memtables()[0].approximate_size();
@@ -226,7 +235,10 @@ mod test {
         storage.put_for_test(b"2", b"23333").await.unwrap();
         storage.put_for_test(b"3", b"233333").await.unwrap();
 
-        storage.force_freeze_memtable();
+        {
+            let guard = storage.state_lock.lock();
+            storage.force_freeze_memtable(&guard);
+        }
         assert_eq!(storage.inner.load().imm_memtables().len(), 2);
         assert_eq!(
             storage.inner.load().imm_memtables()[1].approximate_size(),
@@ -265,14 +277,20 @@ mod test {
         storage.put_for_test(b"2", b"2333").await.unwrap();
         storage.put_for_test(b"3", b"23333").await.unwrap();
 
-        storage.force_freeze_memtable();
+        {
+            let guard = storage.state_lock.lock();
+            storage.force_freeze_memtable(&guard);
+        }
 
         storage.delete_for_test(b"1").await.unwrap();
         storage.delete_for_test(b"2").await.unwrap();
         storage.put_for_test(b"3", b"2333").await.unwrap();
         storage.put_for_test(b"4", b"23333").await.unwrap();
 
-        storage.force_freeze_memtable();
+        {
+            let guard = storage.state_lock.lock();
+            storage.force_freeze_memtable(&guard);
+        }
 
         storage.put_for_test(b"1", b"233333").await.unwrap();
         storage.put_for_test(b"3", b"233333").await.unwrap();
