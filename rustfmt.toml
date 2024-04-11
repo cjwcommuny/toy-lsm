@@ -1,7 +1,4 @@
 # https://rust-lang.github.io/rustfmt/
-max_width = 80
-newline_style = "Unix"
-use_field_init_shorthand = true
 force_explicit_abi = true
 
 # Nightly
