@@ -5,6 +5,7 @@ use bytes::Bytes;
 use crossbeam_skiplist::map;
 use futures::stream;
 
+use crate::bound::BytesBound;
 use crate::entry::Entry;
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream, OkIter};
 
@@ -24,7 +25,7 @@ fn convert_entry(x: map::Entry<'_, Bytes, Bytes>) -> Entry {
     }
 }
 
-type SkipMapRangeIter<'a> = map::Range<'a, [u8], (Bound<&'a [u8]>, Bound<&'a [u8]>), Bytes, Bytes>;
+type SkipMapRangeIter<'a> = map::Range<'a, [u8], BytesBound<'a>, Bytes, Bytes>;
 
 type SkipMapRangeEntry<'a> = map::Entry<'a, Bytes, Bytes>;
 

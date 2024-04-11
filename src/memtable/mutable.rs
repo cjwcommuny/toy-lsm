@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Formatter};
-use std::ops::Bound;
+use std::ops::{Bound, RangeBounds};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use crossbeam_skiplist::map::Range;
 use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
 
-use crate::bound::map_bound_own;
+use crate::bound::{map_bound_own, BytesBound};
 use crate::iterators::NonEmptyStream;
 use ref_cast::RefCast;
 
@@ -123,8 +123,11 @@ fn foo<'a, 'b>(
     m: &'a SkipMap<Bytes, Bytes>,
     lower: Bound<&'b [u8]>,
     upper: Bound<&'b [u8]>,
-) -> Range<'a, [u8], (Bound<&'b [u8]>, Bound<&'b [u8]>), Bytes, Bytes> {
-    let iter = m.range((lower, upper));
+) -> Range<'a, [u8], BytesBound<'b>, Bytes, Bytes> {
+    let iter = m.range(BytesBound {
+        start: lower,
+        end: upper,
+    });
     iter
 }
 
