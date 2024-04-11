@@ -23,25 +23,25 @@ use crate::sst::{bloom, BlockMeta, SsTable};
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
 type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + Send + 'a>>;
 
-fn build_iter<File>(
-    table: &SsTable<File>,
-    lower: Bound<Bytes>,
-    upper: Bound<Bytes>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + Send + '_
+fn build_iter<'a, File>(
+    table: &'a SsTable<File>,
+    lower: Bound<&'a [u8]>,
+    upper: Bound<&'a [u8]>,
+) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a
 where
     File: PersistentHandle,
 {
     let iter = match lower {
         Bound::Included(key) => future::Either::Left(future::Either::Left(build_bounded_iter(
             table,
-            KeyBytes::from_bytes(key),
-            upper.clone(),
+            KeySlice::from_slice(key),
+            upper,
             |meta: &BlockMeta, key| meta.last_key.raw_ref() < key,
         ))),
         Bound::Excluded(key) => future::Either::Left(future::Either::Right(build_bounded_iter(
             table,
-            KeyBytes::from_bytes(key),
-            upper.clone(),
+            KeySlice::from_slice(key),
+            upper,
             |meta, key| meta.last_key.raw_ref() <= key,
         ))),
         Bound::Unbounded => future::Either::Right(build_unbounded_iter(table)),
@@ -63,13 +63,13 @@ where
 
 fn transform_stop_iter<'a>(
     iter: impl Stream<Item = anyhow::Result<Entry>> + 'a,
-    upper: Bytes,
+    upper: &'a [u8],
     f: for<'b> fn(&'b [u8], &'b [u8]) -> bool,
 ) -> impl Stream<Item = anyhow::Result<Entry>> + 'a {
     iter.take_while(move |entry| {
         let condition = entry
             .as_ref()
-            .map(|entry| f(&entry.key, &upper))
+            .map(|entry| f(&entry.key, upper))
             .unwrap_or(true);
         ready(condition)
     })
@@ -77,8 +77,8 @@ fn transform_stop_iter<'a>(
 
 fn build_bounded_iter<'a, File>(
     table: &'a SsTable<File>,
-    low: KeyBytes,
-    upper: Bound<Bytes>,
+    low: KeySlice<'a>,
+    upper: Bound<&'a [u8]>,
     partition: impl for<'c> Fn(&'c BlockMeta, &'c [u8]) -> bool,
 ) -> impl Stream<Item = anyhow::Result<Entry>> + 'a
 where
@@ -149,7 +149,7 @@ where
     }
 
     // todo: 能不能删除
-    pub fn create_and_seek_to_key(table: &'a SsTable<File>, key: Bytes) -> Self {
+    pub fn create_and_seek_to_key(table: &'a SsTable<File>, key: &'a [u8]) -> Self {
         Self::scan(table, Bound::Included(key), Bound::Unbounded)
     }
 }
@@ -158,7 +158,7 @@ impl<'a, File> SsTableIterator<'a, File>
 where
     File: PersistentHandle,
 {
-    pub fn scan<'b>(table: &'a SsTable<File>, lower: Bound<Bytes>, upper: Bound<Bytes>) -> Self {
+    pub fn scan(table: &'a SsTable<File>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
         let iter = build_iter(table, lower, upper);
         let this = Self {
             table,

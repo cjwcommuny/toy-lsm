@@ -90,23 +90,14 @@ where
     ) -> anyhow::Result<MergedSstIterator<'a, File>> {
         let sstables = &self.sstables;
 
-        let lower = map_bound_own(lower);
-        let upper = map_bound_own(upper);
-
-        let lower2 = lower.clone();
-        let upper2 = upper.clone();
-
         let l0 = {
             let iters = stream::iter(self.l0_sstables.iter()).filter_map(|id| {
-                let lower = lower.clone();
-                let upper = upper.clone();
-
                 let table = sstables.get(id).unwrap();
-                async {
+                async move {
                     if !filter_sst_by_bloom(
                         table,
-                        lower.as_ref().map(Bytes::as_ref),
-                        upper.as_ref().map(Bytes::as_ref),
+                        lower,
+                        upper,
                     ) {
                         None
                     } else {
@@ -119,14 +110,12 @@ where
         };
 
         let levels = {
-            let lower = lower.clone();
-            let upper = upper.clone();
             let iters = self
                 .levels
                 .iter()
                 .filter_map(move |(_, ids)| {
                     let tables = ids.iter().map(|id| self.sstables.get(id).unwrap());
-                    scan_sst_concat(tables, lower.clone(), upper.clone()).ok()
+                    scan_sst_concat(tables, lower, upper).ok()
                 })
                 .map(Box::new);
             let iters = stream::iter(iters);

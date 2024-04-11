@@ -5,6 +5,7 @@ use bytes::Bytes;
 use crossbeam_skiplist::map;
 use futures::stream;
 
+use crate::bound::BytesBound;
 use crate::entry::Entry;
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream, OkIter};
 
@@ -12,7 +13,7 @@ pub type MemTableIterator<'a> = stream::Iter<OkIter<ClonedSkipMapRangeIter<'a>>>
 type ClonedSkipMapRangeIter<'a> =
     iter::Map<SkipMapRangeIter<'a>, fn(SkipMapRangeEntry<'a>) -> Entry>;
 
-pub fn new_memtable_iter(iter: SkipMapRangeIter<'_>) -> MemTableIterator {
+pub fn new_memtable_iter(iter: SkipMapRangeIter) -> MemTableIterator {
     let iter = iter.map(convert_entry as fn(_) -> _);
     stream::iter(OkIter::new(iter))
 }
@@ -24,10 +25,9 @@ fn convert_entry(x: map::Entry<'_, Bytes, Bytes>) -> Entry {
     }
 }
 
-type SkipMapRangeIter<'a> =
-    crossbeam_skiplist::map::Range<'a, Bytes, (Bound<Bytes>, Bound<Bytes>), Bytes, Bytes>;
+type SkipMapRangeIter<'a> = map::Range<'a, [u8], BytesBound<'a>, Bytes, Bytes>;
 
-type SkipMapRangeEntry<'a> = crossbeam_skiplist::map::Entry<'a, Bytes, Bytes>;
+type SkipMapRangeEntry<'a> = map::Entry<'a, Bytes, Bytes>;
 
 pub type NonEmptyMemTableIterRef<'a> = NonEmptyStream<Entry, Box<MemTableIterator<'a>>>;
 pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<Entry, Box<MemTableIterator<'a>>>;
@@ -104,8 +104,8 @@ mod test {
 
     async fn get_memtable_iter<'a>(
         memtable: &'a MemTable,
-        lower: Bound<&[u8]>,
-        upper: Bound<&[u8]>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
     ) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a {
         let iter = memtable.for_testing_scan_slice(lower, upper).await.unwrap();
 
