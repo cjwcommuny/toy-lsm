@@ -7,6 +7,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
+use crossbeam_skiplist::map::Range;
 use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
 
@@ -107,14 +108,24 @@ impl MemTable {
     /// Get an iterator over a range of keys.
     pub async fn scan<'a>(
         &'a self,
-        lower: Bound<Bytes>,
-        upper: Bound<Bytes>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
     ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
-        let range = (lower, upper);
-        let iter = self.map.range(range);
+        let iter = foo(&self.map, lower, upper);
+        // let range = (lower, upper);
+        // let iter = self.map.range(range);
         let iter = new_memtable_iter(iter);
         NonEmptyStream::try_new(Box::new(iter)).await
     }
+}
+
+fn foo<'a, 'b>(
+    m: &'a SkipMap<Bytes, Bytes>,
+    lower: Bound<&'b [u8]>,
+    upper: Bound<&'b [u8]>,
+) -> Range<'a, [u8], (Bound<&'b [u8]>, Bound<&'b [u8]>), Bytes, Bytes> {
+    let iter = m.range((lower, upper));
+    iter
 }
 
 #[cfg(test)]
@@ -129,10 +140,10 @@ impl MemTable {
 
     pub async fn for_testing_scan_slice<'a>(
         &'a self,
-        lower: Bound<&[u8]>,
-        upper: Bound<&[u8]>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
     ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
-        self.scan(map_bound_own(lower), map_bound_own(upper)).await
+        self.scan(lower, upper).await
     }
 }
 

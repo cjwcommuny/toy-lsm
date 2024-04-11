@@ -68,7 +68,7 @@ where
 {
     type Error = anyhow::Error;
 
-    async fn get(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>> {
+    async fn get<'a>(&'a self, key: &'a [u8]) -> anyhow::Result<Option<Bytes>> {
         let snapshot = self.inner.load();
         let snapshot = snapshot.deref().deref();
         let guard = LockedLsmIter::new(snapshot, Bound::Included(key), Bound::Included(key));

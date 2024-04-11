@@ -38,19 +38,15 @@ impl<'a, P> LockedLsmIter<'a, P>
 where
     P: Persistent,
 {
-    pub async fn iter(&self) -> anyhow::Result<LsmIterator<P::Handle>> {
+    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a, P::Handle>> {
         let a = {
-            let lower = map_bound_own(self.lower);
-            let upper = map_bound_own(self.upper);
             let memtable = self.state.memtable().deref().as_immutable_ref();
             let imm_memtables = self.state.imm_memtables().as_slice();
             let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
-            let iters =
-                stream::iter(iter::once(memtable).chain(imm_memtables)).filter_map(move |table| {
-                    let lower = lower.clone();
-                    let upper = upper.clone();
-                    async { table.scan(lower, upper).await.ok().flatten() }
-                });
+            let tables = iter::once(memtable).chain(imm_memtables);
+            let iters = stream::iter(tables).filter_map(move |table| async {
+                table.scan(self.lower, self.upper).await.ok().flatten()
+            });
             create_merge_iter_from_non_empty_iters(iters).await
         };
 
