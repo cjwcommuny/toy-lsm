@@ -36,9 +36,9 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-    "https://github.com/cjwcommuny/deref_ext",
-    "https://github.com/cjwcommuny/async-iter-ext",
-    "https://github.com/cjwcommuny/ycsb-rs.git"
+  "https://github.com/cjwcommuny/deref_ext",
+  "https://github.com/cjwcommuny/async-iter-ext",
+  "https://github.com/cjwcommuny/ycsb-rs.git",
 ]
 
 [sources.allow-org]
