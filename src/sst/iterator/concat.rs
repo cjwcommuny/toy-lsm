@@ -42,7 +42,7 @@ where
 
 pub fn scan_sst_concat<'a, File, I>(
     sstables: I,
-    lower: Bound<Bytes>,
+    lower: Bound<&'a [u8]>,
     upper: Bound<&'a [u8]>,
 ) -> Result<SstConcatIterator<'a>>
 where
@@ -51,7 +51,7 @@ where
     I::IntoIter: Send,
 {
     let iter = stream::iter(sstables)
-        .flat_map(move |table| SsTableIterator::scan(table, lower.clone(), upper));
+        .flat_map(move |table| SsTableIterator::scan(table, lower, upper));
 
     Ok(Box::new(iter) as _)
 }
