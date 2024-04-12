@@ -94,11 +94,7 @@ where
             let iters = stream::iter(self.l0_sstables.iter()).filter_map(|id| {
                 let table = sstables.get(id).unwrap();
                 async move {
-                    if !filter_sst_by_bloom(
-                        table,
-                        lower,
-                        upper,
-                    ) {
+                    if !filter_sst_by_bloom(table, lower, upper) {
                         None
                     } else {
                         let iter = SsTableIterator::scan(table, lower, upper);

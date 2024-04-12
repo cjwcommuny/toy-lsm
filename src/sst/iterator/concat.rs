@@ -50,8 +50,8 @@ where
     I: IntoIterator<Item = &'a SsTable<File>> + 'a,
     I::IntoIter: Send,
 {
-    let iter = stream::iter(sstables)
-        .flat_map(move |table| SsTableIterator::scan(table, lower, upper));
+    let iter =
+        stream::iter(sstables).flat_map(move |table| SsTableIterator::scan(table, lower, upper));
 
     Ok(Box::new(iter) as _)
 }

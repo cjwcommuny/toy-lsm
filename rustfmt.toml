@@ -1,0 +1,9 @@
+# https://rust-lang.github.io/rustfmt/
+force_explicit_abi = true
+
+# Nightly
+# unstable_features = true
+# imports_granularity = "Crate"
+# wrap_comments = true
+# comment_width = 80
+# normalize_comments = true

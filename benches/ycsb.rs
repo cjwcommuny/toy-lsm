@@ -62,13 +62,12 @@ fn ycsb_bench(c: &mut Criterion) {
         .build();
     let database = LsmStorageStateBench(Arc::new(LsmStorageState::new(options, persistent)));
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let props = {
-        let mut props = Properties::default();
-        props.operation_count = 1000;
-        props.record_count = 1000;
-        props.read_proportion = 0.5;
-        props.update_proportion = 0.5;
-        props
+    let props = Properties {
+        operation_count: 1000,
+        record_count: 1000,
+        read_proportion: 0.5,
+        update_proportion: 0.5,
+        ..Default::default()
     };
     let wl = Arc::new(CoreWorkload::new(&props));
     let operation_count = props.operation_count as usize;

@@ -61,7 +61,7 @@ impl Bloom {
         buf.put_u8(self.k);
     }
 
-    /// Get bloom filter bits per key from entries count and FPR
+    /// Get bloom filter bits per key from entries count and false positive rate
     pub fn bloom_bits_per_key(entries: usize, false_positive_rate: f64) -> usize {
         let size =
             -1.0 * (entries as f64) * false_positive_rate.ln() / std::f64::consts::LN_2.powi(2);
