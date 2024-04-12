@@ -112,13 +112,12 @@ impl MemTable {
         upper: Bound<&'a [u8]>,
     ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
         let iter = foo(&self.map, lower, upper);
-        // let range = (lower, upper);
-        // let iter = self.map.range(range);
         let iter = new_memtable_iter(iter);
-        NonEmptyStream::try_new(Box::new(iter)).await
+        NonEmptyStream::try_new(iter).await
     }
 }
 
+// todo: remove it
 fn foo<'a, 'b>(
     m: &'a SkipMap<Bytes, Bytes>,
     lower: Bound<&'b [u8]>,

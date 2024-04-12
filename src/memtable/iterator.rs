@@ -29,8 +29,8 @@ type SkipMapRangeIter<'a> = map::Range<'a, [u8], BytesBound<'a>, Bytes, Bytes>;
 
 type SkipMapRangeEntry<'a> = map::Entry<'a, Bytes, Bytes>;
 
-pub type NonEmptyMemTableIterRef<'a> = NonEmptyStream<Entry, Box<MemTableIterator<'a>>>;
-pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<Entry, Box<MemTableIterator<'a>>>;
+pub type NonEmptyMemTableIterRef<'a> = NonEmptyStream<Entry, MemTableIterator<'a>>;
+pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<Entry, MemTableIterator<'a>>;
 
 #[cfg(test)]
 mod test {

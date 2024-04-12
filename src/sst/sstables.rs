@@ -98,7 +98,7 @@ where
                         None
                     } else {
                         let iter = SsTableIterator::scan(table, lower, upper);
-                        NonEmptyStream::try_new(Box::new(iter)).await.ok().flatten()
+                        NonEmptyStream::try_new(iter).await.ok().flatten()
                     }
                 }
             });
@@ -106,14 +106,10 @@ where
         };
 
         let levels = {
-            let iters = self
-                .levels
-                .iter()
-                .filter_map(move |(_, ids)| {
-                    let tables = ids.iter().map(|id| self.sstables.get(id).unwrap());
-                    scan_sst_concat(tables, lower, upper).ok()
-                })
-                .map(Box::new);
+            let iters = self.levels.iter().filter_map(move |(_, ids)| {
+                let tables = ids.iter().map(|id| self.sstables.get(id).unwrap());
+                scan_sst_concat(tables, lower, upper).ok()
+            });
             let iters = stream::iter(iters);
             create_merge_iter(iters).await
         };
