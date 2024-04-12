@@ -18,7 +18,7 @@ mod heap;
 /// iterators, prefer the one with smaller index.
 pub type MergeIterator<Item, I> = NoDuplication<MergeIteratorInner<Item, I>>;
 
-pub async fn create_merge_iter<Item, I>(iters: impl Stream<Item = Box<I>>) -> MergeIterator<Item, I>
+pub async fn create_merge_iter<Item, I>(iters: impl Stream<Item = I>) -> MergeIterator<Item, I>
 where
     Item: Ord + Debug,
     I: Stream<Item = anyhow::Result<Item>> + Unpin,
@@ -27,7 +27,7 @@ where
 }
 
 pub async fn create_merge_iter_from_non_empty_iters<Item, I>(
-    iters: impl Stream<Item = NonEmptyStream<Item, Box<I>>>,
+    iters: impl Stream<Item = NonEmptyStream<Item, I>>,
 ) -> MergeIterator<Item, I>
 where
     Item: Ord + Debug,
@@ -49,7 +49,7 @@ where
     I: Stream<Item = anyhow::Result<Item>> + Unpin,
     Item: Ord + Debug,
 {
-    pub async fn create(iters: impl Stream<Item = Box<I>>) -> Self {
+    pub async fn create(iters: impl Stream<Item = I>) -> Self {
         let iters = iters
             .map(NonEmptyStream::try_new)
             .flat_map(FutureExt::into_stream)
@@ -57,9 +57,7 @@ where
         Self::from_non_empty_iters(iters).await
     }
 
-    pub async fn from_non_empty_iters(
-        iters: impl Stream<Item = NonEmptyStream<Item, Box<I>>>,
-    ) -> Self {
+    pub async fn from_non_empty_iters(iters: impl Stream<Item = NonEmptyStream<Item, I>>) -> Self {
         let iters: BinaryHeap<_> = iters
             .enumerate()
             .map(|(index, iter)| HeapWrapper { index, iter })

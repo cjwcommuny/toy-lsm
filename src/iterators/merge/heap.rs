@@ -3,7 +3,7 @@ use std::cmp;
 
 pub(super) struct HeapWrapper<Item, I> {
     pub index: usize,
-    pub iter: NonEmptyStream<Item, Box<I>>,
+    pub iter: NonEmptyStream<Item, I>,
 }
 
 impl<Item, I> HeapWrapper<Item, I>
