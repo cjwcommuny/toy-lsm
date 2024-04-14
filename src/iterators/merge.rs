@@ -113,6 +113,7 @@ mod test {
 
     use crate::entry::Entry;
     use crate::iterators::merge::MergeIteratorInner;
+    use crate::iterators::utils::build_stream;
     use crate::iterators::{create_merge_iter, eq};
 
     #[tokio::test]
@@ -214,17 +215,5 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_task2_merge_2() {
-        // let (i1, i2, i3) = build_sub_stream();
-    }
-
-    type SubStream = stream::Iter<vec::IntoIter<Entry>>;
-
-    fn build_stream<'a>(source: impl IntoIterator<Item = (&'a str, &'a str)>) -> SubStream {
-        let s: Vec<_> = source
-            .into_iter()
-            .map(|(key, value)| Entry::from_slice(key.as_bytes(), value.as_bytes()))
-            .collect();
-        stream::iter(s)
-    }
+    async fn test_task2_merge_2() {}
 }

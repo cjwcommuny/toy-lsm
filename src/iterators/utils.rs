@@ -1,9 +1,10 @@
 use std::future::Future;
-use std::iter;
 use std::iter::Map;
 use std::iter::Once;
 use std::pin::pin;
+use std::{iter, vec};
 
+use crate::entry::Entry;
 use either::Either;
 use futures::future::IntoStream;
 use futures::stream::{FlatMap, Flatten, Iter};
@@ -74,6 +75,18 @@ where
             (None, None) => return true,
         }
     }
+}
+
+#[cfg(test)]
+pub type EntryStream = Iter<vec::IntoIter<Entry>>;
+
+#[cfg(test)]
+pub fn build_stream<'a>(source: impl IntoIterator<Item = (&'a str, &'a str)>) -> EntryStream {
+    let s: Vec<_> = source
+        .into_iter()
+        .map(|(key, value)| Entry::from_slice(key.as_bytes(), value.as_bytes()))
+        .collect();
+    stream::iter(s)
 }
 
 #[cfg(test)]
