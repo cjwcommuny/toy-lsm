@@ -102,6 +102,25 @@ mod test {
         }
     }
 
+    #[tokio::test]
+    async fn test_task1_empty_memtable_iter() {
+        use std::ops::Bound;
+        let memtable = MemTable::create(0);
+
+        let _ = memtable
+            .for_testing_scan_slice(Bound::Excluded(b"key1"), Bound::Excluded(b"key3"))
+            .await
+            .unwrap();
+        let _ = memtable
+            .for_testing_scan_slice(Bound::Included(b"key1"), Bound::Included(b"key2"))
+            .await
+            .unwrap();
+        let _ = memtable
+            .for_testing_scan_slice(Bound::Unbounded, Bound::Unbounded)
+            .await
+            .unwrap();
+    }
+
     async fn get_memtable_iter<'a>(
         memtable: &'a MemTable,
         lower: Bound<&'a [u8]>,
