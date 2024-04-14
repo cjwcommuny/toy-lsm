@@ -1,15 +1,12 @@
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
-use std::future::{ready, Future};
+use std::future::ready;
 use std::mem;
 use std::pin::Pin;
 
-use bytes::Bytes;
-use deref_ext::DerefExt;
-use futures::{stream, FutureExt, Stream, StreamExt};
+use futures::{FutureExt, stream, Stream, StreamExt};
 use tokio::sync::RwLock;
 
-use crate::bound::map_bound_own;
 use crate::entry::Entry;
 use crate::iterators::{
     create_merge_iter, create_merge_iter_from_non_empty_iters, create_two_merge_iter,
@@ -17,14 +14,14 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use crate::persistent::{Persistent, PersistentHandle};
+use crate::sst::{bloom, SsTable, SsTableBuilder};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };
 use crate::sst::iterator::{
-    create_sst_concat_and_seek_to_first, scan_sst_concat, MergedSstIterator, SsTableIterator,
+    create_sst_concat_and_seek_to_first, MergedSstIterator, scan_sst_concat, SsTableIterator,
 };
 use crate::sst::option::SstOptions;
-use crate::sst::{bloom, SsTable, SsTableBuilder};
 
 #[derive(Default)]
 pub struct Sstables<File> {
