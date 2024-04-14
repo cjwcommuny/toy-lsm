@@ -29,7 +29,7 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
 
 #[derive(new)]
 pub struct LockedLsmIter<'a, P: Persistent> {
-    state: &'a LsmStorageStateInner<P>,
+    state: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
     lower: Bound<&'a [u8]>,
     upper: Bound<&'a [u8]>,
 }

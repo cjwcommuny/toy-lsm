@@ -35,11 +35,15 @@ pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<Entry, MemTableIterato
 #[cfg(test)]
 mod test {
     use crate::entry::Entry;
-    use crate::iterators::create_merge_iter_from_non_empty_iters;
+    use crate::iterators::{
+        create_merge_iter, create_merge_iter_from_non_empty_iters, eq, MergeIterator,
+    };
     use crate::memtable::MemTable;
+    use bytes::Bytes;
     use futures::{stream, Stream, StreamExt};
     use nom::AsBytes;
     use std::collections::Bound;
+    use std::vec;
 
     #[tokio::test]
     async fn test_task1_memtable_iter() {
@@ -100,6 +104,25 @@ mod test {
 
             assert!(iter.next().await.is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn test_task1_empty_memtable_iter() {
+        use std::ops::Bound;
+        let memtable = MemTable::create(0);
+
+        let _ = memtable
+            .for_testing_scan_slice(Bound::Excluded(b"key1"), Bound::Excluded(b"key3"))
+            .await
+            .unwrap();
+        let _ = memtable
+            .for_testing_scan_slice(Bound::Included(b"key1"), Bound::Included(b"key2"))
+            .await
+            .unwrap();
+        let _ = memtable
+            .for_testing_scan_slice(Bound::Unbounded, Bound::Unbounded)
+            .await
+            .unwrap();
     }
 
     async fn get_memtable_iter<'a>(

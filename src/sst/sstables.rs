@@ -1,15 +1,12 @@
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
-use std::future::{ready, Future};
+use std::future::ready;
 use std::mem;
 use std::pin::Pin;
 
-use bytes::Bytes;
-use deref_ext::DerefExt;
 use futures::{stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
 
-use crate::bound::map_bound_own;
 use crate::entry::Entry;
 use crate::iterators::{
     create_merge_iter, create_merge_iter_from_non_empty_iters, create_two_merge_iter,

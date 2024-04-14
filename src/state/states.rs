@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use deref_ext::DerefExt;
 use derive_getters::Getters;
 use futures::StreamExt;
 use parking_lot::{Mutex, MutexGuard};
@@ -69,9 +70,7 @@ where
     type Error = anyhow::Error;
 
     async fn get(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>> {
-        let snapshot = self.inner.load();
-        let snapshot = snapshot.deref().deref();
-        let guard = LockedLsmIter::new(snapshot, Bound::Included(key), Bound::Included(key));
+        let guard = self.scan(Bound::Included(key), Bound::Included(key));
         let value = guard
             .iter()
             .await?
@@ -107,7 +106,12 @@ where
 {
     fn next_sst_id(&self) -> usize {
         self.sst_id()
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
+        let snapshot = self.inner.load();
+        LockedLsmIter::new(snapshot, lower, upper)
     }
 }
 
@@ -176,6 +180,12 @@ where
 
 #[cfg(test)]
 mod test {
+    use crate::iterators::{build_stream, eq};
+    use bytes::Bytes;
+    use futures::FutureExt;
+    use futures::StreamExt;
+    use std::collections::Bound;
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     use crate::persistent::file_object::LocalFs;
@@ -308,6 +318,53 @@ mod test {
             &storage.get_for_test(b"4").await.unwrap().unwrap()[..],
             b"23333"
         );
+    }
+
+    #[tokio::test]
+    async fn test_task4_integration() {
+        let storage = build_storage();
+        storage.put_for_test(b"1", b"233").await.unwrap();
+        storage.put_for_test(b"2", b"2333").await.unwrap();
+        storage.put_for_test(b"3", b"23333").await.unwrap();
+
+        {
+            let guard = storage.state_lock.lock();
+            storage.force_freeze_memtable(&guard);
+        }
+
+        storage.delete_for_test(b"1").await.unwrap();
+        storage.delete_for_test(b"2").await.unwrap();
+        storage.put_for_test(b"3", b"2333").await.unwrap();
+        storage.put_for_test(b"4", b"23333").await.unwrap();
+
+        {
+            let guard = storage.state_lock.lock();
+            storage.force_freeze_memtable(&guard);
+        }
+
+        storage.put_for_test(b"1", b"233333").await.unwrap();
+        storage.put_for_test(b"3", b"233333").await.unwrap();
+
+        {
+            let guard = storage.scan(Bound::Unbounded, Bound::Unbounded);
+            assert!(
+                eq(
+                    guard.iter().await.unwrap().map(Result::unwrap),
+                    build_stream([("1", "233333"), ("3", "233333"), ("4", "23333"),])
+                )
+                .await
+            );
+        }
+        {
+            let guard = storage.scan(Bound::Included(b"2"), Bound::Included(b"3"));
+            assert!(
+                eq(
+                    guard.iter().await.unwrap().map(Result::unwrap),
+                    build_stream([("3", "233333")])
+                )
+                .await
+            );
+        }
     }
 
     fn build_storage() -> LsmStorageState<impl Persistent> {

@@ -1,15 +1,17 @@
 use std::mem;
-
 use std::sync::Arc;
 
-use crate::block::{BlockBuilder, BlockCache};
-use crate::key::KeySlice;
-
-use crate::persistent::Persistent;
-use crate::sst::bloom::Bloom;
-use crate::sst::{BlockMeta, SsTable};
 use anyhow::Result;
 use bytes::BufMut;
+#[cfg(test)]
+use tempfile::TempDir;
+
+use crate::block::{BlockBuilder, BlockCache};
+use crate::key::{KeySlice, KeyVec};
+use crate::persistent::file_object::FileObject;
+use crate::persistent::{LocalFs, Persistent};
+use crate::sst::bloom::Bloom;
+use crate::sst::{BlockMeta, SsTable};
 
 /// Builds an SSTable from key-value pairs.
 pub struct SsTableBuilder {
@@ -133,5 +135,64 @@ impl SsTableBuilder {
 
     pub fn is_empty(&self) -> bool {
         self.data.len() == 0 && self.builder.is_empty()
+    }
+}
+
+#[cfg(test)]
+impl SsTableBuilder {
+    async fn build_for_test(self, dir: TempDir, id: usize) -> anyhow::Result<SsTable<FileObject>> {
+        let persistent = LocalFs::new(dir.into_path());
+        self.build(id, None, &persistent).await
+    }
+}
+
+#[cfg(test)]
+async fn generate_sst(dir: TempDir) -> SsTable<FileObject> {
+    fn key_of(idx: usize) -> KeyVec {
+        KeyVec::for_testing_from_vec_no_ts(format!("key_{:03}", idx * 5).into_bytes())
+    }
+    fn value_of(idx: usize) -> Vec<u8> {
+        format!("value_{:010}", idx).into_bytes()
+    }
+    fn num_of_keys() -> usize {
+        100
+    }
+
+    let mut builder = SsTableBuilder::new(128);
+    for idx in 0..num_of_keys() {
+        let key = key_of(idx);
+        let value = value_of(idx);
+        builder.add(key.as_key_slice(), &value[..]);
+    }
+    builder.build_for_test(dir, 1).await.unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use crate::key::KeySlice;
+    use crate::sst::SsTableBuilder;
+
+    #[tokio::test]
+    async fn test_sst_build_single_key() {
+        let mut builder = SsTableBuilder::new(16);
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"233"), b"233333");
+        let dir = tempdir().unwrap();
+        builder.build_for_test(dir, 1).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_sst_build_two_blocks() {
+        let mut builder = SsTableBuilder::new(16);
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"11"), b"11");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"22"), b"22");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"33"), b"11");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"44"), b"22");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"55"), b"11");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
+        assert!(builder.meta.len() >= 2);
+        let dir = tempdir().unwrap();
+        builder.build_for_test(dir, 1).await.unwrap();
     }
 }
