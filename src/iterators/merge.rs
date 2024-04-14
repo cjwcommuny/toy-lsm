@@ -107,11 +107,13 @@ where
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
+    use std::vec;
 
     use futures::{stream, StreamExt};
 
     use crate::entry::Entry;
     use crate::iterators::merge::MergeIteratorInner;
+    use crate::iterators::{create_merge_iter, eq};
 
     #[tokio::test]
     async fn test_empty() {
@@ -163,5 +165,66 @@ mod test {
         let merged: Vec<_> = merged.map(Result::unwrap).collect().await;
         let expect: Vec<_> = expect.into_iter().collect();
         assert_eq!(expect, merged);
+    }
+
+    #[tokio::test]
+    async fn test_task2_merge_1() {
+        let build_sub_stream = || {
+            let i1 = build_stream([("a", "1.1"), ("b", "2.1"), ("c", "3.1"), ("e", "")]).map(Ok);
+            let i2 = build_stream([("a", "1.2"), ("b", "2.2"), ("c", "3.2"), ("d", "4.2")]).map(Ok);
+            let i3 = build_stream([("b", "2.3"), ("c", "3.3"), ("d", "4.3")]).map(Ok);
+            (i1, i2, i3)
+        };
+
+        let (i1, i2, i3) = build_sub_stream();
+
+        assert!(
+            eq(
+                create_merge_iter(stream::iter([i1, i2, i3]))
+                    .await
+                    .map(Result::unwrap),
+                build_stream([
+                    ("a", "1.1"),
+                    ("b", "2.1"),
+                    ("c", "3.1"),
+                    ("d", "4.2"),
+                    ("e", ""),
+                ]),
+            )
+            .await
+        );
+
+        let (i1, i2, i3) = build_sub_stream();
+
+        assert!(
+            eq(
+                create_merge_iter(stream::iter([i3, i1, i2]))
+                    .await
+                    .map(Result::unwrap),
+                build_stream([
+                    ("a", "1.1"),
+                    ("b", "2.3"),
+                    ("c", "3.3"),
+                    ("d", "4.3"),
+                    ("e", ""),
+                ]),
+            )
+            .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_task2_merge_2() {
+        // let (i1, i2, i3) = build_sub_stream();
+    }
+
+    type SubStream = stream::Iter<vec::IntoIter<Entry>>;
+
+    fn build_stream<'a>(source: impl IntoIterator<Item = (&'a str, &'a str)>) -> SubStream {
+        let s: Vec<_> = source
+            .into_iter()
+            .map(|(key, value)| Entry::from_slice(key.as_bytes(), value.as_bytes()))
+            .collect();
+        stream::iter(s)
     }
 }
