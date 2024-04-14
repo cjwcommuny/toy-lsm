@@ -1,11 +1,11 @@
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
-
-use arc_swap::ArcSwap;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
+use crate::block::BlockCache;
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use deref_ext::DerefExt;
 use derive_getters::Getters;
@@ -15,9 +15,10 @@ use parking_lot::{Mutex, MutexGuard};
 use crate::iterators::LockedLsmIter;
 use crate::memtable::MemTable;
 use crate::persistent::Persistent;
-use crate::sst::{SstOptions, Sstables};
+use crate::sst::{SsTableBuilder, SstOptions, Sstables};
 use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
+use crate::utils::vec::pop;
 
 #[derive(Getters)]
 pub struct LsmStorageState<P: Persistent> {
@@ -159,6 +160,27 @@ fn freeze_memtable<P: Persistent>(
     Arc::new(new_state)
 }
 
+async fn flush_imm_memtable<P: Persistent>(
+    old: &LsmStorageStateInner<P>,
+    block_cache: &Arc<BlockCache>,
+    persistent: &P,
+) -> anyhow::Result<Option<Arc<LsmStorageStateInner<P>>>> {
+    let (imm, last_memtable) = pop(old.imm_memtables().clone());
+    let Some(last_memtable) = last_memtable else {
+        return Ok(None);
+    };
+
+    let sst = {
+        let mut builder = SsTableBuilder::new(last_memtable.size());
+        builder.flush(&last_memtable);
+        builder
+            .build(last_memtable.id(), Some(block_cache.clone()), persistent)
+            .await
+    }?;
+
+    todo!()
+}
+
 #[cfg(test)]
 impl<P> LsmStorageState<P>
 where
@@ -180,14 +202,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::iterators::{build_stream, eq};
-    use bytes::Bytes;
-    use futures::FutureExt;
-    use futures::StreamExt;
     use std::collections::Bound;
-    use std::sync::Arc;
+
+    use futures::StreamExt;
     use tempfile::tempdir;
 
+    use crate::iterators::{build_stream, eq};
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
     use crate::sst::SstOptions;

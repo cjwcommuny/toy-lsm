@@ -1,13 +1,16 @@
 use std::mem;
+use std::ops::Bound::Unbounded;
 use std::sync::Arc;
 
 use anyhow::Result;
 use bytes::BufMut;
+use nom::AsBytes;
 #[cfg(test)]
 use tempfile::TempDir;
 
 use crate::block::{BlockBuilder, BlockCache};
 use crate::key::{KeySlice, KeyVec};
+use crate::memtable::ImmutableMemTable;
 use crate::persistent::file_object::FileObject;
 use crate::persistent::{LocalFs, Persistent};
 use crate::sst::bloom::Bloom;
@@ -38,6 +41,7 @@ impl SsTableBuilder {
     ///
     /// Note: You should split a new block when the current block is full.(`std::mem::replace` may
     /// be helpful here)
+    /// 应该改成传入 owned bytes
     pub fn add(&mut self, key: KeySlice, value: &[u8]) {
         let success = self.builder.add(key, value);
         if success {
@@ -135,6 +139,15 @@ impl SsTableBuilder {
 
     pub fn is_empty(&self) -> bool {
         self.data.len() == 0 && self.builder.is_empty()
+    }
+
+    pub fn flush(&mut self, memtable: &ImmutableMemTable) {
+        for entry in memtable.iter() {
+            self.add(
+                KeySlice::from_slice(entry.key().as_bytes()),
+                entry.value().as_bytes(),
+            );
+        }
     }
 }
 
