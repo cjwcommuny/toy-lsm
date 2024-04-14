@@ -8,10 +8,10 @@ use tempfile::TempDir;
 
 use crate::block::{BlockBuilder, BlockCache};
 use crate::key::{KeySlice, KeyVec};
-use crate::persistent::{LocalFs, Persistent};
 use crate::persistent::file_object::FileObject;
-use crate::sst::{BlockMeta, SsTable};
+use crate::persistent::{LocalFs, Persistent};
 use crate::sst::bloom::Bloom;
+use crate::sst::{BlockMeta, SsTable};
 
 /// Builds an SSTable from key-value pairs.
 pub struct SsTableBuilder {
