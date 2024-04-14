@@ -4,7 +4,7 @@ use std::future::ready;
 use std::mem;
 use std::pin::Pin;
 
-use futures::{FutureExt, stream, Stream, StreamExt};
+use futures::{stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
 
 use crate::entry::Entry;
@@ -14,14 +14,14 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use crate::persistent::{Persistent, PersistentHandle};
-use crate::sst::{bloom, SsTable, SsTableBuilder};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };
 use crate::sst::iterator::{
-    create_sst_concat_and_seek_to_first, MergedSstIterator, scan_sst_concat, SsTableIterator,
+    create_sst_concat_and_seek_to_first, scan_sst_concat, MergedSstIterator, SsTableIterator,
 };
 use crate::sst::option::SstOptions;
+use crate::sst::{bloom, SsTable, SsTableBuilder};
 
 #[derive(Default)]
 pub struct Sstables<File> {

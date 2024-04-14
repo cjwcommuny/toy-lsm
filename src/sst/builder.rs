@@ -1,15 +1,14 @@
 use std::mem;
-
 use std::sync::Arc;
+
+use anyhow::Result;
+use bytes::BufMut;
 
 use crate::block::{BlockBuilder, BlockCache};
 use crate::key::KeySlice;
-
 use crate::persistent::Persistent;
 use crate::sst::bloom::Bloom;
 use crate::sst::{BlockMeta, SsTable};
-use anyhow::Result;
-use bytes::BufMut;
 
 /// Builds an SSTable from key-value pairs.
 pub struct SsTableBuilder {
@@ -133,5 +132,43 @@ impl SsTableBuilder {
 
     pub fn is_empty(&self) -> bool {
         self.data.len() == 0 && self.builder.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use crate::key::KeySlice;
+    use crate::persistent::file_object::FileObject;
+    use crate::persistent::LocalFs;
+    use crate::sst::{SsTable, SsTableBuilder};
+
+    impl SsTableBuilder {
+        async fn build_for_test(self, id: usize) -> anyhow::Result<SsTable<FileObject>> {
+            let dir = tempdir().unwrap();
+            let persistent = LocalFs::new(dir.into_path());
+            self.build(id, None, &persistent).await
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sst_build_single_key() {
+        let mut builder = SsTableBuilder::new(16);
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"233"), b"233333");
+        builder.build_for_test(1).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_sst_build_two_blocks() {
+        let mut builder = SsTableBuilder::new(16);
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"11"), b"11");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"22"), b"22");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"33"), b"11");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"44"), b"22");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"55"), b"11");
+        builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
+        assert!(builder.meta.len() >= 2);
+        builder.build_for_test(1).await.unwrap();
     }
 }
