@@ -160,17 +160,22 @@ impl SsTableBuilder {
 }
 
 #[cfg(test)]
-async fn generate_sst(dir: TempDir) -> SsTable<FileObject> {
-    fn key_of(idx: usize) -> KeyVec {
-        KeyVec::for_testing_from_vec_no_ts(format!("key_{:03}", idx * 5).into_bytes())
-    }
-    fn value_of(idx: usize) -> Vec<u8> {
-        format!("value_{:010}", idx).into_bytes()
-    }
-    fn num_of_keys() -> usize {
-        100
-    }
+pub fn key_of(idx: usize) -> KeyVec {
+    KeyVec::for_testing_from_vec_no_ts(format!("key_{:03}", idx * 5).into_bytes())
+}
 
+#[cfg(test)]
+pub fn value_of(idx: usize) -> Vec<u8> {
+    format!("value_{:010}", idx).into_bytes()
+}
+
+#[cfg(test)]
+pub fn num_of_keys() -> usize {
+    100
+}
+
+#[cfg(test)]
+pub async fn generate_sst(dir: TempDir) -> SsTable<FileObject> {
     let mut builder = SsTableBuilder::new(128);
     for idx in 0..num_of_keys() {
         let key = key_of(idx);

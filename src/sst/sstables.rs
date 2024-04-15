@@ -3,6 +3,7 @@ use std::fmt::{Debug, Formatter};
 use std::future::ready;
 use std::mem;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use futures::{stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
@@ -33,7 +34,17 @@ pub struct Sstables<File> {
     /// SST objects.
     /// todo: 这里的 key 不存储 index，只存储 reference
     /// todo: 这个接口的设计需要调整，把 usize 封装起来
-    sstables: HashMap<usize, SsTable<File>>,
+    sstables: HashMap<usize, Arc<SsTable<File>>>,
+}
+
+impl<File> Clone for Sstables<File> {
+    fn clone(&self) -> Self {
+        Self {
+            l0_sstables: self.l0_sstables.clone(),
+            levels: self.levels.clone(),
+            sstables: self.sstables.clone(),
+        }
+    }
 }
 
 impl<File> Debug for Sstables<File> {
@@ -46,10 +57,25 @@ impl<File> Debug for Sstables<File> {
     }
 }
 
+#[cfg(test)]
+impl<File> Sstables<File> {
+    pub fn l0_sstables(&self) -> &[usize] {
+        &self.l0_sstables
+    }
+
+    pub fn levels(&self) -> &[(usize, Vec<usize>)] {
+        &self.levels
+    }
+
+    pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
+        &self.sstables
+    }
+}
+
 // only for test
 impl<File> Sstables<File> {
     // todo: delete it
-    pub fn sstables_mut(&mut self) -> &mut HashMap<usize, SsTable<File>> {
+    pub fn sstables_mut(&mut self) -> &mut HashMap<usize, Arc<SsTable<File>>> {
         &mut self.sstables
     }
 
@@ -75,7 +101,7 @@ impl<File> Sstables<File>
 where
     File: PersistentHandle,
 {
-    pub fn insert_sst(&mut self, table: SsTable<File>) {
+    pub fn insert_sst(&mut self, table: Arc<SsTable<File>>) {
         self.l0_sstables.insert(0, *table.id());
         self.sstables.insert(*table.id(), table);
     }
@@ -104,7 +130,7 @@ where
 
         let levels = {
             let iters = self.levels.iter().filter_map(move |(_, ids)| {
-                let tables = ids.iter().map(|id| self.sstables.get(id).unwrap());
+                let tables = ids.iter().map(|id| self.sstables.get(id).unwrap().as_ref());
                 scan_sst_concat(tables, lower, upper).ok()
             });
             let iters = stream::iter(iters);
@@ -165,13 +191,13 @@ where
         &self,
         l0_sstables: &[usize],
         l1_sstables: &[usize],
-        sstables: &HashMap<usize, SsTable<File>>,
+        sstables: &HashMap<usize, Arc<SsTable<File>>>,
         _next_sst_id: impl Fn() -> usize,
-    ) -> anyhow::Result<Vec<SsTable<File>>> {
+    ) -> anyhow::Result<Vec<Arc<SsTable<File>>>> {
         let l0 = {
             let iters = l0_sstables
                 .iter()
-                .map(|index| sstables.get(index).unwrap())
+                .map(|index| sstables.get(index).unwrap().as_ref())
                 .map(SsTableIterator::create_and_seek_to_first)
                 .map(Box::new)
                 .map(NonEmptyStream::try_new);
@@ -181,7 +207,7 @@ where
         let l1 = {
             let tables = l1_sstables
                 .iter()
-                .map(|index| sstables.get(index).unwrap())
+                .map(|index| sstables.get(index).unwrap().as_ref())
                 .collect();
             create_sst_concat_and_seek_to_first(tables)
         }?;
@@ -294,3 +320,6 @@ where
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {}

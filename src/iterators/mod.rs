@@ -5,7 +5,7 @@ mod no_deleted;
 mod no_duplication;
 mod ok_iter;
 mod two_merge;
-mod utils;
+pub mod utils;
 
 pub use lsm::LockedLsmIter;
 pub use maybe_empty::{MaybeEmptyStream, NonEmptyStream};
@@ -16,6 +16,3 @@ pub use two_merge::{create_two_merge_iter, TwoMergeIterator};
 pub use utils::iter_fut_iter_to_stream;
 pub use utils::split_first;
 pub use utils::{eq, iter_fut_to_stream, transpose_try_iter};
-
-#[cfg(test)]
-pub use utils::build_stream;

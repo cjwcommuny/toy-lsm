@@ -1,17 +1,14 @@
-use futures::{future, FutureExt};
 use std::future::ready;
 use std::iter::Once;
 use std::ops::Bound;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use bytes::Bytes;
+use futures::{future, FutureExt};
 use futures::{stream, Stream, StreamExt};
-
 use pin_project::pin_project;
 
 use crate::block::BlockIterator;
-use crate::bound::map_bound_own;
 use crate::entry::Entry;
 use crate::iterators::{iter_fut_iter_to_stream, split_first, MergeIterator, TwoMergeIterator};
 use crate::key::{KeyBytes, KeySlice};
@@ -187,3 +184,46 @@ pub type MergedSstIterator<'a, File> = TwoMergeIterator<
     MergeIterator<Entry, SsTableIterator<'a, File>>,
     MergeIterator<Entry, SstConcatIterator<'a>>,
 >;
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Bound;
+
+    use bytes::Bytes;
+    use futures::StreamExt;
+    use nom::AsBytes;
+    use tempfile::tempdir;
+
+    use crate::sst::builder::{generate_sst, key_of, num_of_keys, value_of};
+    use crate::sst::iterator::SsTableIterator;
+
+    #[tokio::test]
+    async fn test_sst_seek_key() {
+        let dir = tempdir().unwrap();
+        let sst = generate_sst(dir).await;
+        let mut iter = SsTableIterator::scan(&sst, Bound::Unbounded, Bound::Unbounded);
+        for i in 0..num_of_keys() {
+            let entry = iter
+                .next()
+                .await
+                .unwrap()
+                .unwrap_or_else(|_| panic!("panic on {}", i));
+            let key = entry.key.as_bytes();
+            let value = entry.value.as_bytes();
+            assert_eq!(
+                key,
+                key_of(i).for_testing_key_ref(),
+                "expected key: {:?}, actual key: {:?}",
+                Bytes::copy_from_slice(key_of(i).for_testing_key_ref()),
+                Bytes::copy_from_slice(key)
+            );
+            assert_eq!(
+                value,
+                value_of(i),
+                "expected value: {:?}, actual value: {:?}",
+                Bytes::copy_from_slice(&value_of(i)),
+                Bytes::copy_from_slice(value)
+            );
+        }
+    }
+}

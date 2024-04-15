@@ -1,22 +1,20 @@
-use crate::entry::Entry;
-use crate::iterators::no_deleted::new_no_deleted_iter;
-use crate::iterators::{
-    create_merge_iter_from_non_empty_iters, create_two_merge_iter, iter_fut_to_stream,
-    MergeIterator, NoDeletedIterator, TwoMergeIterator,
-};
-use crate::memtable::{ImmutableMemTable, MemTableIterator};
-use crate::persistent::Persistent;
-use crate::sst::iterator::MergedSstIterator;
-
-use crate::bound::map_bound_own;
-use derive_new::new;
-use futures::{stream, StreamExt};
 use std::collections::Bound;
-use std::future::{ready, Future};
 use std::iter;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use derive_new::new;
+use futures::{stream, StreamExt};
+
+use crate::entry::Entry;
+use crate::iterators::no_deleted::new_no_deleted_iter;
+use crate::iterators::{
+    create_merge_iter_from_non_empty_iters, create_two_merge_iter, MergeIterator,
+    NoDeletedIterator, TwoMergeIterator,
+};
+use crate::memtable::MemTableIterator;
+use crate::persistent::Persistent;
+use crate::sst::iterator::MergedSstIterator;
 use crate::state::LsmStorageStateInner;
 
 pub type LsmIterator<'a, File> = NoDeletedIterator<LsmIteratorInner<'a, File>, anyhow::Error>;
@@ -49,7 +47,6 @@ where
             });
             create_merge_iter_from_non_empty_iters(iters).await
         };
-
         let b = self
             .state
             .sstables_state()
