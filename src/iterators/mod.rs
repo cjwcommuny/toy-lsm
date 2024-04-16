@@ -1,6 +1,6 @@
 mod lsm;
 mod maybe_empty;
-mod merge;
+pub mod merge;
 mod no_deleted;
 mod no_duplication;
 mod ok_iter;

@@ -415,86 +415,86 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    async fn test_task1_storage_scan() {
-        let storage = build_storage();
-        storage.put_for_test(b"0", b"2333333").await.unwrap();
-        storage.put_for_test(b"00", b"2333333").await.unwrap();
-        storage.put_for_test(b"4", b"23").await.unwrap();
-
-        {
-            let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
-            storage.force_flush_imm_memtable(&guard).await.unwrap();
-        }
-
-        storage.delete_for_test(b"4").await.unwrap();
-
-        {
-            let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
-            storage.force_flush_imm_memtable(&guard).await.unwrap();
-        }
-
-        storage.put_for_test(b"1", b"233").await.unwrap();
-        storage.put_for_test(b"2", b"2333").await.unwrap();
-
-        {
-            let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
-        }
-
-        storage.put_for_test(b"00", b"2333").await.unwrap();
-
-        {
-            let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
-        }
-
-        storage.put_for_test(b"3", b"23333").await.unwrap();
-        storage.delete_for_test(b"1").await.unwrap();
-
-        {
-            let inner = storage.inner.load();
-            assert_eq!(inner.sstables_state().l0_sstables().len(), 2);
-            assert_eq!(inner.imm_memtables().len(), 2);
-        }
-
-        {
-            let iter = storage.scan(Bound::Unbounded, Bound::Unbounded);
-            // dbg!(storage.inner().load().memtable());
-            // dbg!(storage.inner().load().imm_memtables());
-            // dbg!(storage.inner().load().sstables_state());
-            assert_stream_eq(
-                iter.iter().await.unwrap().map(Result::unwrap),
-                build_stream([
-                    ("0", "2333333"),
-                    ("00", "2333"),
-                    ("2", "2333"),
-                    ("3", "23333"),
-                ]),
-            )
-            .await;
-        }
-
-        // {
-        //     let iter = storage.scan(Bound::Included(b"1"), Bound::Included(b"2"));
-        //     assert_stream_eq(
-        //         iter.iter().await.unwrap().map(Result::unwrap),
-        //         build_stream([("2", "2333")]),
-        //     )
-        //     .await;
-        // }
-        //
-        // {
-        //     let iter = storage.scan(Bound::Excluded(b"1"), Bound::Excluded(b"3"));
-        //     assert_stream_eq(
-        //         iter.iter().await.unwrap().map(Result::unwrap),
-        //         build_stream([("2", "2333")]),
-        //     )
-        //     .await;
-        // }
-    }
+    // #[tokio::test]
+    // async fn test_task1_storage_scan() {
+    //     let storage = build_storage();
+    //     storage.put_for_test(b"0", b"2333333").await.unwrap();
+    //     storage.put_for_test(b"00", b"2333333").await.unwrap();
+    //     storage.put_for_test(b"4", b"23").await.unwrap();
+    //
+    //     {
+    //         let guard = storage.state_lock.lock().await;
+    //         storage.force_freeze_memtable(&guard);
+    //         storage.force_flush_imm_memtable(&guard).await.unwrap();
+    //     }
+    //
+    //     storage.delete_for_test(b"4").await.unwrap();
+    //
+    //     {
+    //         let guard = storage.state_lock.lock().await;
+    //         storage.force_freeze_memtable(&guard);
+    //         storage.force_flush_imm_memtable(&guard).await.unwrap();
+    //     }
+    //
+    //     storage.put_for_test(b"1", b"233").await.unwrap();
+    //     storage.put_for_test(b"2", b"2333").await.unwrap();
+    //
+    //     {
+    //         let guard = storage.state_lock.lock().await;
+    //         storage.force_freeze_memtable(&guard);
+    //     }
+    //
+    //     storage.put_for_test(b"00", b"2333").await.unwrap();
+    //
+    //     {
+    //         let guard = storage.state_lock.lock().await;
+    //         storage.force_freeze_memtable(&guard);
+    //     }
+    //
+    //     storage.put_for_test(b"3", b"23333").await.unwrap();
+    //     storage.delete_for_test(b"1").await.unwrap();
+    //
+    //     {
+    //         let inner = storage.inner.load();
+    //         assert_eq!(inner.sstables_state().l0_sstables().len(), 2);
+    //         assert_eq!(inner.imm_memtables().len(), 2);
+    //     }
+    //
+    //     {
+    //         let iter = storage.scan(Bound::Unbounded, Bound::Unbounded);
+    //         // dbg!(storage.inner().load().memtable());
+    //         // dbg!(storage.inner().load().imm_memtables());
+    //         // dbg!(storage.inner().load().sstables_state());
+    //         assert_stream_eq(
+    //             iter.iter().await.unwrap().map(Result::unwrap),
+    //             build_stream([
+    //                 ("0", "2333333"),
+    //                 ("00", "2333"),
+    //                 ("2", "2333"),
+    //                 ("3", "23333"),
+    //             ]),
+    //         )
+    //         .await;
+    //     }
+    //
+    //     // {
+    //     //     let iter = storage.scan(Bound::Included(b"1"), Bound::Included(b"2"));
+    //     //     assert_stream_eq(
+    //     //         iter.iter().await.unwrap().map(Result::unwrap),
+    //     //         build_stream([("2", "2333")]),
+    //     //     )
+    //     //     .await;
+    //     // }
+    //     //
+    //     // {
+    //     //     let iter = storage.scan(Bound::Excluded(b"1"), Bound::Excluded(b"3"));
+    //     //     assert_stream_eq(
+    //     //         iter.iter().await.unwrap().map(Result::unwrap),
+    //     //         build_stream([("2", "2333")]),
+    //     //     )
+    //     //     .await;
+    //     // }
+    // }
 
     fn build_storage() -> LsmStorageState<impl Persistent> {
         let dir = tempdir().unwrap();

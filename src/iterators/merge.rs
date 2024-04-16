@@ -85,6 +85,7 @@ where
         let fut = current.iter.next();
         pin_mut!(fut);
         let Ready((next_iter, item)) = fut.poll(cx) else {
+            dbg!(1);
             return Pending;
         };
 

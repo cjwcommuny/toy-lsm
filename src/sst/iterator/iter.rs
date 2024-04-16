@@ -173,7 +173,9 @@ impl<'a, File> Stream for SsTableIterator<'a, File> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
         let inner = this.inner;
-        inner.poll_next(cx)
+        let x = inner.poll_next(cx);
+        dbg!(x.is_ready());
+        x
     }
 }
 

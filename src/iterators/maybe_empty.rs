@@ -1,3 +1,4 @@
+use std::future::Future;
 use futures::{Stream, StreamExt};
 
 pub type MaybeEmptyStream<Item, S> = Option<NonEmptyStream<Item, S>>;

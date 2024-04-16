@@ -190,6 +190,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::key::KeySlice;
+    use crate::persistent::LocalFs;
     use crate::sst::SsTableBuilder;
 
     #[tokio::test]

@@ -1,6 +1,6 @@
-mod concat;
-mod iter;
-mod merged;
+pub mod concat;
+pub mod iter;
+pub mod merged;
 
 pub use concat::create_sst_concat_and_seek_to_first;
 
