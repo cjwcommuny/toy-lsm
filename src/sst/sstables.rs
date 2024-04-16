@@ -366,7 +366,8 @@ mod tests {
     use crate::sst::iterator::SsTableIterator;
     use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+    // #[tokio::test]
     async fn test() {
         let options = SstOptions::builder()
             .target_sst_size(1024)
@@ -400,7 +401,6 @@ mod tests {
         {
             let mut l0 = sst.scan_l02(Unbounded, Unbounded).await;
             while let Some(x) = l0.next().await {
-                dbg!(&x);
             }
         }
 

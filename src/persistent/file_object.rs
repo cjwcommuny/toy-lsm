@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use derive_new::new;
+use tokio::spawn;
 use tokio::task::spawn_blocking;
 
 use crate::persistent::{Persistent, PersistentHandle};
@@ -60,12 +61,23 @@ pub struct FileObject {
 impl PersistentHandle for FileObject {
     async fn read(&self, offset: u64, len: usize) -> anyhow::Result<Vec<u8>> {
         let file = self.file.clone();
-        let data = spawn_blocking(move || {
+        let data = {
             let mut data = vec![0; len];
             file.read_exact_at(&mut data[..], offset)?;
             Ok::<_, anyhow::Error>(data)
-        })
-        .await??;
+        }?;
+        // let data = spawn_blocking(move || {
+        //     let mut data = vec![0; len];
+        //     file.read_exact_at(&mut data[..], offset)?;
+        //     Ok::<_, anyhow::Error>(data)
+        // })
+        // .await??;
+        // let data = spawn(async move {
+        //     let mut data = vec![0; len];
+        //     file.read_exact_at(&mut data[..], offset)?;
+        //     Ok::<_, anyhow::Error>(data)
+        // })
+        // .await??;
         Ok(data)
     }
 

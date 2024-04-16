@@ -174,7 +174,6 @@ impl<'a, File> Stream for SsTableIterator<'a, File> {
         let this = self.project();
         let inner = this.inner;
         let x = inner.poll_next(cx);
-        dbg!(x.is_ready());
         x
     }
 }
