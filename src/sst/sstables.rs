@@ -355,11 +355,13 @@ mod tests {
     use std::ops::Bound::Unbounded;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use std::time::Duration;
 
-    use crate::iterators::create_two_merge_iter;
+    use crate::iterators::{create_two_merge_iter, NonEmptyStream};
     use crate::key::KeySlice;
     use futures::StreamExt;
     use tempfile::tempdir;
+    use tokio::time::timeout;
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
@@ -383,10 +385,10 @@ mod tests {
             let mut builder = SsTableBuilder::new(16);
             builder.add(KeySlice::for_testing_from_slice_no_ts(b"11"), b"11");
             builder.add(KeySlice::for_testing_from_slice_no_ts(b"22"), b"22");
-            builder.add(KeySlice::for_testing_from_slice_no_ts(b"33"), b"11");
-            builder.add(KeySlice::for_testing_from_slice_no_ts(b"44"), b"22");
-            builder.add(KeySlice::for_testing_from_slice_no_ts(b"55"), b"11");
-            builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
+            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"33"), b"11");
+            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"44"), b"22");
+            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"55"), b"11");
+            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
             builder.build(0, None, &persistent).await.unwrap()
         };
         sst.insert_sst(Arc::new(table));
@@ -398,9 +400,31 @@ mod tests {
             //     }
             // }
         }
+        // {
+        //     let table = sst.sstables.get(&0).unwrap();
+        //     let iter = SsTableIterator::scan(table, Unbounded, Unbounded);
+        //     let iter = NonEmptyStream::try_new(iter).await.unwrap().unwrap();
+        //
+        //     let (iter, x) = iter.next().await;
+        //     let iter = iter.unwrap().unwrap();
+        //     dbg!(x);
+        //
+        //     let (iter, x) = iter.next().await;
+        //     dbg!(x);
+        //     let iter = iter.unwrap();
+        //     assert!(iter.is_none())
+        // }
         {
             let mut l0 = sst.scan_l02(Unbounded, Unbounded).await;
-            while let Some(x) = l0.next().await {
+            // let x = l0.next().await;
+            // dbg!(x);
+            match timeout(Duration::from_millis(100), l0.next()).await {
+                Ok(x) => {
+                    dbg!(x);
+                }
+                Err(e) => {
+                    println!("timeout");
+                }
             }
         }
 
