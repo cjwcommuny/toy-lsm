@@ -99,10 +99,12 @@ where
     unfold(heap, unfold_fn)
 }
 
-async fn unfold_fn<Item, I>(mut heap: BinaryHeap<HeapWrapper<Item, I>>) -> Option<(anyhow::Result<Item>, BinaryHeap<HeapWrapper<Item, I>>)>
-    where
-        I: Stream<Item = anyhow::Result<Item>> + Unpin,
-        Item: Ord + Debug,
+async fn unfold_fn<Item, I>(
+    mut heap: BinaryHeap<HeapWrapper<Item, I>>,
+) -> Option<(anyhow::Result<Item>, BinaryHeap<HeapWrapper<Item, I>>)>
+where
+    I: Stream<Item = anyhow::Result<Item>> + Unpin,
+    Item: Ord + Debug,
 {
     let Some(HeapWrapper { index, iter }) = heap.pop() else {
         return None;
