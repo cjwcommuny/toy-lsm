@@ -481,7 +481,11 @@ mod test {
         // }
         {
             let iter = storage.inner.load();
-            let iter = iter.sstables_state().scan_l0(Unbounded, Unbounded).await.map(Result::unwrap);
+            let iter = iter
+                .sstables_state()
+                .scan_l0(Unbounded, Unbounded)
+                .await
+                .map(Result::unwrap);
             assert_stream_eq(
                 iter,
                 build_stream([
@@ -490,7 +494,8 @@ mod test {
                     ("2", "2333"),
                     ("3", "23333"),
                 ]),
-            ).await;
+            )
+            .await;
         }
         // {
         //     let iter = storage.scan(Bound::Unbounded, Bound::Unbounded);

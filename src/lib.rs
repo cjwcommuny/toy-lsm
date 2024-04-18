@@ -1,3 +1,5 @@
+#![feature(type_alias_impl_trait)]
+
 mod block;
 mod bound;
 mod entry;

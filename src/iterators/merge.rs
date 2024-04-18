@@ -2,9 +2,11 @@ use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::future::ready;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use futures::stream::unfold;
 use futures::{pin_mut, FutureExt, Stream, StreamExt};
 use pin_project::pin_project;
 use tracing::{error, info, Instrument};
@@ -40,9 +42,10 @@ where
 #[pin_project]
 pub struct MergeIteratorInner<Item, I>
 where
-    Item: Ord,
+    Item: Ord + Debug,
+    I: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    iters: BinaryHeap<HeapWrapper<Item, I>>,
+    iters: Pin<Box<HeapStream<Item, I>>>,
 }
 
 impl<Item, I> MergeIteratorInner<Item, I>
@@ -64,7 +67,9 @@ where
             .map(|(index, iter)| HeapWrapper { index, iter })
             .collect()
             .await;
-        Self { iters }
+        Self {
+            iters: Box::pin(build_heap_stream(iters)),
+        }
     }
 }
 
@@ -76,43 +81,44 @@ where
     type Item = anyhow::Result<Item>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let _span = tracing::info_span!("MergeIteratorInner poll next").entered();
-        use Poll::{Pending, Ready};
         let this = self.project();
-
-        let Some(current) = this.iters.pop() else {
-            info!("return none");
-            return Ready(None);
-        };
-
-        let fut = current
-            .iter
-            .next()
-            .instrument(tracing::info_span!("current_iter_next"));
-        pin_mut!(fut);
-        let Ready((next_iter, item)) = fut.poll(cx) else {
-            info!("MergeIteratorInner pending");
-            return Pending;
-        };
-
-        let next_iter = match next_iter {
-            Ok(next_iter) => next_iter,
-            Err(e) => {
-                error!(error = ?e);
-                return Ready(Some(Err(e)))
-            },
-        };
-
-        if let Some(next_iter) = next_iter {
-            let next_wrapper = HeapWrapper {
-                index: current.index,
-                iter: next_iter,
-            };
-            this.iters.push(next_wrapper);
-        }
-        info!(elem = ?item);
-        Ready(Some(Ok(item)))
+        let iters = this.iters;
+        pin_mut!(iters);
+        iters.poll_next(cx)
     }
+}
+
+type HeapStream<Item: Ord + Debug + Send, I: Stream<Item = anyhow::Result<Item>> + Unpin + Send> =
+    impl Stream<Item = anyhow::Result<Item>> + Send;
+
+fn build_heap_stream<I, Item>(heap: BinaryHeap<HeapWrapper<Item, I>>) -> HeapStream<Item, I>
+where
+    I: Stream<Item = anyhow::Result<Item>> + Unpin,
+    Item: Ord + Debug,
+{
+    unfold(heap, unfold_fn)
+}
+
+async fn unfold_fn<Item, I>(mut heap: BinaryHeap<HeapWrapper<Item, I>>) -> Option<(anyhow::Result<Item>, BinaryHeap<HeapWrapper<Item, I>>)>
+    where
+        I: Stream<Item = anyhow::Result<Item>> + Unpin,
+        Item: Ord + Debug,
+{
+    let Some(HeapWrapper { index, iter }) = heap.pop() else {
+        return None;
+    };
+    let (next_iter, item) = iter.next().await;
+    return match next_iter {
+        Err(e) => Some((Err(e), heap)),
+        Ok(None) => Some((Ok(item), heap)),
+        Ok(Some(next_iter)) => {
+            heap.push(HeapWrapper {
+                index,
+                iter: next_iter,
+            });
+            Some((Ok(item), heap))
+        }
+    };
 }
 
 #[cfg(test)]
@@ -121,7 +127,7 @@ mod test {
     use std::future::Future;
     use std::time::Duration;
 
-    use futures::{FutureExt, stream, StreamExt};
+    use futures::{stream, FutureExt, StreamExt};
     use rand::Rng;
     use tokio::time::sleep;
 
