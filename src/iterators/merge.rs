@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 
 use futures::{pin_mut, FutureExt, Stream, StreamExt};
 use pin_project::pin_project;
+use tracing::{error, info, Instrument};
 
 use crate::iterators::maybe_empty::NonEmptyStream;
 use crate::iterators::merge::heap::HeapWrapper;
@@ -53,7 +54,7 @@ where
         let iters = iters
             .map(NonEmptyStream::try_new)
             .flat_map(FutureExt::into_stream)
-            .filter_map(|x| ready(x.ok().flatten()));
+            .filter_map(|x| ready(x.inspect_err(|err| error!(error = ?err)).ok().flatten()));
         Self::from_non_empty_iters(iters).await
     }
 
@@ -75,22 +76,31 @@ where
     type Item = anyhow::Result<Item>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let _span = tracing::info_span!("MergeIteratorInner poll next").entered();
         use Poll::{Pending, Ready};
         let this = self.project();
 
         let Some(current) = this.iters.pop() else {
+            info!("return none");
             return Ready(None);
         };
 
-        let fut = current.iter.next();
+        let fut = current
+            .iter
+            .next()
+            .instrument(tracing::info_span!("current_iter_next"));
         pin_mut!(fut);
         let Ready((next_iter, item)) = fut.poll(cx) else {
+            info!("MergeIteratorInner pending");
             return Pending;
         };
 
         let next_iter = match next_iter {
             Ok(next_iter) => next_iter,
-            Err(e) => return Ready(Some(Err(e))),
+            Err(e) => {
+                error!(error = ?e);
+                return Ready(Some(Err(e)))
+            },
         };
 
         if let Some(next_iter) = next_iter {
@@ -100,6 +110,7 @@ where
             };
             this.iters.push(next_wrapper);
         }
+        info!(elem = ?item);
         Ready(Some(Ok(item)))
     }
 }

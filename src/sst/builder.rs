@@ -127,7 +127,7 @@ impl SsTableBuilder {
             .block_meta(meta)
             .block_meta_offset(meta_offset as usize)
             .id(id)
-            .block_cache(block_cache)
+            .block_cache(None) // TODO: 暂时不实用 block_cache
             .first_key(first_key)
             .last_key(last_key)
             .bloom(Some(bloom))

@@ -1,5 +1,6 @@
-use std::future::Future;
 use futures::{Stream, StreamExt};
+use std::future::Future;
+use tracing::Instrument;
 
 pub type MaybeEmptyStream<Item, S> = Option<NonEmptyStream<Item, S>>;
 
@@ -20,7 +21,9 @@ where
 {
     pub async fn next(self) -> (anyhow::Result<MaybeEmptyStream<Item, S>>, Item) {
         let NonEmptyStream { item, stream } = self;
-        let next_stream = Self::try_new(stream).await;
+        let next_stream = Self::try_new(stream)
+            .instrument(tracing::info_span!("NonEmptyStream try new"))
+            .await;
         (next_stream, item)
     }
 

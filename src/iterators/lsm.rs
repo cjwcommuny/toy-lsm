@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use derive_new::new;
 use futures::{stream, StreamExt};
+use tracing::error;
 
 use crate::entry::Entry;
 use crate::iterators::no_deleted::new_no_deleted_iter;
@@ -43,7 +44,12 @@ where
             let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
             let tables = iter::once(memtable).chain(imm_memtables);
             let iters = stream::iter(tables).filter_map(move |table| async {
-                table.scan(self.lower, self.upper).await.ok().flatten()
+                table
+                    .scan(self.lower, self.upper)
+                    .await
+                    .inspect_err(|e| error!(error = ?e))
+                    .ok()
+                    .flatten()
             });
             create_merge_iter_from_non_empty_iters(iters).await
         };

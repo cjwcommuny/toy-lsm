@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 use futures::{future, FutureExt};
 use futures::{stream, Stream, StreamExt};
 use pin_project::pin_project;
+use tracing::info;
 
 use crate::block::BlockIterator;
 use crate::entry::Entry;
@@ -119,7 +120,7 @@ fn build_unbounded_iter<File>(
 where
     File: PersistentHandle,
 {
-    let iter = (0..table.block_meta.len()).map(|block_index| table.get_block_iter(block_index));
+    let iter = (0..table.block_meta.len()).inspect(|idx| info!(block_idx = idx)).map(|block_index| table.get_block_iter(block_index));
     iter_fut_iter_to_stream(iter)
 }
 
@@ -156,7 +157,7 @@ where
     File: PersistentHandle,
 {
     pub fn scan(table: &'a SsTable<File>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
-        let iter = build_iter(table, lower, upper);
+        let iter = build_iter(table, lower, upper).inspect(|item| info!(elem = ?item, "table iter"));
         let this = Self {
             table,
             inner: Box::pin(iter) as _,
@@ -174,6 +175,7 @@ impl<'a, File> Stream for SsTableIterator<'a, File> {
         let this = self.project();
         let inner = this.inner;
         let x = inner.poll_next(cx);
+        info!(table = this.table.id(), elem = ?x, "SsTableIterator");
         x
     }
 }

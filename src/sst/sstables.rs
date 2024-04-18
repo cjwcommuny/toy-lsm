@@ -7,13 +7,14 @@ use std::sync::Arc;
 
 use futures::{stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
+use tracing::error;
 
 use crate::entry::Entry;
+use crate::iterators::merge::MergeIteratorInner;
 use crate::iterators::{
     create_merge_iter, create_merge_iter_from_non_empty_iters, create_two_merge_iter,
     iter_fut_to_stream, MergeIterator, NonEmptyStream,
 };
-use crate::iterators::merge::MergeIteratorInner;
 use crate::key::KeySlice;
 use crate::persistent::{Persistent, PersistentHandle};
 use crate::sst::compact::{
@@ -49,7 +50,7 @@ impl<File> Clone for Sstables<File> {
     }
 }
 
-impl<File> Debug for Sstables<File> {
+impl<File: PersistentHandle> Debug for Sstables<File> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sstables")
             .field("l0_sstables", &self.l0_sstables)
@@ -119,7 +120,7 @@ where
         x
     }
 
-    async fn scan_l0<'a>(
+    pub async fn scan_l0<'a>(
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
@@ -144,14 +145,18 @@ where
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> impl Iterator<Item = SsTableIterator<'a, File>> + 'a {
-        let iters = self.l0_sstables.iter()
+        let iters = self
+            .l0_sstables
+            .iter()
             .map(|id| self.sstables.get(id).unwrap())
             .filter_map(move |table| {
-                if !filter_sst_by_bloom(table, lower, upper) {
-                    None
-                } else {
-                    Some(SsTableIterator::scan(table, lower, upper))
-                }
+                Some(SsTableIterator::scan(table, lower, upper))
+                // todo: add bloom
+                // if !filter_sst_by_bloom(table, lower, upper) {
+                //     None
+                // } else {
+                //
+                // }
             });
         iters
     }
@@ -163,7 +168,9 @@ where
     ) -> MergeIterator<Entry, SstConcatIterator<'a>> {
         let iters = self.levels.iter().filter_map(move |(_, ids)| {
             let tables = ids.iter().map(|id| self.sstables.get(id).unwrap().as_ref());
-            scan_sst_concat(tables, lower, upper).ok()
+            scan_sst_concat(tables, lower, upper)
+                .inspect_err(|err| error!(error = ?err))
+                .ok()
         });
         let iters = stream::iter(iters);
         create_merge_iter(iters).await
@@ -230,7 +237,8 @@ where
                 .map(SsTableIterator::create_and_seek_to_first)
                 .map(Box::new)
                 .map(NonEmptyStream::try_new);
-            let iters = iter_fut_to_stream(iters).filter_map(|s| ready(s.ok().flatten()));
+            let iters = iter_fut_to_stream(iters)
+                .filter_map(|s| ready(s.inspect_err(|err| error!(error = ?err)).ok().flatten()));
             create_merge_iter_from_non_empty_iters(iters).await
         };
         let l1 = {
@@ -308,7 +316,11 @@ where
     if builder.is_empty() {
         None
     } else {
-        builder.build(sst_id, None, persistent).await.ok()
+        builder
+            .build(sst_id, None, persistent)
+            .await
+            .inspect_err(|err| error!(error = ?err))
+            .ok()
     }
 }
 
@@ -360,24 +372,30 @@ mod tests {
     use crate::iterators::{create_two_merge_iter, NonEmptyStream};
     use crate::key::KeySlice;
     use futures::StreamExt;
-    use tempfile::tempdir;
+    use tempfile::{tempdir, TempDir};
     use tokio::time::timeout;
+    use tracing::{info, Instrument};
+    use tracing_subscriber::fmt::format::FmtSpan;
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
     use crate::sst::iterator::SsTableIterator;
     use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-    // #[tokio::test]
+    #[tokio::test]
     async fn test() {
+        tracing_subscriber::fmt::fmt()
+            .with_span_events(FmtSpan::EXIT | FmtSpan::ENTER | FmtSpan::CLOSE)
+            .with_target(false)
+            .with_level(false)
+            .init();
         let options = SstOptions::builder()
             .target_sst_size(1024)
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
             .build();
-        let dir = tempdir().unwrap();
+        let dir = TempDir::new_in("/tmp/test").unwrap();
         let path = dir.as_ref();
         let persistent = LocalFs::new(path.to_path_buf());
         let mut sst = Sstables::<FileObject>::new(&options);
@@ -385,50 +403,15 @@ mod tests {
             let mut builder = SsTableBuilder::new(16);
             builder.add(KeySlice::for_testing_from_slice_no_ts(b"11"), b"11");
             builder.add(KeySlice::for_testing_from_slice_no_ts(b"22"), b"22");
-            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"33"), b"11");
-            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"44"), b"22");
-            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"55"), b"11");
-            // builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"33"), b"11");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"44"), b"22");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"55"), b"11");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
             builder.build(0, None, &persistent).await.unwrap()
         };
         sst.insert_sst(Arc::new(table));
-        {
-            // let mut l0_iter: Vec<_> = sst.build_l0_iter(Unbounded, Unbounded).collect();
-            // for i in l0_iter.iter_mut() {
-            //     while let Some(x) = i.next().await {
-            //         dbg!(&x);
-            //     }
-            // }
-        }
-        // {
-        //     let table = sst.sstables.get(&0).unwrap();
-        //     let iter = SsTableIterator::scan(table, Unbounded, Unbounded);
-        //     let iter = NonEmptyStream::try_new(iter).await.unwrap().unwrap();
-        //
-        //     let (iter, x) = iter.next().await;
-        //     let iter = iter.unwrap().unwrap();
-        //     dbg!(x);
-        //
-        //     let (iter, x) = iter.next().await;
-        //     dbg!(x);
-        //     let iter = iter.unwrap();
-        //     assert!(iter.is_none())
-        // }
-        {
-            let mut l0 = sst.scan_l02(Unbounded, Unbounded).await;
-            // let x = l0.next().await;
-            // dbg!(x);
-            match timeout(Duration::from_millis(100), l0.next()).await {
-                Ok(x) => {
-                    dbg!(x);
-                }
-                Err(e) => {
-                    println!("timeout");
-                }
-            }
-        }
 
-        // let mut levels = sst.scan_levels(Unbounded, Unbounded).await;
-        // while let Some(x) = levels.next().await {}
+        let iter = sst.scan_sst(Unbounded, Unbounded).await.unwrap();
+        // assert_eq!()
     }
 }

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use derive_new::new;
 use tokio::spawn;
 use tokio::task::spawn_blocking;
+use tracing::Instrument;
 
 use crate::persistent::{Persistent, PersistentHandle};
 
@@ -71,6 +72,7 @@ impl PersistentHandle for FileObject {
             file.read_exact_at(&mut data[..], offset)?;
             Ok::<_, anyhow::Error>(data)
         })
+        .instrument(tracing::info_span!("read spawn"))
         .await??;
         // let data = spawn(async move {
         //     let mut data = vec![0; len];

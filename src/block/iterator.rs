@@ -2,6 +2,7 @@ use crate::block::blocks::Block;
 use crate::entry::Entry;
 use crate::key::{Key, KeySlice};
 use std::sync::Arc;
+use tracing::info;
 
 // Iterates on a block.
 pub struct BlockIterator {
@@ -53,6 +54,7 @@ impl Iterator for BlockIterator {
             return None;
         }
         let entry = self.block.get_entry(self.idx);
+        info!(entry = ?entry, block = ?self.block, "BlockIterator");
         self.idx += 1;
         Some(Ok(entry))
     }
