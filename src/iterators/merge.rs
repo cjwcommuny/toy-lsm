@@ -118,9 +118,12 @@ where
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
-    use std::vec;
+    use std::future::Future;
+    use std::time::Duration;
 
-    use futures::{stream, StreamExt};
+    use futures::{FutureExt, stream, StreamExt};
+    use rand::Rng;
+    use tokio::time::sleep;
 
     use crate::entry::Entry;
     use crate::iterators::merge::MergeIteratorInner;
@@ -166,17 +169,20 @@ mod test {
         iters: impl IntoIterator<Item = impl IntoIterator<Item = T>>,
         expect: impl IntoIterator<Item = T>,
     ) {
-        let iters = iters
-            .into_iter()
-            .map(IntoIterator::into_iter)
-            .map(|inner| inner.map(Ok::<T, anyhow::Error>))
+        let iters = stream::iter(iters)
             .map(stream::iter)
-            .map(Box::new);
-        let iters = stream::iter(iters);
+            .map(|inner| inner.flat_map(|x| build(x).into_stream()));
         let merged = MergeIteratorInner::create(iters).await;
         let merged: Vec<_> = merged.map(Result::unwrap).collect().await;
         let expect: Vec<_> = expect.into_iter().collect();
         assert_eq!(expect, merged);
+    }
+
+    fn build<T>(x: T) -> impl Future<Output = anyhow::Result<T>> + Unpin {
+        Box::pin(async move {
+            sleep(Duration::from_millis(100)).await;
+            Ok::<T, anyhow::Error>(x)
+        })
     }
 
     #[tokio::test]
