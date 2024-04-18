@@ -384,11 +384,11 @@ mod tests {
 
     #[tokio::test]
     async fn test() {
-        tracing_subscriber::fmt::fmt()
-            .with_span_events(FmtSpan::EXIT | FmtSpan::ENTER | FmtSpan::CLOSE)
-            .with_target(false)
-            .with_level(false)
-            .init();
+        // tracing_subscriber::fmt::fmt()
+        //     .with_span_events(FmtSpan::EXIT | FmtSpan::ENTER | FmtSpan::CLOSE)
+        //     .with_target(false)
+        //     .with_level(false)
+        //     .init();
         let options = SstOptions::builder()
             .target_sst_size(1024)
             .block_size(4096)

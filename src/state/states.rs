@@ -422,13 +422,13 @@ mod test {
 
     #[tokio::test]
     async fn test_task1_storage_scan() {
-        tracing_subscriber::fmt::fmt()
-            // .with_span_events(FmtSpan::EXIT | FmtSpan::ENTER | FmtSpan::CLOSE)
-            .with_line_number(true)
-            .with_file(true)
-            .with_target(false)
-            .with_level(false)
-            .init();
+        // tracing_subscriber::fmt::fmt()
+        //     // .with_span_events(FmtSpan::EXIT | FmtSpan::ENTER | FmtSpan::CLOSE)
+        //     .with_line_number(true)
+        //     .with_file(true)
+        //     .with_target(false)
+        //     .with_level(false)
+        //     .init();
         let storage = build_storage();
         storage.put_for_test(b"0", b"2333333").await.unwrap();
         storage.put_for_test(b"00", b"2333333").await.unwrap();
