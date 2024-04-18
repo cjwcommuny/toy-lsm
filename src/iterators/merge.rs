@@ -88,8 +88,8 @@ where
     }
 }
 
-type HeapStream<Item: Ord + Debug + Send, I: Stream<Item = anyhow::Result<Item>> + Unpin + Send> =
-    impl Stream<Item = anyhow::Result<Item>> + Send;
+type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
+    impl Stream<Item = anyhow::Result<Item>>;
 
 fn build_heap_stream<I, Item>(heap: BinaryHeap<HeapWrapper<Item, I>>) -> HeapStream<Item, I>
 where
