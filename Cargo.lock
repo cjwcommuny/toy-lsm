@@ -110,7 +110,7 @@ checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 [[package]]
 name = "async-iter-ext"
 version = "0.1.0"
-source = "git+https://github.com/cjwcommuny/async-iter-ext?rev=571997b#571997bf017e77a1a667d344ca1f9eba151c721b"
+source = "git+https://github.com/cjwcommuny/async-iter-ext?rev=38cf62b#38cf62b9f98f0b88ffd15161d55ef3715766dcd2"
 dependencies = [
  "futures",
  "pin-project",

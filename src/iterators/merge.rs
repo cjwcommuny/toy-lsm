@@ -135,7 +135,7 @@ mod test {
 
     use crate::entry::Entry;
     use crate::iterators::merge::MergeIteratorInner;
-    use crate::iterators::utils::build_stream;
+    use crate::iterators::utils::{assert_stream_eq, build_stream};
     use crate::iterators::{create_merge_iter, eq};
 
     #[tokio::test]
@@ -204,39 +204,34 @@ mod test {
 
         let (i1, i2, i3) = build_sub_stream();
 
-        assert!(
-            eq(
-                create_merge_iter(stream::iter([i1, i2, i3]))
-                    .await
-                    .map(Result::unwrap),
-                build_stream([
-                    ("a", "1.1"),
-                    ("b", "2.1"),
-                    ("c", "3.1"),
-                    ("d", "4.2"),
-                    ("e", ""),
-                ]),
-            )
-            .await
-        );
+        assert_stream_eq(
+            create_merge_iter(stream::iter([i1, i2, i3]))
+                .await
+                .map(Result::unwrap),
+            build_stream([
+                ("a", "1.1"),
+                ("b", "2.1"),
+                ("c", "3.1"),
+                ("d", "4.2"),
+                ("e", ""),
+            ]),
+        )
+        .await;
 
         let (i1, i2, i3) = build_sub_stream();
-
-        assert!(
-            eq(
-                create_merge_iter(stream::iter([i3, i1, i2]))
-                    .await
-                    .map(Result::unwrap),
-                build_stream([
-                    ("a", "1.1"),
-                    ("b", "2.3"),
-                    ("c", "3.3"),
-                    ("d", "4.3"),
-                    ("e", ""),
-                ]),
-            )
-            .await
-        );
+        assert_stream_eq(
+            create_merge_iter(stream::iter([i3, i1, i2]))
+                .await
+                .map(Result::unwrap),
+            build_stream([
+                ("a", "1.1"),
+                ("b", "2.3"),
+                ("c", "3.3"),
+                ("d", "4.3"),
+                ("e", ""),
+            ]),
+        )
+        .await;
     }
 
     #[tokio::test]
