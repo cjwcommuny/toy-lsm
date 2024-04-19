@@ -393,7 +393,7 @@ mod tests {
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
             .build();
-        let dir = TempDir::new_in("/tmp/test").unwrap();
+        let dir = TempDir::new().unwrap();
         let path = dir.as_ref();
         let persistent = LocalFs::new(path.to_path_buf());
         let mut sst = Sstables::<FileObject>::new(&options);
