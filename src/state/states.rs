@@ -234,7 +234,7 @@ mod test {
     use std::time::Duration;
 
     use futures::StreamExt;
-    use tempfile::tempdir;
+    use tempfile::{tempdir, TempDir};
     use tokio::time::timeout;
     use tracing::{info, Instrument};
     use tracing_subscriber::fmt::format::FmtSpan;
@@ -248,7 +248,8 @@ mod test {
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
-        let storage = build_storage();
+        let dir = tempdir().unwrap();
+        let storage = build_storage(&dir);
 
         assert_eq!(None, storage.get_for_test(b"0").await.unwrap());
 
@@ -277,7 +278,8 @@ mod test {
 
     #[tokio::test]
     async fn test_task3_storage_integration() {
-        let storage = build_storage();
+        let dir = tempdir().unwrap();
+        let storage = build_storage(&dir);
 
         assert_eq!(storage.inner.load().imm_memtables().len(), 0);
 
@@ -315,7 +317,8 @@ mod test {
 
     #[tokio::test]
     async fn test_task3_freeze_on_capacity() {
-        let storage = build_storage();
+        let dir = tempdir().unwrap();
+        let storage = build_storage(&dir);
         for _ in 0..1000 {
             storage.put_for_test(b"1", b"2333").await.unwrap();
         }
@@ -333,7 +336,8 @@ mod test {
 
     #[tokio::test]
     async fn test_task4_storage_integration() {
-        let storage = build_storage();
+        let dir = tempdir().unwrap();
+        let storage = build_storage(&dir);
 
         assert_eq!(&storage.get_for_test(b"0").await.unwrap(), &None);
         storage.put_for_test(b"1", b"233").await.unwrap();
@@ -375,7 +379,8 @@ mod test {
 
     #[tokio::test]
     async fn test_task4_integration() {
-        let storage = build_storage();
+        let dir = tempdir().unwrap();
+        let storage = build_storage(&dir);
         storage.put_for_test(b"1", b"233").await.unwrap();
         storage.put_for_test(b"2", b"2333").await.unwrap();
         storage.put_for_test(b"3", b"23333").await.unwrap();
@@ -429,7 +434,8 @@ mod test {
         //     .with_target(false)
         //     .with_level(false)
         //     .init();
-        let storage = build_storage();
+        let dir = tempdir().unwrap();
+        let storage = build_storage(&dir);
         storage.put_for_test(b"0", b"2333333").await.unwrap();
         storage.put_for_test(b"00", b"2333333").await.unwrap();
         storage.put_for_test(b"4", b"23").await.unwrap();
@@ -472,7 +478,6 @@ mod test {
             assert_eq!(inner.imm_memtables().len(), 2);
         }
         {
-            info!(storage = ?storage);
             let guard = storage.scan(Unbounded, Unbounded);
             let iter = guard.iter().await.unwrap().map(Result::unwrap);
             assert_stream_eq(
@@ -506,10 +511,8 @@ mod test {
         }
     }
 
-    fn build_storage() -> LsmStorageState<impl Persistent> {
-        let dir = tempdir().unwrap();
-        info!(dir = ?dir.path());
-        let persistent = LocalFs::new(dir.into_path());
+    fn build_storage(dir: &TempDir) -> LsmStorageState<impl Persistent> {
+        let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
             .target_sst_size(1024)
             .block_size(4096)
