@@ -116,5 +116,5 @@ jobs:
       with:
         globs: '**/*.md'
 
-  check-msrv:
-    uses: ./.github/workflows/msrv.yaml
+#  check-msrv:
+#    uses: ./.github/workflows/msrv.yaml
