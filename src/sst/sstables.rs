@@ -3,20 +3,24 @@ use std::fmt::{Debug, Formatter};
 use std::future::ready;
 use std::mem;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use futures::{stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
+use tracing::error;
 
 use crate::entry::Entry;
+use crate::iterators::merge::MergeIteratorInner;
 use crate::iterators::{
     create_merge_iter, create_merge_iter_from_non_empty_iters, create_two_merge_iter,
-    iter_fut_to_stream, NonEmptyStream,
+    iter_fut_to_stream, MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
 use crate::persistent::{Persistent, PersistentHandle};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };
+use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::{
     create_sst_concat_and_seek_to_first, scan_sst_concat, MergedSstIterator, SsTableIterator,
 };
@@ -33,10 +37,20 @@ pub struct Sstables<File> {
     /// SST objects.
     /// todo: 这里的 key 不存储 index，只存储 reference
     /// todo: 这个接口的设计需要调整，把 usize 封装起来
-    sstables: HashMap<usize, SsTable<File>>,
+    sstables: HashMap<usize, Arc<SsTable<File>>>,
 }
 
-impl<File> Debug for Sstables<File> {
+impl<File> Clone for Sstables<File> {
+    fn clone(&self) -> Self {
+        Self {
+            l0_sstables: self.l0_sstables.clone(),
+            levels: self.levels.clone(),
+            sstables: self.sstables.clone(),
+        }
+    }
+}
+
+impl<File: PersistentHandle> Debug for Sstables<File> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sstables")
             .field("l0_sstables", &self.l0_sstables)
@@ -46,10 +60,25 @@ impl<File> Debug for Sstables<File> {
     }
 }
 
+#[cfg(test)]
+impl<File> Sstables<File> {
+    pub fn l0_sstables(&self) -> &[usize] {
+        &self.l0_sstables
+    }
+
+    pub fn levels(&self) -> &[(usize, Vec<usize>)] {
+        &self.levels
+    }
+
+    pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
+        &self.sstables
+    }
+}
+
 // only for test
 impl<File> Sstables<File> {
     // todo: delete it
-    pub fn sstables_mut(&mut self) -> &mut HashMap<usize, SsTable<File>> {
+    pub fn sstables_mut(&mut self) -> &mut HashMap<usize, Arc<SsTable<File>>> {
         &mut self.sstables
     }
 
@@ -75,7 +104,7 @@ impl<File> Sstables<File>
 where
     File: PersistentHandle,
 {
-    pub fn insert_sst(&mut self, table: SsTable<File>) {
+    pub fn insert_sst(&mut self, table: Arc<SsTable<File>>) {
         self.l0_sstables.insert(0, *table.id());
         self.sstables.insert(*table.id(), table);
     }
@@ -85,33 +114,64 @@ where
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<MergedSstIterator<'a, File>> {
-        let sstables = &self.sstables;
-
-        let l0 = {
-            let iters = stream::iter(self.l0_sstables.iter()).filter_map(|id| {
-                let table = sstables.get(id).unwrap();
-                async move {
-                    if !filter_sst_by_bloom(table, lower, upper) {
-                        None
-                    } else {
-                        let iter = SsTableIterator::scan(table, lower, upper);
-                        NonEmptyStream::try_new(iter).await.ok().flatten()
-                    }
-                }
-            });
-            create_merge_iter_from_non_empty_iters(iters).await
-        };
-
-        let levels = {
-            let iters = self.levels.iter().filter_map(move |(_, ids)| {
-                let tables = ids.iter().map(|id| self.sstables.get(id).unwrap());
-                scan_sst_concat(tables, lower, upper).ok()
-            });
-            let iters = stream::iter(iters);
-            create_merge_iter(iters).await
-        };
+        let l0 = self.scan_l0(lower, upper).await;
+        let levels = self.scan_levels(lower, upper).await;
 
         create_two_merge_iter(l0, levels).await
+    }
+
+    pub async fn scan_l0<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> MergeIterator<Entry, SsTableIterator<'a, File>> {
+        let iters = self.build_l0_iter(lower, upper);
+        let iters = stream::iter(iters);
+        create_merge_iter(iters).await
+    }
+
+    async fn scan_l02<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> MergeIteratorInner<Entry, SsTableIterator<'a, File>> {
+        let iters = self.build_l0_iter(lower, upper);
+        let iters = stream::iter(iters);
+        MergeIteratorInner::create(iters).await
+    }
+
+    fn build_l0_iter<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> impl Iterator<Item = SsTableIterator<'a, File>> + 'a {
+        let iters = self
+            .l0_sstables
+            .iter()
+            .map(|id| self.sstables.get(id).unwrap())
+            .filter_map(move |table| {
+                if !filter_sst_by_bloom(table, lower, upper) {
+                    None
+                } else {
+                    Some(SsTableIterator::scan(table, lower, upper))
+                }
+            });
+        iters
+    }
+
+    async fn scan_levels<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> MergeIterator<Entry, SstConcatIterator<'a>> {
+        let iters = self.levels.iter().filter_map(move |(_, ids)| {
+            let tables = ids.iter().map(|id| self.sstables.get(id).unwrap().as_ref());
+            scan_sst_concat(tables, lower, upper)
+                .inspect_err(|err| error!(error = ?err))
+                .ok()
+        });
+        let iters = stream::iter(iters);
+        create_merge_iter(iters).await
     }
 
     fn level_size(&self, level: usize) -> usize {
@@ -165,23 +225,24 @@ where
         &self,
         l0_sstables: &[usize],
         l1_sstables: &[usize],
-        sstables: &HashMap<usize, SsTable<File>>,
+        sstables: &HashMap<usize, Arc<SsTable<File>>>,
         _next_sst_id: impl Fn() -> usize,
-    ) -> anyhow::Result<Vec<SsTable<File>>> {
+    ) -> anyhow::Result<Vec<Arc<SsTable<File>>>> {
         let l0 = {
             let iters = l0_sstables
                 .iter()
-                .map(|index| sstables.get(index).unwrap())
+                .map(|index| sstables.get(index).unwrap().as_ref())
                 .map(SsTableIterator::create_and_seek_to_first)
                 .map(Box::new)
                 .map(NonEmptyStream::try_new);
-            let iters = iter_fut_to_stream(iters).filter_map(|s| ready(s.ok().flatten()));
+            let iters = iter_fut_to_stream(iters)
+                .filter_map(|s| ready(s.inspect_err(|err| error!(error = ?err)).ok().flatten()));
             create_merge_iter_from_non_empty_iters(iters).await
         };
         let l1 = {
             let tables = l1_sstables
                 .iter()
-                .map(|index| sstables.get(index).unwrap())
+                .map(|index| sstables.get(index).unwrap().as_ref())
                 .collect();
             create_sst_concat_and_seek_to_first(tables)
         }?;
@@ -253,7 +314,11 @@ where
     if builder.is_empty() {
         None
     } else {
-        builder.build(sst_id, None, persistent).await.ok()
+        builder
+            .build(sst_id, None, persistent)
+            .await
+            .inspect_err(|err| error!(error = ?err))
+            .ok()
     }
 }
 
@@ -293,4 +358,58 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Bound::Unbounded;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crate::iterators::{create_two_merge_iter, NonEmptyStream};
+    use crate::key::KeySlice;
+    use futures::StreamExt;
+    use tempfile::{tempdir, TempDir};
+    use tokio::time::timeout;
+    use tracing::{info, Instrument};
+    use tracing_subscriber::fmt::format::FmtSpan;
+
+    use crate::persistent::file_object::FileObject;
+    use crate::persistent::LocalFs;
+    use crate::sst::iterator::SsTableIterator;
+    use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
+
+    #[tokio::test]
+    async fn test() {
+        // tracing_subscriber::fmt::fmt()
+        //     .with_span_events(FmtSpan::EXIT | FmtSpan::ENTER | FmtSpan::CLOSE)
+        //     .with_target(false)
+        //     .with_level(false)
+        //     .init();
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .build();
+        let dir = TempDir::new().unwrap();
+        let path = dir.as_ref();
+        let persistent = LocalFs::new(path.to_path_buf());
+        let mut sst = Sstables::<FileObject>::new(&options);
+        let table = {
+            let mut builder = SsTableBuilder::new(16);
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"11"), b"11");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"22"), b"22");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"33"), b"11");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"44"), b"22");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"55"), b"11");
+            builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
+            builder.build(0, None, &persistent).await.unwrap()
+        };
+        sst.insert_sst(Arc::new(table));
+
+        let iter = sst.scan_sst(Unbounded, Unbounded).await.unwrap();
+        // assert_eq!()
+    }
 }

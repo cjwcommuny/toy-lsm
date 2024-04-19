@@ -11,10 +11,10 @@ use crate::iterators::{MaybeEmptyStream, NonEmptyStream, OkIter};
 
 pub type MemTableIterator<'a> = stream::Iter<OkIter<ClonedSkipMapRangeIter<'a>>>;
 type ClonedSkipMapRangeIter<'a> =
-    iter::Map<SkipMapRangeIter<'a>, fn(SkipMapRangeEntry<'a>) -> Entry>;
+    iter::Map<SkipMapRangeIter<'a>, for<'b> fn(SkipMapRangeEntry<'b>) -> Entry>;
 
 pub fn new_memtable_iter(iter: SkipMapRangeIter) -> MemTableIterator {
-    let iter = iter.map(convert_entry as fn(_) -> _);
+    let iter = iter.map(convert_entry as for<'a> fn(map::Entry<'a, Bytes, Bytes>) -> _);
     stream::iter(OkIter::new(iter))
 }
 

@@ -1,11 +1,14 @@
 use bytemuck::TransparentWrapper;
 use std::collections::Bound;
 
+use crate::entry::Entry;
 use crate::key::KeySlice;
 use crate::memtable::iterator::MaybeEmptyMemTableIterRef;
 use crate::memtable::mutable::MemTable;
 use crate::sst::SsTableBuilder;
 use bytes::Bytes;
+use crossbeam_skiplist::map;
+use deref_ext::DerefExt;
 use derive_new::new;
 use nom::AsBytes;
 use ref_cast::RefCast;
@@ -38,15 +41,8 @@ impl ImmutableMemTable {
         self.0.get(key)
     }
 
-    /// Flush the mem-table to SSTable. Implement in week 1 day 6.
-    pub fn flush(&self, builder: &mut SsTableBuilder) -> anyhow::Result<()> {
-        for entry in self.0.map().iter() {
-            builder.add(
-                KeySlice::from_slice(entry.key().as_bytes()),
-                entry.value().as_bytes(),
-            );
-        }
-        Ok(())
+    pub fn iter(&self) -> impl Iterator<Item = map::Entry<Bytes, Bytes>> {
+        self.0.map().iter()
     }
 }
 

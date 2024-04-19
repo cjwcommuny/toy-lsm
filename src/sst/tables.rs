@@ -1,9 +1,13 @@
 use std::fmt::{Debug, Formatter};
+use std::ops::Bound::Unbounded;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use bytes::Buf;
 use derive_getters::Getters;
+use futures::executor::block_on;
+use futures::StreamExt;
+use tracing::info;
 use typed_builder::TypedBuilder;
 
 use crate::block::{Block, BlockCache, BlockIterator};
@@ -11,7 +15,7 @@ use crate::iterators::transpose_try_iter;
 use crate::key::{KeyBytes, KeySlice};
 use crate::persistent::PersistentHandle;
 use crate::sst::bloom::Bloom;
-use crate::sst::iterator::BlockFallibleIter;
+use crate::sst::iterator::{BlockFallibleIter, SsTableIterator};
 use crate::sst::BlockMeta;
 
 /// An SSTable.
@@ -32,9 +36,14 @@ pub struct SsTable<File> {
     max_ts: u64,
 }
 
-impl<File> Debug for SsTable<File> {
+impl<File: PersistentHandle> Debug for SsTable<File> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SsTable").field("id", &self.id).finish()
+        f.debug_struct("SsTable")
+            .field("id", &self.id)
+            .field("block_meta", &self.block_meta)
+            .field("first_key", self.first_key())
+            .field("last_key", self.last_key())
+            .finish()
     }
 }
 

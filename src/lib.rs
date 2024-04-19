@@ -1,3 +1,5 @@
+#![feature(type_alias_impl_trait)]
+
 mod block;
 mod bound;
 mod entry;
@@ -10,6 +12,7 @@ pub mod state;
 mod wal;
 
 mod test_utils;
+mod utils;
 
 pub async fn fibonacci(n: u64) -> u64 {
     let mut a = 0;

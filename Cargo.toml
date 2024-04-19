@@ -29,7 +29,7 @@ derive-new = "0.6.0"
 itertools = "0.12.1"
 ref-cast = "1.0.22"
 deref_ext = { git = "https://github.com/cjwcommuny/deref_ext", rev = "2b14702" }
-async-iter-ext = { git = "https://github.com/cjwcommuny/async-iter-ext", rev = "571997b" }
+async-iter-ext = { git = "https://github.com/cjwcommuny/async-iter-ext", rev = "38cf62b" }
 typed-builder = "0.18.1"
 derive-getters = "0.3.0"
 tokio = { version = "1.37.0", features = ["full"] }
@@ -39,6 +39,8 @@ pin-project = "1.1.5"
 proptest = "1.4.0"
 test-strategy = "0.3.1"
 bytemuck = { version = "1.15.0", features = ["extern_crate_alloc", "derive"] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 
 [dev-dependencies]
 tempfile = "3"

@@ -6,6 +6,7 @@ use std::task::{Context, Poll};
 
 use futures::Stream;
 use pin_project::pin_project;
+use tracing::info;
 
 use crate::iterators::no_duplication::{new_no_duplication, NoDuplication};
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream};
@@ -89,6 +90,7 @@ fn handle_next<Item, I, A>(
 ) -> Poll<Option<anyhow::Result<Item>>>
 where
     I: Stream<Item = anyhow::Result<Item>> + Unpin,
+    Item: Debug,
 {
     use Poll::{Pending, Ready};
 
@@ -124,7 +126,8 @@ mod test {
 
     #[tokio::test]
     async fn test_single() {
-        helper([], [1], vec![1]).await
+        helper([], [1], vec![1]).await;
+        helper([1], [], vec![1]).await;
     }
 
     #[tokio::test]

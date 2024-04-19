@@ -2,6 +2,7 @@ use crate::block::blocks::Block;
 use crate::entry::Entry;
 use crate::key::{Key, KeySlice};
 use std::sync::Arc;
+use tracing::info;
 
 // Iterates on a block.
 pub struct BlockIterator {

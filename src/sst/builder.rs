@@ -1,13 +1,16 @@
 use std::mem;
+use std::ops::Bound::Unbounded;
 use std::sync::Arc;
 
 use anyhow::Result;
 use bytes::BufMut;
+use nom::AsBytes;
 #[cfg(test)]
 use tempfile::TempDir;
 
 use crate::block::{BlockBuilder, BlockCache};
 use crate::key::{KeySlice, KeyVec};
+use crate::memtable::ImmutableMemTable;
 use crate::persistent::file_object::FileObject;
 use crate::persistent::{LocalFs, Persistent};
 use crate::sst::bloom::Bloom;
@@ -38,6 +41,7 @@ impl SsTableBuilder {
     ///
     /// Note: You should split a new block when the current block is full.(`std::mem::replace` may
     /// be helpful here)
+    /// 应该改成传入 owned bytes
     pub fn add(&mut self, key: KeySlice, value: &[u8]) {
         let success = self.builder.add(key, value);
         if success {
@@ -123,7 +127,7 @@ impl SsTableBuilder {
             .block_meta(meta)
             .block_meta_offset(meta_offset as usize)
             .id(id)
-            .block_cache(block_cache)
+            .block_cache(None) // TODO: 暂时不实用 block_cache
             .first_key(first_key)
             .last_key(last_key)
             .bloom(Some(bloom))
@@ -136,6 +140,15 @@ impl SsTableBuilder {
     pub fn is_empty(&self) -> bool {
         self.data.len() == 0 && self.builder.is_empty()
     }
+
+    pub fn flush(&mut self, memtable: &ImmutableMemTable) {
+        for entry in memtable.iter() {
+            self.add(
+                KeySlice::from_slice(entry.key().as_bytes()),
+                entry.value().as_bytes(),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -147,17 +160,22 @@ impl SsTableBuilder {
 }
 
 #[cfg(test)]
-async fn generate_sst(dir: TempDir) -> SsTable<FileObject> {
-    fn key_of(idx: usize) -> KeyVec {
-        KeyVec::for_testing_from_vec_no_ts(format!("key_{:03}", idx * 5).into_bytes())
-    }
-    fn value_of(idx: usize) -> Vec<u8> {
-        format!("value_{:010}", idx).into_bytes()
-    }
-    fn num_of_keys() -> usize {
-        100
-    }
+pub fn key_of(idx: usize) -> KeyVec {
+    KeyVec::for_testing_from_vec_no_ts(format!("key_{:03}", idx * 5).into_bytes())
+}
 
+#[cfg(test)]
+pub fn value_of(idx: usize) -> Vec<u8> {
+    format!("value_{:010}", idx).into_bytes()
+}
+
+#[cfg(test)]
+pub fn num_of_keys() -> usize {
+    100
+}
+
+#[cfg(test)]
+pub async fn generate_sst(dir: TempDir) -> SsTable<FileObject> {
     let mut builder = SsTableBuilder::new(128);
     for idx in 0..num_of_keys() {
         let key = key_of(idx);
@@ -172,6 +190,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::key::KeySlice;
+    use crate::persistent::LocalFs;
     use crate::sst::SsTableBuilder;
 
     #[tokio::test]

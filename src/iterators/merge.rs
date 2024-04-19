@@ -2,11 +2,14 @@ use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::future::ready;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use futures::stream::unfold;
 use futures::{pin_mut, FutureExt, Stream, StreamExt};
 use pin_project::pin_project;
+use tracing::{error, info, Instrument};
 
 use crate::iterators::maybe_empty::NonEmptyStream;
 use crate::iterators::merge::heap::HeapWrapper;
@@ -39,9 +42,10 @@ where
 #[pin_project]
 pub struct MergeIteratorInner<Item, I>
 where
-    Item: Ord,
+    Item: Ord + Debug,
+    I: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    iters: BinaryHeap<HeapWrapper<Item, I>>,
+    iters: Pin<Box<HeapStream<Item, I>>>,
 }
 
 impl<Item, I> MergeIteratorInner<Item, I>
@@ -53,7 +57,7 @@ where
         let iters = iters
             .map(NonEmptyStream::try_new)
             .flat_map(FutureExt::into_stream)
-            .filter_map(|x| ready(x.ok().flatten()));
+            .filter_map(|x| ready(x.inspect_err(|err| error!(error = ?err)).ok().flatten()));
         Self::from_non_empty_iters(iters).await
     }
 
@@ -63,7 +67,9 @@ where
             .map(|(index, iter)| HeapWrapper { index, iter })
             .collect()
             .await;
-        Self { iters }
+        Self {
+            iters: Box::pin(build_heap_stream(iters)),
+        }
     }
 }
 
@@ -75,45 +81,59 @@ where
     type Item = anyhow::Result<Item>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        use Poll::{Pending, Ready};
         let this = self.project();
+        let iters = this.iters;
+        pin_mut!(iters);
+        iters.poll_next(cx)
+    }
+}
 
-        let Some(current) = this.iters.pop() else {
-            return Ready(None);
-        };
+type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
+    impl Stream<Item = anyhow::Result<Item>>;
 
-        let fut = current.iter.next();
-        pin_mut!(fut);
-        let Ready((next_iter, item)) = fut.poll(cx) else {
-            return Pending;
-        };
+fn build_heap_stream<I, Item>(heap: BinaryHeap<HeapWrapper<Item, I>>) -> HeapStream<Item, I>
+where
+    I: Stream<Item = anyhow::Result<Item>> + Unpin,
+    Item: Ord + Debug,
+{
+    unfold(heap, unfold_fn)
+}
 
-        let next_iter = match next_iter {
-            Ok(next_iter) => next_iter,
-            Err(e) => return Ready(Some(Err(e))),
-        };
-
-        if let Some(next_iter) = next_iter {
-            let next_wrapper = HeapWrapper {
-                index: current.index,
+async fn unfold_fn<Item, I>(
+    mut heap: BinaryHeap<HeapWrapper<Item, I>>,
+) -> Option<(anyhow::Result<Item>, BinaryHeap<HeapWrapper<Item, I>>)>
+where
+    I: Stream<Item = anyhow::Result<Item>> + Unpin,
+    Item: Ord + Debug,
+{
+    let HeapWrapper { index, iter } = heap.pop()?;
+    let (next_iter, item) = iter.next().await;
+    match next_iter {
+        Err(e) => Some((Err(e), heap)),
+        Ok(None) => Some((Ok(item), heap)),
+        Ok(Some(next_iter)) => {
+            heap.push(HeapWrapper {
+                index,
                 iter: next_iter,
-            };
-            this.iters.push(next_wrapper);
+            });
+            Some((Ok(item), heap))
         }
-        Ready(Some(Ok(item)))
     }
 }
 
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
-    use std::vec;
+    use std::future::Future;
+    use std::time::Duration;
 
-    use futures::{stream, StreamExt};
+    use futures::{stream, FutureExt, StreamExt};
+    use rand::Rng;
+    use tokio::time::sleep;
 
     use crate::entry::Entry;
     use crate::iterators::merge::MergeIteratorInner;
-    use crate::iterators::utils::build_stream;
+    use crate::iterators::utils::{assert_stream_eq, build_stream};
     use crate::iterators::{create_merge_iter, eq};
 
     #[tokio::test]
@@ -155,17 +175,20 @@ mod test {
         iters: impl IntoIterator<Item = impl IntoIterator<Item = T>>,
         expect: impl IntoIterator<Item = T>,
     ) {
-        let iters = iters
-            .into_iter()
-            .map(IntoIterator::into_iter)
-            .map(|inner| inner.map(Ok::<T, anyhow::Error>))
+        let iters = stream::iter(iters)
             .map(stream::iter)
-            .map(Box::new);
-        let iters = stream::iter(iters);
+            .map(|inner| inner.flat_map(|x| build(x).into_stream()));
         let merged = MergeIteratorInner::create(iters).await;
         let merged: Vec<_> = merged.map(Result::unwrap).collect().await;
         let expect: Vec<_> = expect.into_iter().collect();
         assert_eq!(expect, merged);
+    }
+
+    fn build<T>(x: T) -> impl Future<Output = anyhow::Result<T>> + Unpin {
+        Box::pin(async move {
+            sleep(Duration::from_millis(100)).await;
+            Ok::<T, anyhow::Error>(x)
+        })
     }
 
     #[tokio::test]
@@ -179,39 +202,34 @@ mod test {
 
         let (i1, i2, i3) = build_sub_stream();
 
-        assert!(
-            eq(
-                create_merge_iter(stream::iter([i1, i2, i3]))
-                    .await
-                    .map(Result::unwrap),
-                build_stream([
-                    ("a", "1.1"),
-                    ("b", "2.1"),
-                    ("c", "3.1"),
-                    ("d", "4.2"),
-                    ("e", ""),
-                ]),
-            )
-            .await
-        );
+        assert_stream_eq(
+            create_merge_iter(stream::iter([i1, i2, i3]))
+                .await
+                .map(Result::unwrap),
+            build_stream([
+                ("a", "1.1"),
+                ("b", "2.1"),
+                ("c", "3.1"),
+                ("d", "4.2"),
+                ("e", ""),
+            ]),
+        )
+        .await;
 
         let (i1, i2, i3) = build_sub_stream();
-
-        assert!(
-            eq(
-                create_merge_iter(stream::iter([i3, i1, i2]))
-                    .await
-                    .map(Result::unwrap),
-                build_stream([
-                    ("a", "1.1"),
-                    ("b", "2.3"),
-                    ("c", "3.3"),
-                    ("d", "4.3"),
-                    ("e", ""),
-                ]),
-            )
-            .await
-        );
+        assert_stream_eq(
+            create_merge_iter(stream::iter([i3, i1, i2]))
+                .await
+                .map(Result::unwrap),
+            build_stream([
+                ("a", "1.1"),
+                ("b", "2.3"),
+                ("c", "3.3"),
+                ("d", "4.3"),
+                ("e", ""),
+            ]),
+        )
+        .await;
     }
 
     #[tokio::test]

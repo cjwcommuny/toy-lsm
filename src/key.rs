@@ -2,6 +2,7 @@ use bytes::Bytes;
 use std::fmt::Debug;
 use std::ops::Bound;
 
+#[derive(PartialEq)]
 pub struct Key<T: AsRef<[u8]>>(T);
 
 pub type KeySlice<'a> = Key<&'a [u8]>;
@@ -135,12 +136,6 @@ impl<T: AsRef<[u8]> + Debug> Debug for Key<T> {
 impl<T: AsRef<[u8]> + Default> Default for Key<T> {
     fn default() -> Self {
         Self(T::default())
-    }
-}
-
-impl<T: AsRef<[u8]> + PartialEq> PartialEq for Key<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
     }
 }
 
