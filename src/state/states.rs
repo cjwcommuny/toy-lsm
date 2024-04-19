@@ -471,21 +471,10 @@ mod test {
             assert_eq!(inner.sstables_state().l0_sstables().len(), 2);
             assert_eq!(inner.imm_memtables().len(), 2);
         }
-        // {
-        //     let iter = storage.scan(Bound::Unbounded, Bound::Unbounded);
-        //     let mut iter = iter.iter().instrument(tracing::info_span!("get iter")).await.unwrap().map(Result::unwrap);
-        //     // let x = timeout(Duration::from_secs(5), iter.next().instrument(tracing::info_span!("nexxt"))).await;
-        //     // dbg!(x.is_err());
-        //     // while let Ok(Some(x)) = timeout(Duration::from_secs(5), iter.next().instrument(tracing::info_span!("nexxt"))).await {
-        //     // }
-        // }
         {
-            let iter = storage.inner.load();
-            let iter = iter
-                .sstables_state()
-                .scan_l0(Unbounded, Unbounded)
-                .await
-                .map(Result::unwrap);
+            info!(storage = ?storage);
+            let guard = storage.scan(Unbounded, Unbounded);
+            let iter = guard.iter().await.unwrap().map(Result::unwrap);
             assert_stream_eq(
                 iter,
                 build_stream([
@@ -497,44 +486,24 @@ mod test {
             )
             .await;
         }
-        // {
-        //     let iter = storage.scan(Bound::Unbounded, Bound::Unbounded);
-        //     info!(memtable = ?storage.inner().load().memtable());
-        //     info!(memtable = ?storage.inner().load().imm_memtables());
-        //     info!(memtable = ?storage.inner().load().sstables_state());
-        //     assert_stream_eq(
-        //         iter.iter()
-        //             .instrument(tracing::info_span!("get iter"))
-        //             .await
-        //             .unwrap()
-        //             .map(Result::unwrap),
-        //         build_stream([
-        //             ("0", "2333333"),
-        //             ("00", "2333"),
-        //             ("2", "2333"),
-        //             ("3", "23333"),
-        //         ]),
-        //     )
-        //     .await;
-        // }
 
-        // {
-        //     let iter = storage.scan(Bound::Included(b"1"), Bound::Included(b"2"));
-        //     assert_stream_eq(
-        //         iter.iter().await.unwrap().map(Result::unwrap),
-        //         build_stream([("2", "2333")]),
-        //     )
-        //     .await;
-        // }
-        //
-        // {
-        //     let iter = storage.scan(Bound::Excluded(b"1"), Bound::Excluded(b"3"));
-        //     assert_stream_eq(
-        //         iter.iter().await.unwrap().map(Result::unwrap),
-        //         build_stream([("2", "2333")]),
-        //     )
-        //     .await;
-        // }
+        {
+            let iter = storage.scan(Bound::Included(b"1"), Bound::Included(b"2"));
+            assert_stream_eq(
+                iter.iter().await.unwrap().map(Result::unwrap),
+                build_stream([("2", "2333")]),
+            )
+            .await;
+        }
+
+        {
+            let iter = storage.scan(Bound::Excluded(b"1"), Bound::Excluded(b"3"));
+            assert_stream_eq(
+                iter.iter().await.unwrap().map(Result::unwrap),
+                build_stream([("2", "2333")]),
+            )
+            .await;
+        }
     }
 
     fn build_storage() -> LsmStorageState<impl Persistent> {
