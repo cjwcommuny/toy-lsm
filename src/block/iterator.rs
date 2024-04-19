@@ -54,7 +54,6 @@ impl Iterator for BlockIterator {
             return None;
         }
         let entry = self.block.get_entry(self.idx);
-        info!(entry = ?entry, block = ?self.block, "BlockIterator");
         self.idx += 1;
         Some(Ok(entry))
     }

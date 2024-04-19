@@ -101,7 +101,6 @@ where
         Ready((new_a, item)) => match new_a {
             Ok(new_a) => {
                 let _ = mem::replace(position1, new_a);
-                info!(elem = ?item, "two_merge");
                 Ready(Some(Ok(item)))
             }
             Err(e) => Ready(Some(Err(e))),

@@ -116,8 +116,8 @@ where
     ) -> anyhow::Result<MergedSstIterator<'a, File>> {
         let l0 = self.scan_l0(lower, upper).await;
         let levels = self.scan_levels(lower, upper).await;
-        let x = create_two_merge_iter(l0, levels).await;
-        x
+
+        create_two_merge_iter(l0, levels).await
     }
 
     pub async fn scan_l0<'a>(
@@ -150,13 +150,11 @@ where
             .iter()
             .map(|id| self.sstables.get(id).unwrap())
             .filter_map(move |table| {
-                Some(SsTableIterator::scan(table, lower, upper))
-                // todo: add bloom
-                // if !filter_sst_by_bloom(table, lower, upper) {
-                //     None
-                // } else {
-                //
-                // }
+                if !filter_sst_by_bloom(table, lower, upper) {
+                    None
+                } else {
+                    Some(SsTableIterator::scan(table, lower, upper))
+                }
             });
         iters
     }

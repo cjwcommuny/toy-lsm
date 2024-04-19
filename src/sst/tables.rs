@@ -105,7 +105,6 @@ impl<File: PersistentHandle> SsTable<File> {
             .read(offset as u64, self.block_end(block_idx) - offset)
             .await?;
         let block = Block::decode(&data);
-        info!(block = ?block, meta = ?meta);
         Ok(Arc::new(block))
     }
 

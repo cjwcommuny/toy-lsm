@@ -106,11 +106,9 @@ where
     I: Stream<Item = anyhow::Result<Item>> + Unpin,
     Item: Ord + Debug,
 {
-    let Some(HeapWrapper { index, iter }) = heap.pop() else {
-        return None;
-    };
+    let HeapWrapper { index, iter } = heap.pop()?;
     let (next_iter, item) = iter.next().await;
-    return match next_iter {
+    match next_iter {
         Err(e) => Some((Err(e), heap)),
         Ok(None) => Some((Ok(item), heap)),
         Ok(Some(next_iter)) => {
@@ -120,7 +118,7 @@ where
             });
             Some((Ok(item), heap))
         }
-    };
+    }
 }
 
 #[cfg(test)]
