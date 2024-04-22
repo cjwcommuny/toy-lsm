@@ -128,13 +128,12 @@ mod test {
     use std::time::Duration;
 
     use futures::{stream, FutureExt, StreamExt};
-    use rand::Rng;
     use tokio::time::sleep;
 
     use crate::entry::Entry;
+    use crate::iterators::create_merge_iter;
     use crate::iterators::merge::MergeIteratorInner;
-    use crate::iterators::utils::{assert_stream_eq, build_stream};
-    use crate::iterators::{create_merge_iter, eq};
+    use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
 
     #[tokio::test]
     async fn test_empty() {
@@ -205,8 +204,9 @@ mod test {
         assert_stream_eq(
             create_merge_iter(stream::iter([i1, i2, i3]))
                 .await
-                .map(Result::unwrap),
-            build_stream([
+                .map(Result::unwrap)
+                .map(Entry::into_tuple),
+            build_tuple_stream([
                 ("a", "1.1"),
                 ("b", "2.1"),
                 ("c", "3.1"),
@@ -220,8 +220,9 @@ mod test {
         assert_stream_eq(
             create_merge_iter(stream::iter([i3, i1, i2]))
                 .await
-                .map(Result::unwrap),
-            build_stream([
+                .map(Result::unwrap)
+                .map(Entry::into_tuple),
+            build_tuple_stream([
                 ("a", "1.1"),
                 ("b", "2.3"),
                 ("c", "3.3"),

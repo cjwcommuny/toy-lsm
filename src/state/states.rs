@@ -231,17 +231,20 @@ where
 mod test {
     use bytes::Bytes;
     use std::collections::Bound;
-    use std::ops::Bound::Unbounded;
+    use std::ops::Bound::{Included, Unbounded};
     use std::time::Duration;
 
-    use futures::StreamExt;
+    use crate::entry::Entry;
+    use futures::{stream, Stream, StreamExt};
     use tempfile::{tempdir, TempDir};
     use tokio::time::timeout;
     use tracing::{info, Instrument};
     use tracing_subscriber::fmt::format::FmtSpan;
 
-    use crate::iterators::eq;
-    use crate::iterators::utils::{assert_stream_eq, build_stream};
+    use crate::iterators::no_deleted::new_no_deleted_iter;
+    use crate::iterators::two_merge::create_inner;
+    use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
+    use crate::iterators::{create_two_merge_iter, eq};
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
     use crate::sst::SstOptions;
@@ -480,10 +483,15 @@ mod test {
         }
         {
             let guard = storage.scan(Unbounded, Unbounded);
-            let iter = guard.iter().await.unwrap().map(Result::unwrap);
+            let iter = guard
+                .iter()
+                .await
+                .unwrap()
+                .map(Result::unwrap)
+                .map(Entry::into_tuple);
             assert_stream_eq(
                 iter,
-                build_stream([
+                build_tuple_stream([
                     ("0", "2333333"),
                     ("00", "2333"),
                     ("2", "2333"),
@@ -496,8 +504,12 @@ mod test {
         {
             let iter = storage.scan(Bound::Included(b"1"), Bound::Included(b"2"));
             assert_stream_eq(
-                iter.iter().await.unwrap().map(Result::unwrap),
-                build_stream([("2", "2333")]),
+                iter.iter()
+                    .await
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .map(Entry::into_tuple),
+                build_tuple_stream([("2", "2333")]),
             )
             .await;
         }
@@ -505,8 +517,12 @@ mod test {
         {
             let iter = storage.scan(Bound::Excluded(b"1"), Bound::Excluded(b"3"));
             assert_stream_eq(
-                iter.iter().await.unwrap().map(Result::unwrap),
-                build_stream([("2", "2333")]),
+                iter.iter()
+                    .await
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .map(Entry::into_tuple),
+                build_tuple_stream([("2", "2333")]),
             )
             .await;
         }
@@ -558,31 +574,86 @@ mod test {
             assert_eq!(inner.imm_memtables().len(), 2);
         }
 
-        // assert_eq!(
-        //     storage.get_for_test(b"0").await.unwrap(),
-        //     Some(Bytes::from_static(b"2333333"))
-        // );
+        assert_eq!(
+            storage.get_for_test(b"0").await.unwrap(),
+            Some(Bytes::from_static(b"2333333"))
+        );
         {
-            let guard = storage.scan(Unbounded, Unbounded);
-            let mut iter = guard.iter().await.unwrap();
-            while let Some(x) = iter.next().await {}
+            let guard = storage.scan(Included(b"00"), Included(b"00"));
+            let mut iter = guard.build_memtable_iter().await;
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("00", "2333")]),
+            )
+            .await;
         }
-        dbg!(storage.inner.load());
-        // assert_eq!(
-        //     storage.get_for_test(b"00").await.unwrap(),
-        //     Some(Bytes::from_static(b"2333"))
-        // );
-        // assert_eq!(
-        //     storage.get_for_test(b"2").await.unwrap(),
-        //     Some(Bytes::from_static(b"2333"))
-        // );
-        // assert_eq!(
-        //     storage.get_for_test(b"3").await.unwrap(),
-        //     Some(Bytes::from_static(b"23333"))
-        // );
-        // assert_eq!(storage.get_for_test(b"4").await.unwrap(), None);
-        // assert_eq!(storage.get_for_test(b"--").await.unwrap(), None);
-        // assert_eq!(storage.get_for_test(b"555").await.unwrap(), None);
+        {
+            let guard = storage.scan(Included(b"00"), Included(b"00"));
+            let mut iter = guard.build_sst_iter().await.unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("00", "2333333")]),
+            )
+            .await;
+        }
+        {
+            let guard = storage.scan(Included(b"00"), Included(b"00"));
+            let a = guard.build_memtable_iter().await;
+            let b = guard.build_sst_iter().await.unwrap();
+            let iter = create_inner(a, b).await.unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("00", "2333"), ("00", "2333333")]),
+            )
+            .await;
+        }
+        {
+            let guard = storage.scan(Included(b"00"), Included(b"00"));
+            let a = guard.build_memtable_iter().await;
+            let b = guard.build_sst_iter().await.unwrap();
+            let iter = create_two_merge_iter(a, b).await.unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("00", "2333")]),
+            )
+            .await;
+        }
+        {
+            let guard = storage.scan(Included(b"00"), Included(b"00"));
+            let a = guard.build_memtable_iter().await;
+            let b = guard.build_sst_iter().await.unwrap();
+            let iter = create_two_merge_iter(a, b).await.unwrap();
+            let iter = new_no_deleted_iter(iter);
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("00", "2333")]),
+            )
+            .await;
+        }
+        {
+            let guard = storage.scan(Included(b"00"), Included(b"00"));
+            let iter = guard.iter().await.unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("00", "2333")]),
+            )
+            .await;
+        }
+        assert_eq!(
+            storage.get_for_test(b"00").await.unwrap(),
+            Some(Bytes::from_static(b"2333"))
+        );
+        assert_eq!(
+            storage.get_for_test(b"2").await.unwrap(),
+            Some(Bytes::from_static(b"2333"))
+        );
+        assert_eq!(
+            storage.get_for_test(b"3").await.unwrap(),
+            Some(Bytes::from_static(b"23333"))
+        );
+        assert_eq!(storage.get_for_test(b"4").await.unwrap(), None);
+        assert_eq!(storage.get_for_test(b"--").await.unwrap(), None);
+        assert_eq!(storage.get_for_test(b"555").await.unwrap(), None);
     }
 
     fn build_storage(dir: &TempDir) -> LsmStorageState<impl Persistent> {
