@@ -229,10 +229,10 @@ where
 
 #[cfg(test)]
 mod test {
+    use bytes::Bytes;
     use std::collections::Bound;
     use std::ops::Bound::Unbounded;
     use std::time::Duration;
-    use bytes::Bytes;
 
     use futures::StreamExt;
     use tempfile::{tempdir, TempDir};
