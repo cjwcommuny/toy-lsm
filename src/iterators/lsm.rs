@@ -38,28 +38,34 @@ where
     P: Persistent,
 {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a, P::Handle>> {
-        let a = {
-            let memtable = self.state.memtable().deref().as_immutable_ref();
-            let imm_memtables = self.state.imm_memtables().as_slice();
-            let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
-            let tables = iter::once(memtable).chain(imm_memtables);
-            let iters = stream::iter(tables).filter_map(move |table| async {
-                table
-                    .scan(self.lower, self.upper)
-                    .await
-                    .inspect_err(|e| error!(error = ?e))
-                    .ok()
-                    .flatten()
-            });
-            create_merge_iter_from_non_empty_iters(iters).await
-        };
-        let b = self
-            .state
-            .sstables_state()
-            .scan_sst(self.lower, self.upper)
-            .await?;
+        let a = self.build_memtable_iter().await;
+        let b = self.build_sst_iter().await?;
         let merge = create_two_merge_iter(a, b).await?;
         let iter = new_no_deleted_iter(merge);
         Ok(iter)
+    }
+
+    async fn build_memtable_iter(&self) -> MergeIterator<Entry, MemTableIterator> {
+        let memtable = self.state.memtable().deref().as_immutable_ref();
+        let imm_memtables = self.state.imm_memtables().as_slice();
+        let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
+        let tables = iter::once(memtable).chain(imm_memtables);
+        let iters = stream::iter(tables).filter_map(move |table| async {
+            table
+                .scan(self.lower, self.upper)
+                .await
+                .inspect_err(|e| error!(error = ?e))
+                .ok()
+                .flatten()
+        });
+        create_merge_iter_from_non_empty_iters(iters).await
+    }
+
+    async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::Handle>> {
+        self
+            .state
+            .sstables_state()
+            .scan_sst(self.lower, self.upper)
+            .await
     }
 }
