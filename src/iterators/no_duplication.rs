@@ -91,4 +91,28 @@ mod test {
         let iter = new_no_duplication(a).map(Result::unwrap).map(Into::into);
         assert_eq!(expect, iter.collect::<Vec<_>>().await);
     }
+
+    #[tokio::test]
+    async fn test_dup_2() {
+        helper(
+            [
+                Entry::from_slice(b"0", b"2333333"),
+                Entry::from_slice(b"00", b"2333"),
+                Entry::from_slice(b"00", b"2333333"),
+                Entry::from_slice(b"1", b""),
+                Entry::from_slice(b"2", b"2333"),
+                Entry::from_slice(b"3", b"23333"),
+                Entry::from_slice(b"4", b""),
+            ],
+            [
+                Pair(Entry::from_slice(b"0", b"2333333")),
+                Pair(Entry::from_slice(b"00", b"2333")),
+                Pair(Entry::from_slice(b"1", b"")),
+                Pair(Entry::from_slice(b"2", b"2333")),
+                Pair(Entry::from_slice(b"3", b"23333")),
+                Pair(Entry::from_slice(b"4", b"")),
+            ],
+        )
+        .await;
+    }
 }

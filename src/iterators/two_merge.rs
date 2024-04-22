@@ -29,7 +29,7 @@ pub type TwoMergeIterInner<
     A: Stream<Item = anyhow::Result<Item>> + Unpin,
     B: Stream<Item = anyhow::Result<Item>> + Unpin,
 > = impl Stream<Item = anyhow::Result<Item>> + Unpin;
-async fn create_inner<A, B, Item>(a: A, b: B) -> anyhow::Result<TwoMergeIterInner<Item, A, B>>
+pub async fn create_inner<A, B, Item>(a: A, b: B) -> anyhow::Result<TwoMergeIterInner<Item, A, B>>
 where
     Item: Ord + Debug + Unpin,
     A: Stream<Item = anyhow::Result<Item>> + Unpin,
@@ -63,7 +63,7 @@ where
             Some((item, (None, next_b)))
         }
         (Some(a), Some(b)) => {
-            if a.item() < b.item() {
+            if a.item() <= b.item() {
                 let (item, next_a) = handle_next(a).await;
                 Some((item, (next_a, Some(b))))
             } else {

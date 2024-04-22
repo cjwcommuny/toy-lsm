@@ -1,10 +1,10 @@
 mod lsm;
 mod maybe_empty;
 pub mod merge;
-mod no_deleted;
+pub mod no_deleted;
 mod no_duplication;
 mod ok_iter;
-mod two_merge;
+pub mod two_merge;
 pub mod utils;
 
 pub use lsm::LockedLsmIter;

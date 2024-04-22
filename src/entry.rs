@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use nom::AsBytes;
 use std::cmp;
 
 #[derive(Debug, Eq)]
@@ -32,5 +33,10 @@ impl Entry {
             key: Bytes::copy_from_slice(key),
             value: Bytes::copy_from_slice(value),
         }
+    }
+
+    pub fn into_tuple(self) -> (Bytes, Bytes) {
+        let Self { key, value } = self;
+        (key, value)
     }
 }

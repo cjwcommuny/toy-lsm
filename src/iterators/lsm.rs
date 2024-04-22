@@ -45,7 +45,7 @@ where
         Ok(iter)
     }
 
-    async fn build_memtable_iter(&self) -> MergeIterator<Entry, MemTableIterator> {
+    pub async fn build_memtable_iter(&self) -> MergeIterator<Entry, MemTableIterator> {
         let memtable = self.state.memtable().deref().as_immutable_ref();
         let imm_memtables = self.state.imm_memtables().as_slice();
         let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
@@ -61,9 +61,8 @@ where
         create_merge_iter_from_non_empty_iters(iters).await
     }
 
-    async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::Handle>> {
-        self
-            .state
+    pub async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::Handle>> {
+        self.state
             .sstables_state()
             .scan_sst(self.lower, self.upper)
             .await

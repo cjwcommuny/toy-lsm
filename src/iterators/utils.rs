@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use std::fmt::Debug;
 use std::future::Future;
 use std::iter::Map;
@@ -100,6 +101,22 @@ pub fn build_stream<'a>(source: impl IntoIterator<Item = (&'a str, &'a str)>) ->
     let s: Vec<_> = source
         .into_iter()
         .map(|(key, value)| Entry::from_slice(key.as_bytes(), value.as_bytes()))
+        .collect();
+    stream::iter(s)
+}
+
+#[cfg(test)]
+pub fn build_tuple_stream<'a>(
+    source: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> impl Stream<Item = (Bytes, Bytes)> {
+    let s: Vec<_> = source
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                Bytes::copy_from_slice(key.as_bytes()),
+                Bytes::copy_from_slice(value.as_bytes()),
+            )
+        })
         .collect();
     stream::iter(s)
 }
