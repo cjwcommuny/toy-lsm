@@ -30,7 +30,7 @@ itertools = "0.12.1"
 ref-cast = "1.0.22"
 deref_ext = { git = "https://github.com/cjwcommuny/deref_ext", rev = "2b14702" }
 async-iter-ext = { git = "https://github.com/cjwcommuny/async-iter-ext", rev = "38cf62b" }
-typed-builder = "0.18.1"
+typed-builder = "0.18.2"
 derive-getters = "0.3.0"
 tokio = { version = "1.37.0", features = ["full"] }
 dashmap = "5.5.3"
