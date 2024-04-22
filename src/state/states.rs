@@ -229,6 +229,7 @@ where
 
 #[cfg(test)]
 mod test {
+    use bytes::Bytes;
     use std::collections::Bound;
     use std::ops::Bound::Unbounded;
     use std::time::Duration;
@@ -509,6 +510,79 @@ mod test {
             )
             .await;
         }
+    }
+
+    #[tokio::test]
+    async fn test_task1_storage_get() {
+        let dir = tempdir().unwrap();
+        let storage = build_storage(&dir);
+        storage.put_for_test(b"0", b"2333333").await.unwrap();
+        storage.put_for_test(b"00", b"2333333").await.unwrap();
+        storage.put_for_test(b"4", b"23").await.unwrap();
+
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_freeze_memtable(&guard);
+            storage.force_flush_imm_memtable(&guard).await.unwrap();
+        }
+
+        storage.delete_for_test(b"4").await.unwrap();
+
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_freeze_memtable(&guard);
+            storage.force_flush_imm_memtable(&guard).await.unwrap();
+        }
+
+        storage.put_for_test(b"1", b"233").await.unwrap();
+        storage.put_for_test(b"2", b"2333").await.unwrap();
+
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_freeze_memtable(&guard);
+        }
+
+        storage.put_for_test(b"00", b"2333").await.unwrap();
+
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_freeze_memtable(&guard);
+        }
+
+        storage.put_for_test(b"3", b"23333").await.unwrap();
+        storage.delete_for_test(b"1").await.unwrap();
+
+        {
+            let inner = storage.inner.load();
+            assert_eq!(inner.sstables_state().l0_sstables().len(), 2);
+            assert_eq!(inner.imm_memtables().len(), 2);
+        }
+
+        // assert_eq!(
+        //     storage.get_for_test(b"0").await.unwrap(),
+        //     Some(Bytes::from_static(b"2333333"))
+        // );
+        {
+            let guard = storage.scan(Unbounded, Unbounded);
+            let mut iter = guard.iter().await.unwrap();
+            while let Some(x) = iter.next().await {}
+        }
+        dbg!(storage.inner.load());
+        // assert_eq!(
+        //     storage.get_for_test(b"00").await.unwrap(),
+        //     Some(Bytes::from_static(b"2333"))
+        // );
+        // assert_eq!(
+        //     storage.get_for_test(b"2").await.unwrap(),
+        //     Some(Bytes::from_static(b"2333"))
+        // );
+        // assert_eq!(
+        //     storage.get_for_test(b"3").await.unwrap(),
+        //     Some(Bytes::from_static(b"23333"))
+        // );
+        // assert_eq!(storage.get_for_test(b"4").await.unwrap(), None);
+        // assert_eq!(storage.get_for_test(b"--").await.unwrap(), None);
+        // assert_eq!(storage.get_for_test(b"555").await.unwrap(), None);
     }
 
     fn build_storage(dir: &TempDir) -> LsmStorageState<impl Persistent> {

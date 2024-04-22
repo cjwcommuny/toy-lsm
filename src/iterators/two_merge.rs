@@ -1,119 +1,99 @@
 use std::fmt::Debug;
 use std::future::Future;
-use std::mem;
-use std::pin::{pin, Pin};
-use std::task::{Context, Poll};
 
-use futures::Stream;
-use pin_project::pin_project;
-use tracing::info;
+use futures::stream::unfold;
+use futures::{Stream, StreamExt};
 
 use crate::iterators::no_duplication::{new_no_duplication, NoDuplication};
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream};
 
 // Merges two iterators of different types into one. If the two iterators have the same key, only
 /// produce the key once and prefer the entry from A.
-pub type TwoMergeIterator<Item, A, B> = NoDuplication<TwoMergeIteratorInner<Item, A, B>>;
+pub type TwoMergeIterator<Item, A, B> = NoDuplication<TwoMergeIterInner<Item, A, B>>;
 
 pub async fn create_two_merge_iter<Item, A, B>(
     a: A,
     b: B,
-) -> anyhow::Result<TwoMergeIterator<Item, A, B>>
+) -> anyhow::Result<NoDuplication<TwoMergeIterInner<Item, A, B>>>
 where
     Item: Ord + Debug + Unpin,
     A: Stream<Item = anyhow::Result<Item>> + Unpin,
     B: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    let inner = TwoMergeIteratorInner::create(a, b).await?;
+    let inner = create_inner(a, b).await?;
     Ok(new_no_duplication(inner))
 }
 
-#[pin_project]
-pub struct TwoMergeIteratorInner<Item, A, B> {
-    #[pin]
-    a: MaybeEmptyStream<Item, A>,
-    #[pin]
-    b: MaybeEmptyStream<Item, B>,
-}
-
-impl<Item, A, B> TwoMergeIteratorInner<Item, A, B>
-where
-    A: Stream<Item = anyhow::Result<Item>> + Unpin,
-    B: Stream<Item = anyhow::Result<Item>> + Unpin,
-{
-    pub async fn create(a: A, b: B) -> anyhow::Result<Self> {
-        let a = NonEmptyStream::try_new(a).await?;
-        let b = NonEmptyStream::try_new(b).await?;
-        let s = Self { a, b };
-        Ok(s)
-    }
-}
-
-impl<Item, A, B> Stream for TwoMergeIteratorInner<Item, A, B>
-where
-    A: Stream<Item = anyhow::Result<Item>> + Unpin,
-    B: Stream<Item = anyhow::Result<Item>> + Unpin,
+pub type TwoMergeIterInner<
     Item: Ord + Debug + Unpin,
+    A: Stream<Item = anyhow::Result<Item>> + Unpin,
+    B: Stream<Item = anyhow::Result<Item>> + Unpin,
+> = impl Stream<Item = anyhow::Result<Item>> + Unpin;
+async fn create_inner<A, B, Item>(a: A, b: B) -> anyhow::Result<TwoMergeIterInner<Item, A, B>>
+where
+    Item: Ord + Debug + Unpin,
+    A: Stream<Item = anyhow::Result<Item>> + Unpin,
+    B: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    type Item = anyhow::Result<Item>;
+    let a = NonEmptyStream::try_new(a).await?;
+    let b = NonEmptyStream::try_new(b).await?;
+    let x = unfold((a, b), unfold_fn);
+    Ok(Box::pin(x))
+}
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        use Poll::Ready;
-
-        let this = self.project();
-        let a_opt = Pin::into_inner(this.a);
-        let b_opt = Pin::into_inner(this.b);
-        let a = mem::take(a_opt);
-        let b = mem::take(b_opt);
-
-        match (a, b) {
-            (None, None) => Ready(None),
-            (Some(a), None) => handle_next(cx, a, a_opt, None, b_opt),
-            (None, Some(b)) => handle_next(cx, b, b_opt, None, a_opt),
-            (Some(a), Some(b)) => {
-                if a.item() < b.item() {
-                    handle_next(cx, a, a_opt, Some(b), b_opt)
-                } else {
-                    handle_next(cx, b, b_opt, Some(a), a_opt)
-                }
+async fn unfold_fn<A, B, Item>(
+    state: (MaybeEmptyStream<Item, A>, MaybeEmptyStream<Item, B>),
+) -> Option<(
+    anyhow::Result<Item>,
+    (MaybeEmptyStream<Item, A>, MaybeEmptyStream<Item, B>),
+)>
+where
+    Item: Ord + Debug + Unpin,
+    A: Stream<Item = anyhow::Result<Item>> + Unpin,
+    B: Stream<Item = anyhow::Result<Item>> + Unpin,
+{
+    match state {
+        (None, None) => None,
+        (Some(a), None) => {
+            let (item, next_a) = handle_next(a).await;
+            Some((item, (next_a, None)))
+        }
+        (None, Some(b)) => {
+            let (item, next_b) = handle_next(b).await;
+            Some((item, (None, next_b)))
+        }
+        (Some(a), Some(b)) => {
+            if a.item() < b.item() {
+                let (item, next_a) = handle_next(a).await;
+                Some((item, (next_a, Some(b))))
+            } else {
+                let (item, next_b) = handle_next(b).await;
+                Some((item, (Some(a), next_b)))
             }
         }
     }
 }
 
-fn handle_next<Item, I, A>(
-    cx: &mut Context<'_>,
-    iter1: NonEmptyStream<Item, I>,
-    position1: &mut MaybeEmptyStream<Item, I>,
-    iter2: A,
-    position2: &mut A,
-) -> Poll<Option<anyhow::Result<Item>>>
+async fn handle_next<Item, S>(
+    s: NonEmptyStream<Item, S>,
+) -> (anyhow::Result<Item>, MaybeEmptyStream<Item, S>)
 where
-    I: Stream<Item = anyhow::Result<Item>> + Unpin,
-    Item: Debug,
+    S: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    use Poll::{Pending, Ready};
-
-    let _ = mem::replace(position2, iter2);
-    let fut = pin!(iter1.next());
-    match fut.poll(cx) {
-        Pending => Pending,
-        Ready((new_a, item)) => match new_a {
-            Ok(new_a) => {
-                let _ = mem::replace(position1, new_a);
-                Ready(Some(Ok(item)))
-            }
-            Err(e) => Ready(Some(Err(e))),
-        },
+    let (next_s, item) = s.next().await;
+    match next_s {
+        Ok(next_s) => (Ok(item), next_s),
+        Err(e) => (Err(e), None),
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::iterators::create_two_merge_iter;
+    use std::fmt::Debug;
+
     use futures::{stream, StreamExt};
 
-    use std::fmt::Debug;
+    use crate::iterators::create_two_merge_iter;
 
     #[tokio::test]
     async fn test_simple() {
