@@ -4,7 +4,8 @@ use std::mem;
 use std::pin::{pin, Pin};
 use std::task::{Context, Poll};
 
-use futures::Stream;
+use futures::{Stream, StreamExt};
+use futures::stream::unfold;
 use pin_project::pin_project;
 use tracing::info;
 
@@ -13,7 +14,7 @@ use crate::iterators::{MaybeEmptyStream, NonEmptyStream};
 
 // Merges two iterators of different types into one. If the two iterators have the same key, only
 /// produce the key once and prefer the entry from A.
-pub type TwoMergeIterator<Item, A, B> = NoDuplication<TwoMergeIteratorInner<Item, A, B>>;
+pub type TwoMergeIterator<Item, A, B> = NoDuplication<TwoMergeIterInner<Item, A, B>>;
 
 pub async fn create_two_merge_iter<Item, A, B>(
     a: A,
@@ -24,9 +25,69 @@ where
     A: Stream<Item = anyhow::Result<Item>> + Unpin,
     B: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
+    // let inner = create_inner(a, b).await?;
     let inner = TwoMergeIteratorInner::create(a, b).await?;
     Ok(new_no_duplication(inner))
 }
+
+type TwoMergeIterInner<
+    A: Stream<Item = anyhow::Result<Item>> + Unpin,
+    B: Stream<Item = anyhow::Result<Item>> + Unpin,
+    Item: Ord + Debug + Unpin,
+> = impl Stream<Item = anyhow::Result<Item>> + Send + Unpin;
+async fn create_inner<A, B, Item>(a: A, b: B) -> anyhow::Result<TwoMergeIterInner<A, B, Item>>
+where
+    Item: Ord + Debug + Unpin,
+    A: Stream<Item = anyhow::Result<Item>> + Unpin,
+    B: Stream<Item = anyhow::Result<Item>> + Unpin,
+{
+    let a = NonEmptyStream::try_new(a).await?;
+    let b = NonEmptyStream::try_new(b).await?;
+    let x = unfold((a, b), unfold_fn);
+    Ok(x)
+}
+
+async fn unfold_fn<A, B, Item>(
+    state: (MaybeEmptyStream<Item, A>, MaybeEmptyStream<Item, B>),
+) -> Option<(anyhow::Result<Item>, (MaybeEmptyStream<Item, A>, MaybeEmptyStream<Item, B>))>
+where
+    Item: Ord + Debug + Unpin,
+    A: Stream<Item = anyhow::Result<Item>> + Unpin,
+    B: Stream<Item = anyhow::Result<Item>> + Unpin,
+{
+    let res = match state {
+        (None, None) => None,
+        (Some(a), None) => {
+            let (item, next_a) = handle_next_new(a).await;
+            Some((item, (next_a, None)))
+        }
+        (None, Some(b)) => {
+            let (item, next_b) = handle_next_new(b).await;
+            Some((item, (None, next_b)))
+        }
+        (Some(a), Some(b)) => {
+            if a.item() < b.item() {
+                let (item, next_a) = handle_next_new(a).await;
+                Some((item, (next_a, Some(b))))
+            } else {
+                let (item, next_b) = handle_next_new(b).await;
+                Some((item, (Some(a), next_b)))
+            }
+        }
+    };
+    res
+}
+
+async fn handle_next_new<Item, S>(s: NonEmptyStream<Item, S>) -> (anyhow::Result<Item>, MaybeEmptyStream<Item, S>)
+where S: Stream<Item = anyhow::Result<Item>> + Unpin,
+{
+    let (next_s, item) = s.next().await;
+    match next_s {
+        Ok(next_s) => (Ok(item), next_s),
+        Err(e) => (Err(e), None),
+    }
+}
+
 
 #[pin_project]
 pub struct TwoMergeIteratorInner<Item, A, B> {
@@ -68,9 +129,17 @@ where
 
         match (a, b) {
             (None, None) => Ready(None),
-            (Some(a), None) => handle_next(cx, a, a_opt, None, b_opt),
-            (None, Some(b)) => handle_next(cx, b, b_opt, None, a_opt),
+            (Some(a), None) => {
+                dbg!(a.item());
+                handle_next(cx, a, a_opt, None, b_opt)
+            },
+            (None, Some(b)) => {
+                dbg!(b.item());
+                handle_next(cx, b, b_opt, None, a_opt)
+            },
             (Some(a), Some(b)) => {
+                dbg!(a.item());
+                dbg!(b.item());
                 if a.item() < b.item() {
                     handle_next(cx, a, a_opt, Some(b), b_opt)
                 } else {
@@ -96,7 +165,7 @@ where
 
     let _ = mem::replace(position2, iter2);
     let fut = pin!(iter1.next());
-    match fut.poll(cx) {
+    let x = match fut.poll(cx) {
         Pending => Pending,
         Ready((new_a, item)) => match new_a {
             Ok(new_a) => {
@@ -105,7 +174,9 @@ where
             }
             Err(e) => Ready(Some(Err(e))),
         },
-    }
+    };
+    // dbg!(x)
+    x
 }
 
 #[cfg(test)]
