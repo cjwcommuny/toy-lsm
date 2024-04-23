@@ -119,3 +119,36 @@ pub fn may_contain(bloom: Option<&Bloom>, key: &[u8]) -> bool {
         None => true,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::sst::bloom::Bloom;
+    use crate::sst::builder::{key_of, num_of_keys};
+
+    #[test]
+    fn test_task1_bloom_filter() {
+        let mut key_hashes = Vec::new();
+        for idx in 0..num_of_keys() {
+            let key = key_of(idx);
+            key_hashes.push(farmhash::fingerprint32(key.as_key_slice().raw_ref()));
+        }
+        let bits_per_key = Bloom::bloom_bits_per_key(key_hashes.len(), 0.01);
+        let bloom = Bloom::build_from_key_hashes(&key_hashes, bits_per_key);
+        assert!(bloom.k < 30);
+        for idx in 0..num_of_keys() {
+            let key = key_of(idx);
+            assert!(bloom.may_contain(farmhash::fingerprint32(key.as_key_slice().raw_ref())));
+        }
+        let mut x = 0;
+        let mut cnt = 0;
+        for idx in num_of_keys()..(num_of_keys() * 10) {
+            let key = key_of(idx);
+            if bloom.may_contain(farmhash::fingerprint32(key.as_key_slice().raw_ref())) {
+                x += 1;
+            }
+            cnt += 1;
+        }
+        assert_ne!(x, cnt, "bloom filter not taking effect?");
+        assert_ne!(x, 0, "bloom filter not taking effect?");
+    }
+}
