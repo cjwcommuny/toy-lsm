@@ -5,7 +5,7 @@ use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::{stream, FutureExt, Stream, StreamExt};
+use futures::{pin_mut, stream, FutureExt, Stream, StreamExt};
 use tokio::sync::RwLock;
 use tracing::error;
 
@@ -192,6 +192,15 @@ where
         }
     }
 
+    fn table_ids(&mut self, level: usize) -> &Vec<usize> {
+        if level == 0 {
+            &self.l0_sstables
+        } else {
+            let (_, ids) = self.levels.get(level - 1).unwrap();
+            ids
+        }
+    }
+
     pub fn apply_compaction(
         &mut self,
         upper_level: usize,
@@ -221,12 +230,14 @@ where
         todo!()
     }
 
-    async fn compact_full(
+    async fn compact_full<P: Persistent<Handle = File>>(
         &self,
         l0_sstables: &[usize],
         l1_sstables: &[usize],
         sstables: &HashMap<usize, Arc<SsTable<File>>>,
-        _next_sst_id: impl Fn() -> usize,
+        next_sst_id: impl Fn() -> usize,
+        options: SstOptions,
+        persistent: &P,
     ) -> anyhow::Result<Vec<Arc<SsTable<File>>>> {
         let l0 = {
             let iters = l0_sstables
@@ -246,23 +257,22 @@ where
                 .collect();
             create_sst_concat_and_seek_to_first(tables)
         }?;
-        let _iter = create_two_merge_iter(l0, l1).await?;
-        // let tables: Vec<_> = iter
-        //     .batching(|iter| {
-        //         let id = next_sst_id();
-        //         let path = self.path_of_sst(id);
-        //         let iter = pin!(iter);
-        //         batch(
-        //             iter,
-        //             id,
-        //             *self.options.block_size(),
-        //             *self.options.target_sst_size(),
-        //             path,
-        //         )
-        //     })
-        //     .collect();
-        // Ok(tables)
-        todo!()
+        let iter = create_two_merge_iter(l0, l1).await?;
+        let s: Vec<_> = stream::unfold(iter, |mut iter| async {
+            let id = next_sst_id();
+            let b = batch(
+                &mut iter,
+                id,
+                *options.block_size(),
+                *options.target_sst_size(),
+                persistent,
+            )
+            .await?;
+            Some((b, iter))
+        })
+        .collect()
+        .await;
+        Ok(s)
     }
 }
 
@@ -281,15 +291,15 @@ fn filter_sst_by_bloom<File>(
 }
 
 async fn batch<I, P>(
-    iter: &mut Pin<&mut I>,
+    iter: &mut I,
     sst_id: usize,
     block_size: usize,
     target_sst_size: usize,
     persistent: &P,
-) -> Option<SsTable<P::Handle>>
+) -> Option<Arc<SsTable<P::Handle>>>
 where
     P: Persistent,
-    I: Stream<Item = anyhow::Result<Entry>>,
+    I: Stream<Item = anyhow::Result<Entry>> + Unpin,
 {
     let mut builder = SsTableBuilder::new(block_size);
 
@@ -314,51 +324,52 @@ where
     if builder.is_empty() {
         None
     } else {
-        builder
+        let table = builder
             .build(sst_id, None, persistent)
             .await
             .inspect_err(|err| error!(error = ?err))
-            .ok()
+            .ok()?;
+        Some(Arc::new(table))
     }
 }
 
-pub async fn force_full_compaction<File>(
-    this: &RwLock<Sstables<File>>,
-    upper_level: usize,
-    upper: Vec<usize>,
-    lower_level: usize,
-    lower: Vec<usize>,
-    next_sst_id: impl Fn() -> usize,
-) -> anyhow::Result<()>
-where
-    File: PersistentHandle,
-{
-    let new_sst = {
-        let guard = this.read().await;
-        guard
-            .compact_full(&upper, &lower, &guard.sstables, next_sst_id)
-            .await
-    }?;
-    let new_sst_ids: Vec<_> = new_sst.iter().map(|table| *table.id()).collect();
-
-    {
-        let mut guard = this.write().await;
-        guard.apply_compaction(upper_level, &upper, lower_level, &lower, new_sst_ids);
-
-        // add new sstables
-        for table in new_sst {
-            guard.sstables.insert(*table.id(), table);
-        }
-
-        let _sst_id_to_remove = upper.iter().chain(lower.iter());
-        // for sst in sst_id_to_remove {
-        //     std::fs::remove_file(guard.path_of_sst(*sst))?;
-        // }
-        todo!()
-    }
-
-    Ok(())
-}
+// pub async fn force_full_compaction<File>(
+//     this: &RwLock<Sstables<File>>,
+//     upper_level: usize,
+//     upper: Vec<usize>,
+//     lower_level: usize,
+//     lower: Vec<usize>,
+//     next_sst_id: impl Fn() -> usize,
+// ) -> anyhow::Result<()>
+// where
+//     File: PersistentHandle,
+// {
+//     let new_sst = {
+//         let guard = this.read().await;
+//         guard
+//             .compact_full(&upper, &lower, &guard.sstables, next_sst_id)
+//             .await
+//     }?;
+//     let new_sst_ids: Vec<_> = new_sst.iter().map(|table| *table.id()).collect();
+//
+//     {
+//         let mut guard = this.write().await;
+//         guard.apply_compaction(upper_level, &upper, lower_level, &lower, new_sst_ids);
+//
+//         // add new sstables
+//         for table in new_sst {
+//             guard.sstables.insert(*table.id(), table);
+//         }
+//
+//         let _sst_id_to_remove = upper.iter().chain(lower.iter());
+//         // for sst in sst_id_to_remove {
+//         //     std::fs::remove_file(guard.path_of_sst(*sst))?;
+//         // }
+//         todo!()
+//     }
+//
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {
