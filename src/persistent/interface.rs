@@ -1,15 +1,15 @@
 use std::future::Future;
 use std::sync::Arc;
 
-pub trait Persistent: Send + Sync {
+pub trait Persistent: Send + Sync + 'static {
     type Handle: PersistentHandle;
 
     fn create(
         &self,
         id: usize,
         data: Vec<u8>,
-    ) -> impl Future<Output = anyhow::Result<Self::Handle>>;
-    fn open(&self, id: usize) -> impl Future<Output = anyhow::Result<Self::Handle>>;
+    ) -> impl Future<Output = anyhow::Result<Self::Handle>> + Send;
+    fn open(&self, id: usize) -> impl Future<Output = anyhow::Result<Self::Handle>> + Send;
 }
 
 pub trait PersistentHandle: Send + Sync {

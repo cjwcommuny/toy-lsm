@@ -142,7 +142,10 @@ where
         self.inner.store(new);
     }
 
-    async fn force_flush_imm_memtable(&self, _guard: &MutexGuard<'_, ()>) -> anyhow::Result<()> {
+    pub async fn force_flush_imm_memtable(
+        &self,
+        _guard: &MutexGuard<'_, ()>,
+    ) -> anyhow::Result<()> {
         let new = {
             let cur = self.inner.load_full();
             flush_imm_memtable(cur, &self.block_cache, self.persistent()).await?

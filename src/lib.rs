@@ -11,6 +11,7 @@ pub mod sst;
 pub mod state;
 mod wal;
 
+mod lsm;
 mod test_utils;
 mod utils;
 
