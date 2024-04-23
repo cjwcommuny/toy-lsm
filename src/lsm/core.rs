@@ -1,0 +1,155 @@
+use std::future::{ready, Future};
+use std::sync::Arc;
+use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
+
+use bytes::Bytes;
+use futures::executor::block_on;
+use futures::{ready, FutureExt, StreamExt};
+use futures_concurrency::stream::Merge;
+use tokio::task::{block_in_place, JoinHandle};
+use tokio::time::interval;
+use tokio_stream::wrappers::IntervalStream;
+use tokio_util::sync::CancellationToken;
+use tracing::error;
+
+use crate::persistent::Persistent;
+use crate::sst::SstOptions;
+use crate::state::{LsmStorageState, Map};
+use crate::utils::func::do_nothing;
+
+pub struct Lsm<P: Persistent> {
+    state: Arc<LsmStorageState<P>>,
+    cancel_token: CancellationToken,
+    flush_handle: Option<JoinHandle<()>>,
+}
+
+impl<P: Persistent> Lsm<P> {
+    pub fn new(options: SstOptions, persistent: P) -> Self {
+        let state = Arc::new(LsmStorageState::new(options, persistent));
+        let cancel_token = CancellationToken::new();
+        let flush_handle = Self::spawn_flush(state.clone(), cancel_token.clone());
+        Self {
+            state,
+            cancel_token,
+            flush_handle: Some(flush_handle),
+        }
+    }
+
+    fn spawn_flush(
+        state: Arc<LsmStorageState<P>>,
+        cancel_token: CancellationToken,
+    ) -> JoinHandle<()> {
+        use Signal::*;
+        tokio::spawn(async move {
+            let trigger = IntervalStream::new(interval(Duration::from_millis(50))).map(|_| Trigger);
+            let cancel_stream = cancel_token.cancelled().into_stream().map(|_| Cancel);
+            (trigger, cancel_stream)
+                .merge()
+                .take_while(|signal| ready(matches!(signal, Trigger)))
+                .for_each(|_| async {
+                    let lock = state.state_lock().lock().await;
+                    state
+                        .force_flush_imm_memtable(&lock)
+                        .await
+                        .inspect_err(|e| error!(error = ?e))
+                        .ok();
+                })
+                .await;
+        })
+    }
+}
+
+impl<P> Map for Lsm<P>
+where
+    P: Persistent,
+{
+    type Error = anyhow::Error;
+
+    fn get(&self, key: &[u8]) -> impl Future<Output = Result<Option<Bytes>, Self::Error>> + Send {
+        self.state.get(key)
+    }
+
+    fn put(
+        &self,
+        key: impl Into<Bytes> + Send,
+        value: impl Into<Bytes> + Send,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.state.put(key, value)
+    }
+
+    fn delete(
+        &self,
+        key: impl Into<Bytes> + Send,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.state.delete(key)
+    }
+}
+
+impl<P: Persistent> Drop for Lsm<P> {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
+    }
+}
+
+#[cfg(test)]
+impl<P: Persistent> Lsm<P> {
+    async fn put_for_test(&self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+        self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
+            .await
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+enum Signal {
+    Trigger,
+    Cancel,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tempfile::{tempdir, TempDir};
+    use tokio::time::sleep;
+
+    use crate::lsm::core::Lsm;
+    use crate::persistent::{LocalFs, Persistent};
+    use crate::sst::SstOptions;
+
+    #[tokio::test]
+    async fn test_task2_auto_flush() {
+        let dir = tempdir().unwrap();
+        let storage = build_lsm(&dir);
+
+        let value = "1".repeat(1024); // 1KB
+
+        // approximately 6MB
+        for i in 0..6000 {
+            let key = format!("{i}");
+            let value = value.as_bytes();
+            storage.put_for_test(key.as_bytes(), value).await.unwrap();
+        }
+
+        sleep(Duration::from_millis(500)).await;
+        assert!(!storage
+            .state
+            .inner()
+            .load()
+            .sstables_state()
+            .l0_sstables()
+            .is_empty());
+    }
+
+    fn build_lsm(dir: &TempDir) -> Lsm<impl Persistent> {
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .build();
+        Lsm::new(options, persistent)
+    }
+}
