@@ -127,7 +127,7 @@ impl SsTableBuilder {
             .block_meta(meta)
             .block_meta_offset(meta_offset as usize)
             .id(id)
-            .block_cache(None) // TODO: 暂时不实用 block_cache
+            .block_cache(block_cache)
             .first_key(first_key)
             .last_key(last_key)
             .bloom(Some(bloom))
@@ -153,8 +153,8 @@ impl SsTableBuilder {
 
 #[cfg(test)]
 impl SsTableBuilder {
-    async fn build_for_test(self, dir: TempDir, id: usize) -> anyhow::Result<SsTable<FileObject>> {
-        let persistent = LocalFs::new(dir.into_path());
+    async fn build_for_test(self, dir: &TempDir, id: usize) -> anyhow::Result<SsTable<FileObject>> {
+        let persistent = LocalFs::new(dir.path().to_path_buf());
         self.build(id, None, &persistent).await
     }
 }
@@ -175,7 +175,7 @@ pub fn num_of_keys() -> usize {
 }
 
 #[cfg(test)]
-pub async fn generate_sst(dir: TempDir) -> SsTable<FileObject> {
+pub async fn generate_sst(dir: &TempDir) -> SsTable<FileObject> {
     let mut builder = SsTableBuilder::new(128);
     for idx in 0..num_of_keys() {
         let key = key_of(idx);
@@ -191,14 +191,15 @@ mod tests {
 
     use crate::key::KeySlice;
     use crate::persistent::LocalFs;
-    use crate::sst::SsTableBuilder;
+    use crate::sst::builder::{key_of, num_of_keys, value_of};
+    use crate::sst::{SsTable, SsTableBuilder};
 
     #[tokio::test]
     async fn test_sst_build_single_key() {
         let mut builder = SsTableBuilder::new(16);
         builder.add(KeySlice::for_testing_from_slice_no_ts(b"233"), b"233333");
         let dir = tempdir().unwrap();
-        builder.build_for_test(dir, 1).await.unwrap();
+        builder.build_for_test(&dir, 1).await.unwrap();
     }
 
     #[tokio::test]
@@ -212,6 +213,45 @@ mod tests {
         builder.add(KeySlice::for_testing_from_slice_no_ts(b"66"), b"22");
         assert!(builder.meta.len() >= 2);
         let dir = tempdir().unwrap();
-        builder.build_for_test(dir, 1).await.unwrap();
+        builder.build_for_test(&dir, 1).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_task2_sst_decode() {
+        let builder = get_builder();
+        let dir = tempdir().unwrap();
+        let sst = builder.build_for_test(&dir, 1).await.unwrap();
+        let sst2 = SsTable::open(1, None, &LocalFs::new(dir.path().to_path_buf()))
+            .await
+            .unwrap();
+        let bloom_1 = sst.bloom.as_ref().unwrap();
+        let bloom_2 = sst2.bloom.as_ref().unwrap();
+        assert_eq!(bloom_1.k, bloom_2.k);
+        assert_eq!(bloom_1.filter, bloom_2.filter);
+    }
+
+    #[tokio::test]
+    async fn test_task3_block_key_compression() {
+        let builder = get_builder();
+        let dir = tempdir().unwrap();
+        let sst = builder.build_for_test(&dir, 1).await.unwrap();
+        assert!(
+            sst.block_meta.len() <= 25,
+            "you have {} blocks, expect 25",
+            sst.block_meta.len()
+        );
+    }
+
+    fn get_builder() -> SsTableBuilder {
+        let mut builder = SsTableBuilder::new(128);
+        for idx in 0..num_of_keys() {
+            let key = key_of(idx);
+            let value = value_of(idx);
+            builder.add(
+                KeySlice::for_testing_from_slice_no_ts(key.raw_ref()),
+                &value[..],
+            );
+        }
+        builder
     }
 }
