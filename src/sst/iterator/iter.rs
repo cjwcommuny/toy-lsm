@@ -202,7 +202,7 @@ mod tests {
     #[tokio::test]
     async fn test_sst_seek_key() {
         let dir = tempdir().unwrap();
-        let sst = generate_sst(dir).await;
+        let sst = generate_sst(&dir).await;
         let mut iter = SsTableIterator::scan(&sst, Bound::Unbounded, Bound::Unbounded);
         for i in 0..num_of_keys() {
             let entry = iter
