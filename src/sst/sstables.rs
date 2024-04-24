@@ -201,7 +201,23 @@ where
         }
     }
 
-    pub fn apply_compaction(
+    pub async fn force_compaction_level<P: Persistent<Handle = File>>(
+        &mut self,
+        upper_level: usize,
+        lower_level: usize,
+        next_sst_id: impl Fn() -> usize,
+        options: &SstOptions,
+        persistent: &P,
+    ) -> anyhow::Result<()> {
+        let upper = self.table_ids(upper_level).clone();
+        let lower = self.table_ids(lower_level).clone();
+
+        let new_sst = self.compact_generate_new_sst(&upper, &lower, &self.sstables, next_sst_id, &options, persistent).await?;
+        self.apply_compaction(upper_level, &upper, lower_level, &lower, new_sst);
+        Ok(())
+    }
+
+    fn apply_compaction(
         &mut self,
         upper_level: usize,
         upper: &[usize],
@@ -249,7 +265,7 @@ where
         lower_sstables: &[usize],
         sstables: &HashMap<usize, Arc<SsTable<File>>>,
         next_sst_id: impl Fn() -> usize,
-        options: SstOptions,
+        options: &SstOptions,
         persistent: &P,
     ) -> anyhow::Result<Vec<Arc<SsTable<File>>>> {
         let l0 = {
