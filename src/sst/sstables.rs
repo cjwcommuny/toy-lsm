@@ -207,22 +207,35 @@ where
         upper: &[usize],
         lower_level: usize,
         lower: &[usize],
-        new_sst_ids: Vec<usize>,
+        new_ssts: Vec<Arc<SsTable<File>>>,
     ) {
-        let current_upper_size = self.level_size(upper_level);
-
         // remove upper level ids
-        println!("remove upper level {} ids", upper_level);
-        self.table_ids_mut(upper_level)
-            .truncate(dbg!(current_upper_size) - dbg!(upper.len()));
+        {
+            let upper_level = self.table_ids_mut(upper_level);
+            let current_upper_size = upper_level.len();
+            upper_level.truncate(current_upper_size - upper.len());
+        }
 
         // replace lower level ids
-        println!("remove lower level {} ids", lower_level);
-        let _ = mem::replace(self.table_ids_mut(lower_level), new_sst_ids);
+        {
+            let lower_level = self.table_ids_mut(lower_level);
+            lower_level.clear();
+            let new_ids = new_ssts.iter().map(|table| *table.id());
+            lower_level.extend(new_ids);
+        }
 
-        // remove old sstables
-        for index in upper.iter().chain(lower.iter()) {
-            self.sstables_mut().remove(index);
+        // replace sstables
+        {
+            let sstables = self.sstables_mut();
+
+            for index in upper.iter().chain(lower.iter()) {
+                sstables.remove(index);
+            }
+
+            for new_sst in new_ssts {
+                let id = *new_sst.id();
+                sstables.insert(id, new_sst);
+            }
         }
     }
 
@@ -230,17 +243,17 @@ where
         todo!()
     }
 
-    async fn compact_full<P: Persistent<Handle = File>>(
+    async fn compact_generate_new_sst<P: Persistent<Handle = File>>(
         &self,
-        l0_sstables: &[usize],
-        l1_sstables: &[usize],
+        upper_sstables: &[usize],
+        lower_sstables: &[usize],
         sstables: &HashMap<usize, Arc<SsTable<File>>>,
         next_sst_id: impl Fn() -> usize,
         options: SstOptions,
         persistent: &P,
     ) -> anyhow::Result<Vec<Arc<SsTable<File>>>> {
         let l0 = {
-            let iters = l0_sstables
+            let iters = upper_sstables
                 .iter()
                 .map(|index| sstables.get(index).unwrap().as_ref())
                 .map(SsTableIterator::create_and_seek_to_first)
@@ -251,7 +264,7 @@ where
             create_merge_iter_from_non_empty_iters(iters).await
         };
         let l1 = {
-            let tables = l1_sstables
+            let tables = lower_sstables
                 .iter()
                 .map(|index| sstables.get(index).unwrap().as_ref())
                 .collect();
