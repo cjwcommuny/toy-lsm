@@ -1,6 +1,7 @@
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
 use std::future::ready;
+use std::iter::repeat;
 use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -33,7 +34,7 @@ pub struct Sstables<File> {
     l0_sstables: Vec<usize>,
     /// SsTables sorted by key range; L1 - L_max for leveled compaction, or tiers for tiered
     /// compaction.
-    levels: Vec<(usize, Vec<usize>)>,
+    levels: Vec<Vec<usize>>,
     /// SST objects.
     /// todo: 这里的 key 不存储 index，只存储 reference
     /// todo: 这个接口的设计需要调整，把 usize 封装起来
@@ -66,10 +67,6 @@ impl<File> Sstables<File> {
         &self.l0_sstables
     }
 
-    pub fn levels(&self) -> &[(usize, Vec<usize>)] {
-        &self.levels
-    }
-
     pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
         &self.sstables
     }
@@ -84,13 +81,10 @@ impl<File> Sstables<File> {
 
     pub fn new(options: &SstOptions) -> Self {
         let levels = match options.compaction_option() {
-            CompactionOptions::Leveled(LeveledCompactionOptions { max_levels, .. })
-            | CompactionOptions::Simple(SimpleLeveledCompactionOptions { max_levels, .. }) => (1
-                ..=*max_levels)
-                .map(|level| (level, Vec::new()))
-                .collect::<Vec<_>>(),
-            CompactionOptions::Tiered(_) => Vec::new(),
-            CompactionOptions::NoCompaction => vec![(1, Vec::new())],
+            CompactionOptions::Leveled(LeveledCompactionOptions { max_levels, .. }) => {
+                repeat(Vec::new()).take(max_levels - 1).collect()
+            }
+            CompactionOptions::NoCompaction => Vec::new(),
         };
         Self {
             l0_sstables: Vec::new(),
@@ -164,7 +158,7 @@ where
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> MergeIterator<Entry, SstConcatIterator<'a>> {
-        let iters = self.levels.iter().filter_map(move |(_, ids)| {
+        let iters = self.levels.iter().filter_map(move |ids| {
             let tables = ids.iter().map(|id| self.sstables.get(id).unwrap().as_ref());
             scan_sst_concat(tables, lower, upper)
                 .inspect_err(|err| error!(error = ?err))
@@ -178,7 +172,7 @@ where
         if level == 0 {
             self.l0_sstables.len()
         } else {
-            let (_, ids) = self.levels.get(level - 1).unwrap();
+            let ids = self.levels.get(level - 1).unwrap();
             ids.len()
         }
     }
@@ -187,7 +181,7 @@ where
         if level == 0 {
             &mut self.l0_sstables
         } else {
-            let (_, ids) = self.levels.get_mut(level - 1).unwrap();
+            let ids = self.levels.get_mut(level - 1).unwrap();
             ids
         }
     }
@@ -196,7 +190,7 @@ where
         if level == 0 {
             &self.l0_sstables
         } else {
-            let (_, ids) = self.levels.get(level - 1).unwrap();
+            let ids = self.levels.get(level - 1).unwrap();
             ids
         }
     }
@@ -212,7 +206,16 @@ where
         let upper = self.table_ids(upper_level).clone();
         let lower = self.table_ids(lower_level).clone();
 
-        let new_sst = self.compact_generate_new_sst(&upper, &lower, &self.sstables, next_sst_id, &options, persistent).await?;
+        let new_sst = self
+            .compact_generate_new_sst(
+                &upper,
+                &lower,
+                &self.sstables,
+                next_sst_id,
+                &options,
+                persistent,
+            )
+            .await?;
         self.apply_compaction(upper_level, &upper, lower_level, &lower, new_sst);
         Ok(())
     }
@@ -303,6 +306,14 @@ where
         .await;
         Ok(s)
     }
+
+    // pub async fn force_compaction<P: Persistent<Handle = File>>(&mut self) -> anyhow::Result<()> {
+    //
+    // }
+    //
+    // fn compute_compaction_priority(&self) {
+    //     self.l0_sstables
+    // }
 }
 
 fn filter_sst_by_bloom<File>(
