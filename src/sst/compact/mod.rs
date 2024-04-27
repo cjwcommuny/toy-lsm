@@ -1,4 +1,4 @@
-mod leveled;
+pub mod leveled;
 mod option;
 mod simple_leveled;
 mod tiered;

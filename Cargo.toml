@@ -44,6 +44,7 @@ tracing-subscriber = "0.3.18"
 tokio-stream = "0.1.15"
 tokio-util = "0.7.11"
 futures-concurrency = "7.6.0"
+ordered-float = "4.2.0"
 
 [dev-dependencies]
 tempfile = "3"

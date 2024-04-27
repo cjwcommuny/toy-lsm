@@ -12,7 +12,7 @@ pub trait Persistent: Send + Sync + 'static {
     fn open(&self, id: usize) -> impl Future<Output = anyhow::Result<Self::Handle>> + Send;
 }
 
-pub trait PersistentHandle: Send + Sync {
+pub trait PersistentHandle: Send + Sync + 'static {
     fn read(&self, offset: u64, len: usize)
         -> impl Future<Output = anyhow::Result<Vec<u8>>> + Send;
 

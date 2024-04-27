@@ -1,12 +1,14 @@
+use std::cmp::max;
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
 use std::future::ready;
 use std::iter::repeat;
-use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::{iter, mem};
 
 use futures::{pin_mut, stream, FutureExt, Stream, StreamExt};
+use ordered_float::NotNan;
 use tokio::sync::RwLock;
 use tracing::error;
 
@@ -18,6 +20,7 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use crate::persistent::{Persistent, PersistentHandle};
+use crate::sst::compact::leveled::compute_compact_priority;
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };
@@ -212,7 +215,7 @@ where
                 &lower,
                 &self.sstables,
                 next_sst_id,
-                &options,
+                options,
                 persistent,
             )
             .await?;
@@ -307,13 +310,39 @@ where
         Ok(s)
     }
 
-    // pub async fn force_compaction<P: Persistent<Handle = File>>(&mut self) -> anyhow::Result<()> {
-    //
-    // }
-    //
-    // fn compute_compaction_priority(&self) {
-    //     self.l0_sstables
-    // }
+    pub async fn force_compaction<P: Persistent<Handle = File>>(&mut self) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn compute_scores(&self, options: &LeveledCompactionOptions) -> (usize, f64) {
+        iter::once(&self.l0_sstables)
+            .chain(&self.levels)
+            .map(|level| {
+                let level = level.iter().map(|id| {
+                    let table = self.sstables.get(id).unwrap();
+                    table.as_ref()
+                });
+                compute_compact_priority(options, level)
+            })
+            .enumerate()
+            .max_by(|(_, left), (_, right)| left.total_cmp(right))
+            .unwrap()
+    }
+
+    fn select_level_destination(&self, options: &LeveledCompactionOptions, source: usize) -> usize {
+        let max_size: u64 = iter::once(&self.l0_sstables)
+            .chain(&self.levels)
+            .map(|level| {
+                level
+                    .iter()
+                    .map(|id| self.sstables.get(id).unwrap().table_size())
+                    .sum()
+            })
+            .max()
+            .unwrap();
+        let last_level_target_size = max(max_size, options.max_bytes_for_level_base);
+        todo!()
+    }
 }
 
 fn filter_sst_by_bloom<File>(
