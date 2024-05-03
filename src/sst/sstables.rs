@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::{iter, mem};
 
 use futures::{pin_mut, stream, FutureExt, Stream, StreamExt};
+use itertools::Itertools;
 use ordered_float::NotNan;
 use tokio::sync::RwLock;
 use tracing::error;
@@ -84,8 +85,8 @@ impl<File> Sstables<File> {
 
     pub fn new(options: &SstOptions) -> Self {
         let levels = match options.compaction_option() {
-            CompactionOptions::Leveled(LeveledCompactionOptions { max_levels, .. }) => {
-                repeat(Vec::new()).take(max_levels - 1).collect()
+            CompactionOptions::Leveled(opt) => {
+                repeat(Vec::new()).take(opt.max_levels() - 1).collect()
             }
             CompactionOptions::NoCompaction => Vec::new(),
         };
@@ -330,6 +331,7 @@ where
     }
 
     fn select_level_destination(&self, options: &LeveledCompactionOptions, source: usize) -> usize {
+        let max_bytes_for_level_base = options.max_bytes_for_level_base();
         let max_size: u64 = iter::once(&self.l0_sstables)
             .chain(&self.levels)
             .map(|level| {
@@ -340,8 +342,21 @@ where
             })
             .max()
             .unwrap();
-        let last_level_target_size = max(max_size, options.max_bytes_for_level_base);
-        todo!()
+        let last_level_target_size = max(max_size, max_bytes_for_level_base);
+        let target_sizes: Vec<_> = iter::successors(Some(last_level_target_size), |prev| {
+            Some(prev / options.level_size_multiplier() as u64)
+        })
+        .take(options.max_levels())
+        .collect();
+
+        target_sizes
+            .into_iter()
+            .enumerate()
+            .skip(source + 1)
+            .peekable()
+            .find(|(level, target_size_next_level)| *target_size_next_level * (options.level_size_multiplier() as u64) >= max_bytes_for_level_base)
+            .unwrap()
+            .0
     }
 }
 
