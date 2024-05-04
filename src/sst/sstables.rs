@@ -21,7 +21,6 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use crate::persistent::{Persistent, PersistentHandle};
-use crate::sst::compact::leveled::{compute_compact_priority, select_level_destination};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };
@@ -35,14 +34,14 @@ use crate::sst::{bloom, SsTable, SsTableBuilder};
 #[derive(Default)]
 pub struct Sstables<File> {
     /// L0 SSTs, from latest to earliest.
-    l0_sstables: Vec<usize>,
+    pub(super) l0_sstables: Vec<usize>,
     /// SsTables sorted by key range; L1 - L_max for leveled compaction, or tiers for tiered
     /// compaction.
-    levels: Vec<Vec<usize>>,
+    pub(super) levels: Vec<Vec<usize>>,
     /// SST objects.
     /// todo: 这里的 key 不存储 index，只存储 reference
     /// todo: 这个接口的设计需要调整，把 usize 封装起来
-    sstables: HashMap<usize, Arc<SsTable<File>>>,
+    pub(super) sstables: HashMap<usize, Arc<SsTable<File>>>,
 }
 
 impl<File> Clone for Sstables<File> {
@@ -190,7 +189,7 @@ where
         }
     }
 
-    fn table_ids(&mut self, level: usize) -> &Vec<usize> {
+    pub(super) fn table_ids(&self, level: usize) -> &Vec<usize> {
         if level == 0 {
             &self.l0_sstables
         } else {
@@ -199,30 +198,30 @@ where
         }
     }
 
-    pub async fn force_compaction_level<P: Persistent<Handle = File>>(
-        &mut self,
-        upper_level: usize,
-        lower_level: usize,
-        next_sst_id: impl Fn() -> usize,
-        options: &SstOptions,
-        persistent: &P,
-    ) -> anyhow::Result<()> {
-        let upper = self.table_ids(upper_level).clone();
-        let lower = self.table_ids(lower_level).clone();
-
-        let new_sst = self
-            .compact_generate_new_sst(
-                &upper,
-                &lower,
-                &self.sstables,
-                next_sst_id,
-                options,
-                persistent,
-            )
-            .await?;
-        self.apply_compaction(upper_level, &upper, lower_level, &lower, new_sst);
-        Ok(())
-    }
+    // pub async fn force_compaction_level<P: Persistent<Handle = File>>(
+    //     &mut self,
+    //     upper_level: usize,
+    //     lower_level: usize,
+    //     next_sst_id: impl Fn() -> usize,
+    //     options: &SstOptions,
+    //     persistent: &P,
+    // ) -> anyhow::Result<()> {
+    //     let upper = self.table_ids(upper_level).clone();
+    //     let lower = self.table_ids(lower_level).clone();
+    //
+    //     let new_sst = self
+    //         .compact_generate_new_sst(
+    //             &upper,
+    //             &lower,
+    //             &self.sstables,
+    //             next_sst_id,
+    //             options,
+    //             persistent,
+    //         )
+    //         .await?;
+    //     self.apply_compaction(upper_level, &upper, lower_level, &lower, new_sst);
+    //     Ok(())
+    // }
 
     fn apply_compaction(
         &mut self,
@@ -266,8 +265,7 @@ where
         todo!()
     }
 
-    async fn compact_generate_new_sst<P: Persistent<Handle = File>>(
-        &self,
+    pub async fn compact_generate_new_sst<P: Persistent<Handle = File>>(
         upper_sstables: &[usize],
         lower_sstables: &[usize],
         sstables: &HashMap<usize, Arc<SsTable<File>>>,
@@ -313,33 +311,6 @@ where
 
     pub async fn force_compaction<P: Persistent<Handle = File>>(&mut self) -> anyhow::Result<()> {
         todo!()
-    }
-
-    fn compute_scores(&self, options: &LeveledCompactionOptions) -> (usize, f64) {
-        iter::once(&self.l0_sstables)
-            .chain(&self.levels)
-            .map(|level| {
-                let level = level.iter().map(|id| {
-                    let table = self.sstables.get(id).unwrap();
-                    table.table_size()
-                });
-                compute_compact_priority(options, level)
-            })
-            .enumerate()
-            .max_by(|(_, left), (_, right)| left.total_cmp(right))
-            .unwrap()
-    }
-
-    fn select_level_destination(&self, options: &LeveledCompactionOptions, source: usize) -> usize {
-        let table_sizes = iter::once(&self.l0_sstables)
-            .chain(&self.levels)
-            .map(|level| {
-                level
-                    .iter()
-                    .map(|id| self.sstables.get(id).unwrap().table_size())
-                    .sum()
-            });
-        select_level_destination(options, source, table_sizes)
     }
 }
 

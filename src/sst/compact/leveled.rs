@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use derive_new::new;
 use getset::CopyGetters;
 use std::cmp::max;
@@ -5,8 +6,9 @@ use std::iter;
 
 use ordered_float::NotNan;
 
-use crate::persistent::PersistentHandle;
-use crate::sst::SsTable;
+use crate::persistent::{Persistent, PersistentHandle};
+use crate::sst::compact::CompactionOptions::Leveled;
+use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::utils::num::power_of_2;
 
 #[derive(Debug, Clone, new, CopyGetters)]
@@ -38,7 +40,85 @@ impl LeveledCompactionOptions {
     }
 }
 
-pub fn compute_compact_priority(
+pub async fn force_compaction<P: Persistent>(
+    sstables: &mut Sstables<P::Handle>,
+    next_sst_id: impl Fn() -> usize,
+    options: &SstOptions,
+    persistent: &P,
+) -> anyhow::Result<()> {
+    let Leveled(compact_options) = options.compaction_option() else {
+        return Ok(());
+    };
+
+    // todo: only select one source sst
+    let Some(source) = select_level_source(sstables, compact_options) else {
+        return Ok(());
+    };
+    let Some(destination) = select_level_destination(sstables, compact_options, source) else {
+        return Ok(());
+    };
+
+    let source_level = sstables.table_ids(source);
+    let destination_level = sstables.table_ids(destination);
+    let new_sst = Sstables::compact_generate_new_sst(
+        source_level,
+        destination_level,
+        &sstables.sstables,
+        next_sst_id,
+        options,
+        persistent,
+    )
+    .await?;
+    todo!()
+}
+
+fn select_level_source<File>(
+    sstables: &Sstables<File>,
+    options: &LeveledCompactionOptions,
+) -> Option<usize>
+where
+    File: PersistentHandle,
+{
+    let source = iter::once(&sstables.l0_sstables)
+        .chain(&sstables.levels)
+        .map(|level| {
+            let level = level.iter().map(|id| {
+                let table = sstables.sstables.get(id).unwrap();
+                table.table_size()
+            });
+            compute_compact_priority(options, level)
+        })
+        .enumerate()
+        .max_by(|(_, left), (_, right)| left.total_cmp(right))
+        .expect("BUG: must have max score")
+        .0;
+    if source == options.max_levels() {
+        None
+    } else {
+        Some(source)
+    }
+}
+
+fn select_level_destination<File>(
+    sstables: &Sstables<File>,
+    options: &LeveledCompactionOptions,
+    source: usize,
+) -> Option<usize>
+where
+    File: PersistentHandle,
+{
+    let table_sizes = iter::once(&sstables.l0_sstables)
+        .chain(&sstables.levels)
+        .map(|level| {
+            level
+                .iter()
+                .map(|id| sstables.sstables.get(id).unwrap().table_size())
+                .sum()
+        });
+    select_level_destination_impl(options, source, table_sizes)
+}
+
+fn compute_compact_priority(
     options: &LeveledCompactionOptions,
     table_sizes: impl IntoIterator<Item = u64>,
 ) -> f64 {
@@ -56,11 +136,11 @@ pub fn compute_compact_priority(
     max(count_priority, size_priority).into_inner()
 }
 
-pub fn select_level_destination(
+fn select_level_destination_impl(
     options: &LeveledCompactionOptions,
     source: usize,
     table_sizes: impl IntoIterator<Item = u64>,
-) -> usize {
+) -> Option<usize> {
     let max_bytes_for_level_base = options.max_bytes_for_level_base();
     let max_size = table_sizes.into_iter().max().unwrap();
     let last_level_target_size = max(max_size, max_bytes_for_level_base);
@@ -80,13 +160,12 @@ pub fn select_level_destination(
         .skip(source + 1)
         .peekable()
         .find(|(level, target_size_next_level)| *target_size_next_level >= max_bytes_for_level_base)
-        .unwrap()
-        .0
+        .map(|(level, _)| level)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::sst::compact::leveled::{compute_compact_priority, select_level_destination};
+    use crate::sst::compact::leveled::{compute_compact_priority, select_level_destination_impl};
     use crate::sst::compact::LeveledCompactionOptions;
 
     #[test]
@@ -105,8 +184,17 @@ mod tests {
     #[test]
     fn test_select_level_destination() {
         let options = LeveledCompactionOptions::new(1, 10, 4, 300);
-        assert_eq!(select_level_destination(&options, 0, [300, 0, 0, 0]), 3);
-        assert_eq!(select_level_destination(&options, 0, [300, 0, 300, 600]), 2);
-        assert_eq!(select_level_destination(&options, 2, [300, 0, 300, 600]), 3);
+        assert_eq!(
+            select_level_destination_impl(&options, 0, [300, 0, 0, 0]),
+            Some(3)
+        );
+        assert_eq!(
+            select_level_destination_impl(&options, 0, [300, 0, 300, 600]),
+            Some(2)
+        );
+        assert_eq!(
+            select_level_destination_impl(&options, 2, [300, 0, 300, 600]),
+            Some(3)
+        );
     }
 }
