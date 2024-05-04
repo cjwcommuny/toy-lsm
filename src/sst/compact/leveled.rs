@@ -1,15 +1,14 @@
-use anyhow::{anyhow, Error};
-use derive_new::new;
-use getset::CopyGetters;
 use std::cmp::max;
 use std::iter;
 
+use derive_new::new;
+use getset::CopyGetters;
 use ordered_float::NotNan;
 
 use crate::persistent::{Persistent, PersistentHandle};
-use crate::sst::compact::common::apply_compaction;
+use crate::sst::{Sstables, SstOptions};
+use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst};
 use crate::sst::compact::CompactionOptions::Leveled;
-use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::utils::num::power_of_2;
 
 #[derive(Debug, Clone, new, CopyGetters)]
@@ -82,7 +81,7 @@ async fn force_compact_level<P: Persistent>(
     let source_level = sstables.tables(source).next_back();
 
     let destination_level = sstables.tables(destination);
-    let new_sst = Sstables::compact_generate_new_sst(
+    let new_sst = compact_generate_new_sst(
         source_level,
         destination_level,
         next_sst_id,
