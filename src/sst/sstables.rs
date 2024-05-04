@@ -181,7 +181,7 @@ where
         }
     }
 
-    fn table_ids_mut(&mut self, level: usize) -> &mut Vec<usize> {
+    pub(super) fn table_ids_mut(&mut self, level: usize) -> &mut Vec<usize> {
         if level == 0 {
             &mut self.l0_sstables
         } else {
@@ -199,7 +199,7 @@ where
         }
     }
 
-    pub(super) fn tables(&self, level: usize) -> impl Iterator<Item = &SsTable<File>> {
+    pub(super) fn tables(&self, level: usize) -> impl DoubleEndedIterator<Item = &SsTable<File>> {
         self.table_ids(level)
             .iter()
             .map(|id| self.sstables.get(id).unwrap().as_ref())
@@ -272,6 +272,7 @@ where
         todo!()
     }
 
+    // todo: return Stream<Item = Arc<SsTable<File>>>
     pub async fn compact_generate_new_sst<P: Persistent<Handle = File>>(
         upper_sstables: impl IntoIterator<Item = &SsTable<File>>,
         lower_sstables: impl IntoIterator<Item = &SsTable<File>>,

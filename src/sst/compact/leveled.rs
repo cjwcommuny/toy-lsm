@@ -58,7 +58,9 @@ pub async fn force_compaction<P: Persistent>(
         return Ok(());
     };
 
-    let source_level = sstables.tables(source);
+    // select the oldest sst
+    let source_level = sstables.tables(source).next_back();
+
     let destination_level = sstables.tables(destination);
     let new_sst = Sstables::compact_generate_new_sst(
         source_level,
@@ -68,7 +70,28 @@ pub async fn force_compaction<P: Persistent>(
         persistent,
     )
     .await?;
-    todo!()
+
+    // apply compaction
+    {
+        if let Some(source_id) = sstables.table_ids_mut(source).pop() {
+            sstables.sstables.remove(&source_id);
+        }
+
+        // todo: eliminate cloning
+        let destination_ids = sstables.table_ids(destination).clone();
+        for destination_id in destination_ids {
+            sstables.sstables.remove(&destination_id);
+        }
+
+        sstables
+            .table_ids_mut(destination)
+            .splice(.., new_sst.iter().map(|table| *table.id()));
+
+        for table in new_sst {
+            sstables.sstables.insert(*table.id(), table);
+        }
+    }
+    Ok(())
 }
 
 fn select_level_source<File>(
