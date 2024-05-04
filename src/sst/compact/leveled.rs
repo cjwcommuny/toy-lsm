@@ -7,6 +7,7 @@ use std::iter;
 use ordered_float::NotNan;
 
 use crate::persistent::{Persistent, PersistentHandle};
+use crate::sst::compact::common::apply_compaction;
 use crate::sst::compact::CompactionOptions::Leveled;
 use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::utils::num::power_of_2;
@@ -71,26 +72,9 @@ pub async fn force_compaction<P: Persistent>(
     )
     .await?;
 
-    // apply compaction
-    {
-        if let Some(source_id) = sstables.table_ids_mut(source).pop() {
-            sstables.sstables.remove(&source_id);
-        }
+    let source_len = sstables.table_ids(source).len();
+    apply_compaction(sstables, source_len - 1.., source, destination, new_sst);
 
-        // todo: eliminate cloning
-        let destination_ids = sstables.table_ids(destination).clone();
-        for destination_id in destination_ids {
-            sstables.sstables.remove(&destination_id);
-        }
-
-        sstables
-            .table_ids_mut(destination)
-            .splice(.., new_sst.iter().map(|table| *table.id()));
-
-        for table in new_sst {
-            sstables.sstables.insert(*table.id(), table);
-        }
-    }
     Ok(())
 }
 
