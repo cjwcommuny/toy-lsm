@@ -1,3 +1,4 @@
+use deref_ext::DerefExt;
 use std::cmp::max;
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
@@ -198,6 +199,12 @@ where
         }
     }
 
+    pub(super) fn tables(&self, level: usize) -> impl Iterator<Item = &SsTable<File>> {
+        self.table_ids(level)
+            .iter()
+            .map(|id| self.sstables.get(id).unwrap().as_ref())
+    }
+
     // pub async fn force_compaction_level<P: Persistent<Handle = File>>(
     //     &mut self,
     //     upper_level: usize,
@@ -266,17 +273,15 @@ where
     }
 
     pub async fn compact_generate_new_sst<P: Persistent<Handle = File>>(
-        upper_sstables: &[usize],
-        lower_sstables: &[usize],
-        sstables: &HashMap<usize, Arc<SsTable<File>>>,
+        upper_sstables: impl IntoIterator<Item = &SsTable<File>>,
+        lower_sstables: impl IntoIterator<Item = &SsTable<File>>,
         next_sst_id: impl Fn() -> usize,
         options: &SstOptions,
         persistent: &P,
     ) -> anyhow::Result<Vec<Arc<SsTable<File>>>> {
         let l0 = {
             let iters = upper_sstables
-                .iter()
-                .map(|index| sstables.get(index).unwrap().as_ref())
+                .into_iter()
                 .map(SsTableIterator::create_and_seek_to_first)
                 .map(Box::new)
                 .map(NonEmptyStream::try_new);
@@ -285,10 +290,7 @@ where
             create_merge_iter_from_non_empty_iters(iters).await
         };
         let l1 = {
-            let tables = lower_sstables
-                .iter()
-                .map(|index| sstables.get(index).unwrap().as_ref())
-                .collect();
+            let tables = lower_sstables.into_iter().collect();
             create_sst_concat_and_seek_to_first(tables)
         }?;
         let iter = create_two_merge_iter(l0, l1).await?;

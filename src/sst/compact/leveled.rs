@@ -58,12 +58,11 @@ pub async fn force_compaction<P: Persistent>(
         return Ok(());
     };
 
-    let source_level = sstables.table_ids(source);
-    let destination_level = sstables.table_ids(destination);
+    let source_level = sstables.tables(source);
+    let destination_level = sstables.tables(destination);
     let new_sst = Sstables::compact_generate_new_sst(
         source_level,
         destination_level,
-        &sstables.sstables,
         next_sst_id,
         options,
         persistent,
