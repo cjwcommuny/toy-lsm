@@ -1,6 +1,4 @@
 use crate::sst::compact::leveled::LeveledCompactionOptions;
-use crate::sst::compact::simple_leveled::SimpleLeveledCompactionOptions;
-use crate::sst::compact::tiered::TieredCompactionOptions;
 
 #[derive(Debug, Clone, Default)]
 pub enum CompactionOptions {

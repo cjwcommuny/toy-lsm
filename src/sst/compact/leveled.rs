@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use derive_new::new;
 use getset::CopyGetters;
 use std::cmp::max;
@@ -59,6 +59,25 @@ pub async fn force_compaction<P: Persistent>(
         return Ok(());
     };
 
+    force_compact_level(
+        sstables,
+        next_sst_id,
+        options,
+        persistent,
+        source,
+        destination,
+    )
+    .await
+}
+
+async fn force_compact_level<P: Persistent>(
+    sstables: &mut Sstables<<P as Persistent>::Handle>,
+    next_sst_id: impl Fn() -> usize + Sized,
+    options: &SstOptions,
+    persistent: &P,
+    source: usize,
+    destination: usize,
+) -> anyhow::Result<()> {
     // select the oldest sst
     let source_level = sstables.tables(source).next_back();
 
@@ -77,6 +96,8 @@ pub async fn force_compaction<P: Persistent>(
 
     Ok(())
 }
+
+// async fn force_compact_level()
 
 fn select_level_source<File>(
     sstables: &Sstables<File>,
