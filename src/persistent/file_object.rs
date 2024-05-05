@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: CC0-1.0 OR MIT OR Apache-2.0
+// -> todo! remove this notice
+
 use std::fs::File;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
