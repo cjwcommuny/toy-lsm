@@ -42,7 +42,7 @@ bytemuck = { version = "1.15.0", features = ["extern_crate_alloc", "derive"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 tokio-stream = "0.1.15"
-tokio-util = "0.7.10"
+tokio-util = "0.7.11"
 futures-concurrency = "7.6.0"
 
 [dev-dependencies]
