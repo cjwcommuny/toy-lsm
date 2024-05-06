@@ -7,6 +7,8 @@ use std::iter::repeat;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::{iter, mem};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::Relaxed;
 
 use futures::{pin_mut, stream, FutureExt, Stream, StreamExt};
 use itertools::Itertools;
@@ -226,6 +228,10 @@ fn filter_sst_by_bloom<File>(
         }
     }
     true
+}
+
+pub fn build_next_sst_id(a: &AtomicUsize) -> impl Fn() -> usize + Sized + '_ {
+    || a.fetch_add(1, Relaxed)
 }
 
 #[cfg(test)]

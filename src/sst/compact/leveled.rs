@@ -191,8 +191,16 @@ fn select_level_destination_impl(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::{Range, RangeBounds};
+    use std::sync::atomic::AtomicUsize;
+    use tracing_subscriber::fmt::format;
+
+    use crate::persistent::memory::Memory;
+    use crate::persistent::Persistent;
     use crate::sst::compact::leveled::{compute_compact_priority, select_level_destination_impl};
     use crate::sst::compact::LeveledCompactionOptions;
+    use crate::sst::SstOptions;
+    use crate::state::{LsmStorageState, Map};
 
     #[test]
     fn test_compute_compact_priority() {
@@ -222,5 +230,34 @@ mod tests {
             select_level_destination_impl(&options, 2, [300, 0, 300, 600]),
             Some(3)
         );
+    }
+
+    #[tokio::test]
+    async fn test_force_compact_level() {
+        let persistent = Memory::default();
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .build();
+        let mut state = LsmStorageState::new(options, persistent);
+        let next_sst_id = AtomicUsize::default();
+
+        {
+            insert_sst(&state, 0..100).await.unwrap();
+
+        }
+
+        // force_compact_level(&mut sstables, build_next_sst_id(&next_sst_id), &options, &persistent, 0, 1).await.unwrap();
+    }
+
+    async fn insert_sst<P: Persistent>(state: &LsmStorageState<P>, range: Range<u64>) -> anyhow::Result<()> {
+        for i in range {
+            let key = format!("key-{}", i);
+            let value = format!("value-{}", i);
+            state.put(key, value).await?;
+        }
+        Ok(())
     }
 }

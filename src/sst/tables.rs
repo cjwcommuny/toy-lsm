@@ -1,22 +1,19 @@
 use std::fmt::{Debug, Formatter};
-use std::ops::Bound::Unbounded;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use bytes::Buf;
 use derive_getters::Getters;
-use futures::executor::block_on;
 use futures::StreamExt;
-use tracing::info;
 use typed_builder::TypedBuilder;
 
 use crate::block::{Block, BlockCache, BlockIterator};
 use crate::iterators::transpose_try_iter;
 use crate::key::{KeyBytes, KeySlice};
 use crate::persistent::{Persistent, PersistentHandle};
-use crate::sst::bloom::Bloom;
-use crate::sst::iterator::{BlockFallibleIter, SsTableIterator};
 use crate::sst::BlockMeta;
+use crate::sst::bloom::Bloom;
+use crate::sst::iterator::BlockFallibleIter;
 
 /// An SSTable.
 #[derive(TypedBuilder, Getters)]
