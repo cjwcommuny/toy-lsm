@@ -1,5 +1,6 @@
 use bytemuck::TransparentWrapper;
 use std::collections::Bound;
+use std::fmt::{Debug, Formatter};
 
 use crate::entry::Entry;
 use crate::key::KeySlice;
@@ -13,9 +14,15 @@ use derive_new::new;
 use nom::AsBytes;
 use ref_cast::RefCast;
 
-#[derive(RefCast, TransparentWrapper, new, Debug)]
+#[derive(RefCast, TransparentWrapper, new)]
 #[repr(transparent)]
 pub struct ImmutableMemTable(MemTable);
+
+impl Debug for ImmutableMemTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl ImmutableMemTable {
     pub fn approximate_size(&self) -> usize {

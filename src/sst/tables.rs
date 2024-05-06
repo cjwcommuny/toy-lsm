@@ -37,7 +37,6 @@ impl<File: PersistentHandle> Debug for SsTable<File> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SsTable")
             .field("id", &self.id)
-            .field("block_meta", &self.block_meta)
             .field("first_key", self.first_key())
             .field("last_key", self.last_key())
             .finish()
