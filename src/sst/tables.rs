@@ -39,6 +39,7 @@ impl<File: PersistentHandle> Debug for SsTable<File> {
             .field("id", &self.id)
             .field("first_key", self.first_key())
             .field("last_key", self.last_key())
+            .field("size", &self.table_size())
             .finish()
     }
 }

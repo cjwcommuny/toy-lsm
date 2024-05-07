@@ -193,6 +193,7 @@ fn select_level_destination_impl(
 mod tests {
     use std::ops::{Range, RangeBounds};
     use std::sync::atomic::AtomicUsize;
+    use tokio::sync::Mutex;
     use tracing_subscriber::fmt::format;
 
     use crate::persistent::memory::Memory;
@@ -243,10 +244,14 @@ mod tests {
             .build();
         let mut state = LsmStorageState::new(options, persistent);
         let next_sst_id = AtomicUsize::default();
+        let state_lock = Mutex::default();
 
-        {
-            insert_sst(&state, 0..100).await.unwrap();
-
+        for i in 0..5 {
+            let guard = state_lock.lock().await;
+            let begin = i * 100;
+            insert_sst(&state, begin..begin + 100).await.unwrap();
+            state.force_flush_imm_memtable(&guard).await.unwrap();
+            println!("{:?}", state);
         }
 
         // force_compact_level(&mut sstables, build_next_sst_id(&next_sst_id), &options, &persistent, 0, 1).await.unwrap();
@@ -254,8 +259,8 @@ mod tests {
 
     async fn insert_sst<P: Persistent>(state: &LsmStorageState<P>, range: Range<u64>) -> anyhow::Result<()> {
         for i in range {
-            let key = format!("key-{}", i);
-            let value = format!("value-{}", i);
+            let key = format!("key-{:04}", i);
+            let value = format!("value-{:04}", i);
             state.put(key, value).await?;
         }
         Ok(())
