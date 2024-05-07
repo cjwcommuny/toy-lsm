@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: CC0-1.0 OR MIT OR Apache-2.0
-// -> todo! remove this notice
-
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;

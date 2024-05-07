@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: CC0-1.0 OR MIT OR Apache-2.0
-// -> todo! remove this notice
-
 use better_mini_lsm::fibonacci;
 use better_mini_lsm::persistent::LocalFs;
 use better_mini_lsm::sst::SstOptions;
