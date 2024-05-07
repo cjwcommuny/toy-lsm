@@ -214,6 +214,19 @@ where
     pub async fn force_compaction<P: Persistent<Handle = File>>(&mut self) -> anyhow::Result<()> {
         todo!()
     }
+
+    fn debug_level(&self, level: usize) -> DebugLevel {
+        let tables = self.tables(level);
+        let (size, count) = tables.fold((0, 0), |(size, count), table| {
+            (size + table.table_size(), count + 1)
+        });
+        let ids = self.table_ids(level);
+        DebugLevel {
+            ids: ids.clone(),
+            size,
+            count,
+        }
+    }
 }
 
 fn filter_sst_by_bloom<File>(
@@ -232,6 +245,12 @@ fn filter_sst_by_bloom<File>(
 
 pub fn build_next_sst_id(a: &AtomicUsize) -> impl Fn() -> usize + Sized + '_ {
     || a.fetch_add(1, Relaxed)
+}
+
+struct DebugLevel {
+    ids: Vec<usize>,
+    size: u64,
+    count: usize,
 }
 
 #[cfg(test)]
