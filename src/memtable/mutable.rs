@@ -49,6 +49,7 @@ impl Debug for MemTable {
             .field("id", &self.id)
             .field("first", &first)
             .field("last", &last)
+            .field("size", &self.approximate_size())
             .finish()
     }
 }

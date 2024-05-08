@@ -22,12 +22,12 @@ use crate::utils::vec::pop;
 
 #[derive(Getters)]
 pub struct LsmStorageState<P: Persistent> {
-    inner: ArcSwap<LsmStorageStateInner<P>>,
+    pub(crate) inner: ArcSwap<LsmStorageStateInner<P>>,
     block_cache: Arc<BlockCache>,
     state_lock: Mutex<()>,
-    persistent: P,
-    options: SstOptions,
-    sst_id: AtomicUsize,
+    pub(crate) persistent: P,
+    pub(crate) options: SstOptions,
+    pub(crate) sst_id: AtomicUsize,
 }
 
 impl<P> Debug for LsmStorageState<P>

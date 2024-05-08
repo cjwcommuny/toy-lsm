@@ -6,7 +6,7 @@ use crate::iterators::{
 use crate::key::KeySlice;
 use futures::{stream, Stream, StreamExt};
 use std::future::ready;
-use std::ops::RangeBounds;
+use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
 use tracing::error;
 
@@ -16,7 +16,7 @@ use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
 pub fn apply_compaction<File: PersistentHandle>(
     sstables: &mut Sstables<File>,
-    source: impl RangeBounds<usize>,
+    source: Range<usize>,
     source_level: usize,
     destination_level: usize,
     new_sst: Vec<Arc<SsTable<File>>>,
@@ -24,8 +24,9 @@ pub fn apply_compaction<File: PersistentHandle>(
     // handle source
     {
         let source_ids = sstables.table_ids(source_level).clone();
+        let source_ids = &source_ids[source.clone()];
 
-        for id in &source_ids {
+        for id in source_ids {
             sstables.sstables.remove(id);
         }
 
