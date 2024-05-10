@@ -198,12 +198,11 @@ fn select_level_destination_impl(
 
 #[cfg(test)]
 mod tests {
-    use proptest::collection::vec;
-    use std::ops::{Deref, Range, RangeBounds};
+    use std::ops::Range;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
+
     use tokio::sync::Mutex;
-    use tracing_subscriber::fmt::format;
 
     use crate::persistent::memory::{Memory, MemoryObject};
     use crate::persistent::Persistent;
