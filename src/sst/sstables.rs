@@ -5,10 +5,10 @@ use std::fmt::{Debug, Formatter};
 use std::future::ready;
 use std::iter::repeat;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::{iter, mem};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
+use std::{iter, mem};
 
 use futures::{pin_mut, stream, FutureExt, Stream, StreamExt};
 use itertools::Itertools;

@@ -7,9 +7,9 @@ use ordered_float::NotNan;
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{Persistent, PersistentHandle};
-use crate::sst::{Sstables, SstOptions};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst};
 use crate::sst::compact::CompactionOptions::Leveled;
+use crate::sst::{SstOptions, Sstables};
 use crate::utils::num::power_of_2;
 
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
@@ -82,7 +82,7 @@ async fn force_compact_level<P: Persistent>(
     let source_level = sstables.tables(source).next_back();
 
     let destination_level = sstables.tables(destination);
-    let new_sst = compact_generate_new_sst(
+    let mut new_sst = compact_generate_new_sst(
         source_level,
         destination_level,
         next_sst_id,
@@ -92,7 +92,13 @@ async fn force_compact_level<P: Persistent>(
     .await?;
 
     let source_len = sstables.table_ids(source).len();
-    apply_compaction(sstables, source_len - 1..source_len, source, destination, new_sst);
+    apply_compaction(
+        sstables,
+        source_len - 1..source_len,
+        source,
+        destination,
+        new_sst,
+    );
 
     Ok(())
 }
@@ -192,6 +198,7 @@ fn select_level_destination_impl(
 
 #[cfg(test)]
 mod tests {
+    use proptest::collection::vec;
     use std::ops::{Deref, Range, RangeBounds};
     use std::sync::atomic::AtomicUsize;
     use tokio::sync::Mutex;
@@ -199,7 +206,9 @@ mod tests {
 
     use crate::persistent::memory::Memory;
     use crate::persistent::Persistent;
-    use crate::sst::compact::leveled::{compute_compact_priority, force_compact_level, select_level_destination_impl};
+    use crate::sst::compact::leveled::{
+        compute_compact_priority, force_compact_level, select_level_destination_impl,
+    };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
     use crate::sst::SstOptions;
@@ -261,15 +270,53 @@ mod tests {
             state.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
-        println!("{:?}", state);
-
-
         let mut sstables = Clone::clone(state.inner.load().sstables_state().as_ref());
-        force_compact_level(&mut sstables, build_next_sst_id(&state.sst_id), &state.options, &state.persistent, 0, 1).await.unwrap();
-        println!("{:?}", sstables);
+
+        {
+            assert_eq!(sstables.l0_sstables, [4, 3, 2, 1, 0]);
+            assert_eq!(sstables.levels, vec![vec![], vec![], vec![]]);
+            assert_eq!(sstables.sstables.len(), 5);
+        }
+
+        force_compact_level(
+            &mut sstables,
+            build_next_sst_id(&state.sst_id),
+            &state.options,
+            &state.persistent,
+            0,
+            1,
+        )
+        .await
+        .unwrap();
+
+        {
+            assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
+            assert_eq!(sstables.levels, vec![vec![9, 10], vec![], vec![]]);
+            assert_eq!(sstables.sstables.len(), 6);
+        }
+
+        force_compact_level(
+            &mut sstables,
+            build_next_sst_id(&state.sst_id),
+            &state.options,
+            &state.persistent,
+            0,
+            1,
+        )
+        .await
+        .unwrap();
+
+        {
+            assert_eq!(sstables.l0_sstables, [4, 3, 2]);
+            assert_eq!(sstables.levels, vec![vec![12, 13, 14], vec![], vec![]]);
+            assert_eq!(sstables.sstables.len(), 6);
+        }
     }
 
-    async fn insert_sst<P: Persistent>(state: &LsmStorageState<P>, range: Range<u64>) -> anyhow::Result<()> {
+    async fn insert_sst<P: Persistent>(
+        state: &LsmStorageState<P>,
+        range: Range<u64>,
+    ) -> anyhow::Result<()> {
         for i in range {
             let key = format!("key-{:04}", i);
             let value = format!("value-{:04}", i);
