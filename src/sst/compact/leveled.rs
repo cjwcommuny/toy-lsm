@@ -201,17 +201,18 @@ mod tests {
     use proptest::collection::vec;
     use std::ops::{Deref, Range, RangeBounds};
     use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
     use tokio::sync::Mutex;
     use tracing_subscriber::fmt::format;
 
-    use crate::persistent::memory::Memory;
+    use crate::persistent::memory::{Memory, MemoryObject};
     use crate::persistent::Persistent;
     use crate::sst::compact::leveled::{
         compute_compact_priority, force_compact_level, select_level_destination_impl,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
-    use crate::sst::SstOptions;
+    use crate::sst::{SstOptions, Sstables};
     use crate::state::{LsmStorageState, Map};
 
     #[test]
@@ -246,31 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_force_compact_level() {
-        let persistent = Memory::default();
-        let compaction_options = LeveledCompactionOptions::builder()
-            .max_levels(4)
-            .max_bytes_for_level_base(1)
-            .level0_file_num_compaction_trigger(1)
-            .level_size_multiplier_2_exponent(1)
-            .build();
-        let options = SstOptions::builder()
-            .target_sst_size(1024)
-            .block_size(4096)
-            .num_memtable_limit(1000)
-            .compaction_option(CompactionOptions::Leveled(compaction_options))
-            .build();
-        let mut state = LsmStorageState::new(options, persistent);
-        let next_sst_id = AtomicUsize::default();
-        let state_lock = Mutex::default();
-
-        for i in 0..5 {
-            let guard = state_lock.lock().await;
-            let begin = i * 100;
-            insert_sst(&state, begin..begin + 100).await.unwrap();
-            state.force_flush_imm_memtable(&guard).await.unwrap();
-        }
-
-        let mut sstables = Clone::clone(state.inner.load().sstables_state().as_ref());
+        let (state, mut sstables) = prepare_sstables().await;
 
         {
             assert_eq!(sstables.l0_sstables, [4, 3, 2, 1, 0]);
@@ -311,6 +288,35 @@ mod tests {
             assert_eq!(sstables.levels, vec![vec![12, 13, 14], vec![], vec![]]);
             assert_eq!(sstables.sstables.len(), 6);
         }
+    }
+
+    async fn prepare_sstables() -> (LsmStorageState<Memory>, Sstables<Arc<MemoryObject>>) {
+        let persistent = Memory::default();
+        let compaction_options = LeveledCompactionOptions::builder()
+            .max_levels(4)
+            .max_bytes_for_level_base(1)
+            .level0_file_num_compaction_trigger(1)
+            .level_size_multiplier_2_exponent(1)
+            .build();
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(CompactionOptions::Leveled(compaction_options))
+            .build();
+        let mut state = LsmStorageState::new(options, persistent);
+        let next_sst_id = AtomicUsize::default();
+        let state_lock = Mutex::default();
+
+        for i in 0..5 {
+            let guard = state_lock.lock().await;
+            let begin = i * 100;
+            insert_sst(&state, begin..begin + 100).await.unwrap();
+            state.force_flush_imm_memtable(&guard).await.unwrap();
+        }
+
+        let sstables = Clone::clone(state.inner.load().sstables_state().as_ref());
+        (state, sstables)
     }
 
     async fn insert_sst<P: Persistent>(
