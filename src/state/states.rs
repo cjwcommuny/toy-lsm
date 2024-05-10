@@ -22,12 +22,12 @@ use crate::utils::vec::pop;
 
 #[derive(Getters)]
 pub struct LsmStorageState<P: Persistent> {
-    inner: ArcSwap<LsmStorageStateInner<P>>,
+    pub(crate) inner: ArcSwap<LsmStorageStateInner<P>>,
     block_cache: Arc<BlockCache>,
     state_lock: Mutex<()>,
-    persistent: P,
-    options: SstOptions,
-    sst_id: AtomicUsize,
+    pub(crate) persistent: P,
+    pub(crate) options: SstOptions,
+    pub(crate) sst_id: AtomicUsize,
 }
 
 impl<P> Debug for LsmStorageState<P>
@@ -148,7 +148,13 @@ where
     ) -> anyhow::Result<()> {
         let new = {
             let cur = self.inner.load_full();
-            flush_imm_memtable(cur, &self.block_cache, self.persistent()).await?
+            flush_imm_memtable(
+                cur,
+                &self.block_cache,
+                self.persistent(),
+                *self.options.block_size(),
+            )
+            .await?
         };
         if let Some(new) = new {
             // todo: 封装 ArcSwap 和 Mutex
@@ -182,6 +188,7 @@ async fn flush_imm_memtable<P: Persistent>(
     old: Arc<LsmStorageStateInner<P>>,
     block_cache: &Arc<BlockCache>,
     persistent: &P,
+    block_size: usize,
 ) -> anyhow::Result<Option<Arc<LsmStorageStateInner<P>>>> {
     let (imm, last_memtable) = pop(old.imm_memtables().clone());
     let Some(last_memtable) = last_memtable else {
@@ -189,7 +196,7 @@ async fn flush_imm_memtable<P: Persistent>(
     };
 
     let sst = {
-        let mut builder = SsTableBuilder::new(last_memtable.size());
+        let mut builder = SsTableBuilder::new(block_size);
         builder.flush(&last_memtable);
         builder
             .build(last_memtable.id(), Some(block_cache.clone()), persistent)

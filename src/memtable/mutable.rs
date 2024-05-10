@@ -40,15 +40,16 @@ pub struct MemTable {
 
 impl Debug for MemTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pairs: Vec<_> = self
-            .map
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect();
+        let first = self.map.iter().next();
+        let first = first.as_ref().map(|entry| entry.key());
+        let last = self.map.iter().last();
+        let last = last.as_ref().map(|entry| entry.key());
 
         f.debug_struct("MemTable")
             .field("id", &self.id)
-            .field("map", &pairs)
+            .field("first", &first)
+            .field("last", &last)
+            .field("size", &self.approximate_size())
             .finish()
     }
 }
