@@ -58,6 +58,7 @@ pub async fn compact_generate_new_sst<P: Persistent>(
     options: &SstOptions,
     persistent: &P,
 ) -> anyhow::Result<Vec<Arc<SsTable<P::Handle>>>> {
+    // todo: non-zero level should use concat iterator
     let l0 = {
         let iters = upper_sstables
             .into_iter()
