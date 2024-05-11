@@ -107,7 +107,7 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    fn next_sst_id(&self) -> usize {
+    pub(crate) fn next_sst_id(&self) -> usize {
         self.sst_id()
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }

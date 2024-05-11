@@ -4,6 +4,7 @@ use std::iter;
 use derive_new::new;
 use getset::CopyGetters;
 use ordered_float::NotNan;
+use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{Persistent, PersistentHandle};
@@ -48,6 +49,7 @@ pub async fn force_compaction<P: Persistent>(
     persistent: &P,
 ) -> anyhow::Result<()> {
     let Leveled(compact_options) = options.compaction_option() else {
+        trace!("skip force compaction");
         return Ok(());
     };
 
@@ -121,6 +123,7 @@ where
             });
             compute_compact_priority(options, level)
         })
+        .filter(|&priority| priority >= 1.0) // 只有大于 1 才会 trigger compaction
         .enumerate()
         .max_by(|(_, left), (_, right)| left.total_cmp(right))
         .expect("BUG: must have max score")
@@ -140,15 +143,13 @@ fn select_level_destination<File>(
 where
     File: PersistentHandle,
 {
-    let table_sizes = iter::once(&sstables.l0_sstables)
-        .chain(&sstables.levels)
-        .map(|level| {
-            level
-                .iter()
-                .map(|id| sstables.sstables.get(id).unwrap().table_size())
-                .sum()
-        });
-    select_level_destination_impl(options, source, table_sizes)
+    let last_level_table_size: u64 = sstables
+        .levels
+        .last()?
+        .iter()
+        .map(|id| sstables.sstables.get(id).unwrap().table_size())
+        .sum();
+    select_level_destination_impl(options, source, last_level_table_size)
 }
 
 fn compute_compact_priority(
@@ -172,28 +173,38 @@ fn compute_compact_priority(
 fn select_level_destination_impl(
     options: &LeveledCompactionOptions,
     source: usize,
-    table_sizes: impl IntoIterator<Item = u64>,
+    last_level_table_size: u64,
 ) -> Option<usize> {
+    if source == options.max_levels() - 1 {
+        return None;
+    }
+
     let max_bytes_for_level_base = options.max_bytes_for_level_base();
-    let max_size = table_sizes.into_iter().max().unwrap();
-    let last_level_target_size = max(max_size, max_bytes_for_level_base);
+    let last_level_target_size = max(last_level_table_size, max_bytes_for_level_base);
     let target_sizes = {
-        let mut target_sizes: Vec<_> = iter::successors(Some(last_level_target_size), |prev| {
-            Some(prev / options.level_size_multiplier() as u64)
-        })
-        .take(options.max_levels())
+        let mut target_sizes: Vec<_> = iter::successors(
+            Some((
+                last_level_target_size / options.level_size_multiplier() as u64,
+                last_level_target_size,
+            )),
+            |(size, next_size)| Some((size / options.level_size_multiplier() as u64, *size)),
+        )
+        .take(options.max_levels() - 1)
         .collect();
         target_sizes.reverse();
         target_sizes
     };
 
-    target_sizes
+    let destination = target_sizes
         .into_iter()
         .enumerate()
         .skip(source + 1)
-        .peekable()
-        .find(|(level, target_size_next_level)| *target_size_next_level >= max_bytes_for_level_base)
+        .find(|(level, (_, target_size_next_level))| {
+            *target_size_next_level > max_bytes_for_level_base
+        })
         .map(|(level, _)| level)
+        .unwrap_or(options.max_levels - 1);
+    Some(destination)
 }
 
 #[cfg(test)]
@@ -207,7 +218,8 @@ mod tests {
     use crate::persistent::memory::{Memory, MemoryObject};
     use crate::persistent::Persistent;
     use crate::sst::compact::leveled::{
-        compute_compact_priority, force_compact_level, select_level_destination_impl,
+        compute_compact_priority, force_compact_level, force_compaction,
+        select_level_destination_impl,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
@@ -230,18 +242,9 @@ mod tests {
     #[test]
     fn test_select_level_destination() {
         let options = LeveledCompactionOptions::new(1, 10, 4, 300);
-        assert_eq!(
-            select_level_destination_impl(&options, 0, [300, 0, 0, 0]),
-            Some(3)
-        );
-        assert_eq!(
-            select_level_destination_impl(&options, 0, [300, 0, 300, 600]),
-            Some(2)
-        );
-        assert_eq!(
-            select_level_destination_impl(&options, 2, [300, 0, 300, 600]),
-            Some(3)
-        );
+        assert_eq!(select_level_destination_impl(&options, 0, 0), Some(3));
+        assert_eq!(select_level_destination_impl(&options, 0, 600), Some(2));
+        assert_eq!(select_level_destination_impl(&options, 2, 600), Some(3));
     }
 
     #[tokio::test]
@@ -289,11 +292,29 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_force_compaction() {
+        let (state, mut sstables) = prepare_sstables().await;
+        force_compaction(
+            &mut sstables,
+            || state.next_sst_id(),
+            &state.options,
+            &state.persistent,
+        )
+        .await
+        .unwrap();
+        {
+            assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
+            assert_eq!(sstables.levels, vec![vec![], vec![], vec![9, 10]]);
+            assert_eq!(sstables.sstables.len(), 6);
+        }
+    }
+
     async fn prepare_sstables() -> (LsmStorageState<Memory>, Sstables<Arc<MemoryObject>>) {
         let persistent = Memory::default();
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(4)
-            .max_bytes_for_level_base(1)
+            .max_bytes_for_level_base(2048)
             .level0_file_num_compaction_trigger(1)
             .level_size_multiplier_2_exponent(1)
             .build();
