@@ -216,6 +216,7 @@ mod tests {
     use std::ops::Range;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
+    use nom::AsBytes;
 
     use tokio::sync::Mutex;
 
@@ -328,6 +329,17 @@ mod tests {
             assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
             assert_eq!(sstables.levels, vec![vec![], vec![], vec![9, 10]]);
             assert_eq!(sstables.sstables.len(), 6);
+        }
+
+        for i in 0..5 {
+            let begin = i * 100;
+            let range=  begin..begin + 100;
+            for i in range {
+                let key = format!("key-{:04}", i);
+                let expected_value = format!("value-{:04}", i);
+                let value = state.get(key.as_bytes()).await.unwrap().unwrap();
+                assert_eq!(expected_value.as_bytes(), value.as_bytes());
+            }
         }
     }
 
