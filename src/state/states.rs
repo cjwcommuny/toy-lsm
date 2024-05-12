@@ -165,28 +165,23 @@ where
         Ok(())
     }
 
-    pub fn force_compact<'a>(
-        &'a self,
-        _guard: &MutexGuard<'_, ()>,
-    ) -> impl Future<Output = anyhow::Result<()>> + Send + 'a {
-        async {
-            let new = {
-                let cur = self.inner.load();
-                let mut new = Clone::clone(cur.as_ref());
-                let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
-                force_compaction(
-                    &mut new_sstables,
-                    || self.next_sst_id(),
-                    self.options(),
-                    self.persistent(),
-                )
-                .await?;
-                new.sstables_state = Arc::new(new_sstables);
-                new
-            };
-            self.inner.store(Arc::new(new));
-            Ok(())
-        }
+    pub async fn force_compact(&self, _guard: &MutexGuard<'_, ()>) -> anyhow::Result<()> {
+        let new = {
+            let cur = self.inner.load();
+            let mut new = Clone::clone(cur.as_ref());
+            let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
+            force_compaction(
+                &mut new_sstables,
+                || self.next_sst_id(),
+                self.options(),
+                self.persistent(),
+            )
+            .await?;
+            new.sstables_state = Arc::new(new_sstables);
+            new
+        };
+        self.inner.store(Arc::new(new));
+        Ok(())
     }
 }
 

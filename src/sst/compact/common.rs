@@ -1,7 +1,8 @@
 use crate::entry::Entry;
+use crate::iterators::merge::MergeIteratorInner;
 use crate::iterators::{
     create_merge_iter_from_non_empty_iters, create_two_merge_iter, iter_fut_to_stream,
-    NonEmptyStream,
+    MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
 use futures::{stream, Stream, StreamExt};
@@ -51,44 +52,54 @@ pub fn apply_compaction<File: PersistentHandle>(
 }
 
 // todo: return Stream<Item = Arc<SsTable<File>>>
-pub async fn compact_generate_new_sst<P: Persistent>(
-    upper_sstables: impl IntoIterator<Item = &SsTable<P::Handle>>,
-    lower_sstables: impl IntoIterator<Item = &SsTable<P::Handle>>,
-    next_sst_id: impl Fn() -> usize,
-    options: &SstOptions,
-    persistent: &P,
-) -> anyhow::Result<Vec<Arc<SsTable<P::Handle>>>> {
+pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
+    upper_sstables: U,
+    lower_sstables: L,
+    next_sst_id: impl Fn() -> usize + Send + 'a + Sync,
+    options: &'a SstOptions,
+    persistent: &'a P,
+) -> anyhow::Result<Vec<Arc<SsTable<P::Handle>>>>
+where
+    U: IntoIterator<Item = &'a SsTable<P::Handle>> + Send + 'a,
+    U::IntoIter: Send,
+    L: IntoIterator<Item = &'a SsTable<P::Handle>> + Send + 'a,
+    L::IntoIter: Send,
+{
     // todo: non-zero level should use concat iterator
     let l0 = {
-        let iters = upper_sstables
-            .into_iter()
+        let iters = stream::iter(upper_sstables.into_iter())
             .map(SsTableIterator::create_and_seek_to_first)
-            .map(Box::new)
-            .map(NonEmptyStream::try_new);
-        let iters = iter_fut_to_stream(iters)
-            .filter_map(|s| ready(s.inspect_err(|err| error!(error = ?err)).ok().flatten()));
-        create_merge_iter_from_non_empty_iters(iters).await
+            .map(Box::new);
+
+        MergeIteratorInner::create(iters).await
     };
+
     let l1 = {
         let tables = lower_sstables.into_iter().collect();
         create_sst_concat_and_seek_to_first(tables)
     }?;
-    let iter = create_two_merge_iter(l0, l1).await?;
-    let s: Vec<_> = stream::unfold(iter, |mut iter| async {
-        let id = next_sst_id();
-        let b = batch(
-            &mut iter,
-            id,
-            *options.block_size(),
-            *options.target_sst_size(),
-            persistent,
-        )
-        .await?;
-        Some((b, iter))
-    })
-    .collect()
+    let iter = assert_send(create_two_merge_iter(l0, l1)).await?;
+    let s: Vec<_> = assert_send(
+        stream::unfold(iter, |mut iter| async {
+            let id = next_sst_id();
+            let b = batch(
+                &mut iter,
+                id,
+                *options.block_size(),
+                *options.target_sst_size(),
+                persistent,
+            )
+            .await?;
+            Some((b, iter))
+        })
+        .collect(),
+    )
     .await;
     Ok(s)
+}
+
+fn assert_send<T: Send>(x: T) -> T {
+    x
 }
 
 async fn batch<I, P>(
