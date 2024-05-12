@@ -24,6 +24,7 @@ pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
     cancel_token: CancellationToken,
     flush_handle: Option<JoinHandle<()>>,
+    compaction_handle: Option<JoinHandle<()>>,
 }
 
 impl<P: Persistent> Lsm<P> {
@@ -31,10 +32,12 @@ impl<P: Persistent> Lsm<P> {
         let state = Arc::new(LsmStorageState::new(options, persistent));
         let cancel_token = CancellationToken::new();
         let flush_handle = Self::spawn_flush(state.clone(), cancel_token.clone());
+        let compaction_handle = Self::spawn_compaction(state.clone(), cancel_token.clone());
         Self {
             state,
             cancel_token,
             flush_handle: Some(flush_handle),
+            compaction_handle: Some(compaction_handle),
         }
     }
 
