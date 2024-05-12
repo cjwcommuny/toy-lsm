@@ -211,10 +211,6 @@ where
         todo!()
     }
 
-    pub async fn force_compaction<P: Persistent<Handle = File>>(&mut self) -> anyhow::Result<()> {
-        todo!()
-    }
-
     fn debug_level(&self, level: usize) -> DebugLevel {
         let tables = self.tables(level);
         let (size, count) = tables.fold((0, 0), |(size, count), table| {
