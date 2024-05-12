@@ -70,7 +70,8 @@ impl<P: Persistent> Lsm<P> {
     ) -> JoinHandle<()> {
         use Signal::*;
         tokio::spawn(async move {
-            let trigger = IntervalStream::new(interval(Duration::from_millis(43))).map(|_| Trigger);
+            let trigger =
+                IntervalStream::new(interval(Duration::from_millis(102))).map(|_| Trigger);
             let cancel_stream = cancel_token.cancelled().into_stream().map(|_| Cancel);
             (trigger, cancel_stream)
                 .merge()
@@ -138,12 +139,16 @@ enum Signal {
 mod tests {
     use std::time::Duration;
 
+    use nom::AsBytes;
     use tempfile::{tempdir, TempDir};
     use tokio::time::sleep;
 
     use crate::lsm::core::Lsm;
+    use crate::persistent::memory::Memory;
     use crate::persistent::{LocalFs, Persistent};
+    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
+    use crate::test_utils::insert_sst;
 
     #[tokio::test]
     async fn test_task2_auto_flush() {
@@ -178,5 +183,39 @@ mod tests {
             .compaction_option(Default::default())
             .build();
         Lsm::new(options, persistent)
+    }
+
+    #[tokio::test]
+    async fn test_force_compaction() {
+        let persistent = Memory::default();
+        let compaction_options = LeveledCompactionOptions::builder()
+            .max_levels(4)
+            .max_bytes_for_level_base(2048)
+            .level_size_multiplier_2_exponent(1)
+            .build();
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(CompactionOptions::Leveled(compaction_options))
+            .build();
+        let lsm = Lsm::new(options, persistent);
+        for i in 0..10 {
+            let begin = i * 100;
+            insert_sst(&lsm, begin..begin + 100).await.unwrap();
+        }
+        sleep(Duration::from_secs(10)).await;
+        dbg!(&lsm.state);
+
+        // for i in 0..10 {
+        //     let begin = i * 100;
+        //     let range = begin..begin + 100;
+        //     for i in range {
+        //         let key = format!("key-{:04}", i);
+        //         let expected_value = format!("value-{:04}", i);
+        //         let value = lsm.get(key.as_bytes()).await.unwrap().unwrap();
+        //         assert_eq!(expected_value.as_bytes(), value.as_bytes());
+        //     }
+        // }
     }
 }
