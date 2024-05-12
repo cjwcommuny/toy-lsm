@@ -8,11 +8,21 @@ use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
 use crate::sst::Sstables;
 
-#[derive(Getters, TypedBuilder, Clone)]
+#[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {
     memtable: Arc<MemTable>,
     imm_memtables: Vec<Arc<ImmutableMemTable>>,
-    sstables_state: Arc<Sstables<P::Handle>>,
+    pub(crate) sstables_state: Arc<Sstables<P::Handle>>,
+}
+
+impl<P: Persistent> Clone for LsmStorageStateInner<P> {
+    fn clone(&self) -> Self {
+        Self {
+            memtable: self.memtable.clone(),
+            imm_memtables: self.imm_memtables.clone(),
+            sstables_state: self.sstables_state.clone(),
+        }
+    }
 }
 
 impl<P: Persistent> Debug for LsmStorageStateInner<P> {

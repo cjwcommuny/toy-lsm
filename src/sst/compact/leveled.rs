@@ -1,5 +1,7 @@
 use std::cmp::max;
+use std::future::{Future, ready};
 use std::iter;
+use std::sync::Arc;
 
 use derive_new::new;
 use getset::CopyGetters;
@@ -10,7 +12,7 @@ use typed_builder::TypedBuilder;
 use crate::persistent::{Persistent, PersistentHandle};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst};
 use crate::sst::compact::CompactionOptions::Leveled;
-use crate::sst::{SstOptions, Sstables};
+use crate::sst::{SstOptions, Sstables, SsTable};
 use crate::utils::num::power_of_2;
 
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
@@ -42,71 +44,94 @@ impl LeveledCompactionOptions {
     }
 }
 
-pub async fn force_compaction<P: Persistent>(
-    sstables: &mut Sstables<P::Handle>,
-    next_sst_id: impl Fn() -> usize,
-    options: &SstOptions,
-    persistent: &P,
-) -> anyhow::Result<()> {
-    let Leveled(compact_options) = options.compaction_option() else {
-        trace!("skip force compaction");
-        return Ok(());
-    };
+pub fn force_compaction<'a, P: Persistent>(
+    sstables: &'a mut Sstables<P::Handle>,
+    next_sst_id: impl Fn() -> usize + Send + Sync + 'a,
+    options: &'a SstOptions,
+    persistent: &'a P,
+) -> impl Future<Output = anyhow::Result<()>> + Send + 'a {
+    async {
+        let Leveled(compact_options) = options.compaction_option() else {
+            trace!("skip force compaction");
+            return Ok(());
+        };
 
-    // todo: only select one source sst
-    let Some(source) = select_level_source(sstables, compact_options) else {
-        return Ok(());
-    };
-    let Some(destination) = select_level_destination(sstables, compact_options, source) else {
-        return Ok(());
-    };
-
-    force_compact_level(
-        sstables,
-        next_sst_id,
-        options,
-        persistent,
-        source,
-        destination,
-    )
-    .await
+        // todo: only select one source sst
+        let Some(source) = select_level_source(sstables, compact_options) else {
+            return Ok(());
+        };
+        let Some(destination) = select_level_destination(sstables, compact_options, source) else {
+            return Ok(());
+        };
+        force_compact_level(
+            sstables,
+            next_sst_id,
+            options,
+            persistent,
+            source,
+            destination,
+        )
+        .await
+    }
 }
 
-async fn force_compact_level<P: Persistent>(
-    sstables: &mut Sstables<<P as Persistent>::Handle>,
-    next_sst_id: impl Fn() -> usize + Sized,
-    options: &SstOptions,
-    persistent: &P,
+fn force_compact_level<'a, P: Persistent>(
+    sstables: &'a mut Sstables<<P as Persistent>::Handle>,
+    next_sst_id: impl Fn() -> usize + Sized + Send + Sync + 'a,
+    options: &'a SstOptions,
+    persistent: &'a P,
     source: usize,
     destination: usize,
-) -> anyhow::Result<()> {
-    // select the oldest sst
-    let source_index_and_id = sstables
-        .table_ids(source)
-        .iter()
-        .copied()
-        .enumerate()
-        .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id));
-    let source_level =
-        source_index_and_id.map(|(_, id)| sstables.sstables.get(&id).unwrap().as_ref());
+) -> impl Future<Output = anyhow::Result<()>> + Send + 'a {
+    async move {
+        // select the oldest sst
+        let source_index_and_id = sstables
+            .table_ids(source)
+            .iter()
+            .copied()
+            .enumerate()
+            .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id));
+        let source_level =
+            source_index_and_id.map(|(_, id)| sstables.sstables.get(&id).unwrap().as_ref());
 
-    let destination_level = sstables.tables(destination);
-    let new_sst = compact_generate_new_sst(
-        source_level,
-        destination_level,
-        next_sst_id,
-        options,
-        persistent,
-    )
-    .await?;
+        // let new_sst = compact_generate_new_sst(
+        //     source_level,
+        //     destination_level,
+        //     next_sst_id,
+        //     options,
+        //     persistent,
+        // )
+        // .await?;
+        // todo
+        let new_sst = {
+            let destination_level = sstables.tables(destination);
+            compact_generate_new_sst_test(
+                source_level,
+                destination_level,
+                next_sst_id,
+                options,
+                persistent,
+            ).await?
+        };
 
-    let source_range = match source_index_and_id {
-        Some((index, _)) => index..index + 1,
-        None => 0..0, // empty range
-    };
-    apply_compaction(sstables, source_range, source, destination, new_sst);
+        let source_range = match source_index_and_id {
+            Some((index, _)) => index..index + 1,
+            None => 0..0, // empty range
+        };
+        apply_compaction(sstables, source_range, source, destination, new_sst);
 
-    Ok(())
+        Ok(())
+    }
+}
+
+pub fn compact_generate_new_sst_test<'a, P: Persistent>(
+    upper_sstables: impl IntoIterator<Item = &'a SsTable<P::Handle>> + 'a,
+    lower_sstables: impl IntoIterator<Item = &'a SsTable<P::Handle>> + 'a,
+    next_sst_id: impl Fn() -> usize + 'a,
+    options: &'a SstOptions,
+    persistent: &'a P,
+) -> impl Future<Output = anyhow::Result<Vec<Arc<SsTable<P::Handle>>>>> + Send {
+    ready(Ok(Default::default()))
 }
 
 // async fn force_compact_level()
@@ -213,10 +238,10 @@ fn select_level_destination_impl(
 
 #[cfg(test)]
 mod tests {
+    use nom::AsBytes;
     use std::ops::Range;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
-    use nom::AsBytes;
 
     use tokio::sync::Mutex;
 
@@ -333,7 +358,7 @@ mod tests {
 
         for i in 0..5 {
             let begin = i * 100;
-            let range=  begin..begin + 100;
+            let range = begin..begin + 100;
             for i in range {
                 let key = format!("key-{:04}", i);
                 let expected_value = format!("value-{:04}", i);

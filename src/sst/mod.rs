@@ -1,7 +1,7 @@
 mod block_meta;
 mod bloom;
 pub mod builder;
-mod compact;
+pub mod compact;
 pub mod iterator;
 mod option;
 mod sstables;

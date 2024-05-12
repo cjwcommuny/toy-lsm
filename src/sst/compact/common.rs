@@ -5,7 +5,7 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use futures::{stream, Stream, StreamExt};
-use std::future::ready;
+use std::future::{ready, Future};
 use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
 use tracing::error;

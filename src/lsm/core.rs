@@ -8,6 +8,7 @@ use bytes::Bytes;
 use futures::executor::block_on;
 use futures::{ready, FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
+use tokio::sync::MutexGuard;
 use tokio::task::{block_in_place, JoinHandle};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -52,6 +53,29 @@ impl<P: Persistent> Lsm<P> {
                     let lock = state.state_lock().lock().await;
                     state
                         .force_flush_imm_memtable(&lock)
+                        .await
+                        .inspect_err(|e| error!(error = ?e))
+                        .ok();
+                })
+                .await;
+        })
+    }
+
+    fn spawn_compaction(
+        state: Arc<LsmStorageState<P>>,
+        cancel_token: CancellationToken,
+    ) -> JoinHandle<()> {
+        use Signal::*;
+        tokio::spawn(async move {
+            let trigger = IntervalStream::new(interval(Duration::from_millis(43))).map(|_| Trigger);
+            let cancel_stream = cancel_token.cancelled().into_stream().map(|_| Cancel);
+            (trigger, cancel_stream)
+                .merge()
+                .take_while(|signal| ready(matches!(signal, Trigger)))
+                .for_each(|_| async {
+                    let lock = state.state_lock().lock().await;
+                    state
+                        .force_compact(&lock)
                         .await
                         .inspect_err(|e| error!(error = ?e))
                         .ok();
