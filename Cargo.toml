@@ -27,7 +27,7 @@ byteorder = "1.5.0"
 either = "1.11.0"
 derive-new = "0.6.0"
 itertools = "0.12.1"
-ref-cast = "1.0.22"
+ref-cast = "1.0.23"
 deref_ext = { git = "https://github.com/cjwcommuny/deref_ext", rev = "2b14702" }
 async-iter-ext = { git = "https://github.com/cjwcommuny/async-iter-ext", rev = "38cf62b" }
 typed-builder = "0.18.2"
