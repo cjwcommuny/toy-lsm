@@ -12,7 +12,7 @@ use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
 use tracing::error;
 
-use crate::persistent::{SstPersistent, SstHandle};
+use crate::persistent::{SstHandle, SstPersistent};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 

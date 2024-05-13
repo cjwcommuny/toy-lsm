@@ -10,7 +10,7 @@ use typed_builder::TypedBuilder;
 use crate::block::{Block, BlockCache, BlockIterator};
 use crate::iterators::transpose_try_iter;
 use crate::key::{KeyBytes, KeySlice};
-use crate::persistent::{SstPersistent, SstHandle};
+use crate::persistent::{SstHandle, SstPersistent};
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::BlockFallibleIter;
 use crate::sst::BlockMeta;

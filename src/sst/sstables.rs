@@ -23,7 +23,7 @@ use crate::iterators::{
     iter_fut_to_stream, MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
-use crate::persistent::{SstPersistent, SstHandle};
+use crate::persistent::{SstHandle, SstPersistent};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };

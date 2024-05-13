@@ -9,7 +9,7 @@ use ordered_float::NotNan;
 use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
-use crate::persistent::{SstPersistent, SstHandle};
+use crate::persistent::{SstHandle, SstPersistent};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst};
 use crate::sst::compact::CompactionOptions::Leveled;
 use crate::sst::{SsTable, SstOptions, Sstables};
@@ -245,7 +245,10 @@ mod tests {
 
         {
             assert_eq!(sstables.l0_sstables, [4, 3, 2, 1, 0]);
-            assert_eq!(sstables.levels, vec![vec![], vec![], vec![]]);
+            assert_eq!(
+                sstables.levels,
+                vec![Vec::<usize>::new(), Vec::new(), Vec::new()]
+            );
             assert_eq!(sstables.sstables.len(), 5);
         }
 

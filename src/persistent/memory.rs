@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use dashmap::DashMap;
 
-use crate::persistent::{SstPersistent, SstHandle};
+use crate::persistent::{SstHandle, SstPersistent};
 
 #[derive(Default)]
 pub struct Memory {

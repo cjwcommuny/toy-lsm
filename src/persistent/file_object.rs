@@ -1,9 +1,9 @@
+use bytes::Bytes;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
-use bytes::Bytes;
 
 use derive_new::new;
 use nom::AsBytes;
@@ -11,7 +11,7 @@ use tokio::spawn;
 use tokio::task::spawn_blocking;
 use tracing::Instrument;
 
-use crate::persistent::{SstPersistent, SstHandle};
+use crate::persistent::{SstHandle, SstPersistent};
 
 #[derive(new)]
 pub struct LocalFs {
@@ -80,6 +80,4 @@ impl SstHandle for FileObject {
     }
 }
 
-impl FileObject {
-
-}
+impl FileObject {}
