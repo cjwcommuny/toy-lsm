@@ -9,7 +9,7 @@ use ordered_float::NotNan;
 use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::persistent::{SstPersistent, SstHandle};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst};
 use crate::sst::compact::CompactionOptions::Leveled;
 use crate::sst::{SsTable, SstOptions, Sstables};
@@ -42,7 +42,7 @@ impl LeveledCompactionOptions {
     }
 }
 
-pub async fn force_compaction<P: Persistent>(
+pub async fn force_compaction<P: SstPersistent>(
     sstables: &mut Sstables<P::Handle>,
     next_sst_id: impl Fn() -> usize + Send + Sync,
     options: &SstOptions,
@@ -77,8 +77,8 @@ pub async fn force_compaction<P: Persistent>(
     .await
 }
 
-async fn force_compact_level<P: Persistent>(
-    sstables: &mut Sstables<<P as Persistent>::Handle>,
+async fn force_compact_level<P: SstPersistent>(
+    sstables: &mut Sstables<<P as SstPersistent>::Handle>,
     next_sst_id: impl Fn() -> usize + Send + Sync,
     options: &SstOptions,
     persistent: &P,
@@ -166,7 +166,7 @@ fn select_level_destination(
         .unwrap_or(target_sizes.len() - 1)
 }
 
-fn compute_level_sizes<File: PersistentHandle>(sstables: &Sstables<File>) -> Vec<u64> {
+fn compute_level_sizes<File: SstHandle>(sstables: &Sstables<File>) -> Vec<u64> {
     iter::once(&sstables.l0_sstables)
         .chain(&sstables.levels)
         .map(|level| {

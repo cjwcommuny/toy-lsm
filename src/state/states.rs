@@ -15,7 +15,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
 use crate::memtable::MemTable;
-use crate::persistent::Persistent;
+use crate::persistent::SstPersistent;
 use crate::sst::compact::leveled::force_compaction;
 use crate::sst::{SsTableBuilder, SstOptions, Sstables};
 use crate::state::inner::LsmStorageStateInner;
@@ -23,7 +23,7 @@ use crate::state::Map;
 use crate::utils::vec::pop;
 
 #[derive(Getters)]
-pub struct LsmStorageState<P: Persistent> {
+pub struct LsmStorageState<P: SstPersistent> {
     pub(crate) inner: ArcSwap<LsmStorageStateInner<P>>,
     block_cache: Arc<BlockCache>,
     state_lock: Mutex<()>,
@@ -34,7 +34,7 @@ pub struct LsmStorageState<P: Persistent> {
 
 impl<P> Debug for LsmStorageState<P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let snapshot = self.inner.load();
@@ -48,7 +48,7 @@ where
 
 impl<P> LsmStorageState<P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     pub fn new(options: SstOptions, persistent: P) -> Self {
         let snapshot = LsmStorageStateInner::builder()
@@ -70,7 +70,7 @@ where
 // KV store
 impl<P> Map for LsmStorageState<P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     type Error = anyhow::Error;
 
@@ -107,7 +107,7 @@ where
 
 impl<P> LsmStorageState<P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     pub(crate) fn next_sst_id(&self) -> usize {
         self.sst_id()
@@ -123,7 +123,7 @@ where
 // flush
 impl<P> LsmStorageState<P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     async fn try_freeze_memtable(&self, snapshot: &LsmStorageStateInner<P>) {
         if self.exceed_memtable_size_limit(snapshot.memtable()) {
@@ -185,7 +185,7 @@ where
     }
 }
 
-fn freeze_memtable<P: Persistent>(
+fn freeze_memtable<P: SstPersistent>(
     old: Arc<LsmStorageStateInner<P>>,
     next_sst_id: usize,
 ) -> Arc<LsmStorageStateInner<P>> {
@@ -205,7 +205,7 @@ fn freeze_memtable<P: Persistent>(
     Arc::new(new_state)
 }
 
-async fn flush_imm_memtable<P: Persistent>(
+async fn flush_imm_memtable<P: SstPersistent>(
     old: Arc<LsmStorageStateInner<P>>,
     block_cache: &Arc<BlockCache>,
     persistent: &P,
@@ -242,7 +242,7 @@ async fn flush_imm_memtable<P: Persistent>(
 #[cfg(test)]
 impl<P> LsmStorageState<P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     async fn get_for_test(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>> {
         self.get(key).await
@@ -277,7 +277,7 @@ mod test {
     use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
     use crate::iterators::{create_two_merge_iter, eq};
     use crate::persistent::file_object::LocalFs;
-    use crate::persistent::Persistent;
+    use crate::persistent::SstPersistent;
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
 
@@ -687,7 +687,7 @@ mod test {
         assert_eq!(storage.get_for_test(b"555").await.unwrap(), None);
     }
 
-    fn build_storage(dir: &TempDir) -> LsmStorageState<impl Persistent> {
+    fn build_storage(dir: &TempDir) -> LsmStorageState<impl SstPersistent> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
             .target_sst_size(1024)

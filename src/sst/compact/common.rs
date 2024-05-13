@@ -12,14 +12,14 @@ use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
 use tracing::error;
 
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::persistent::{SstPersistent, SstHandle};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
 #[derive(Serialize, Deserialize)]
 pub struct CompactionTask {}
 
-pub fn apply_compaction<File: PersistentHandle>(
+pub fn apply_compaction<File: SstHandle>(
     sstables: &mut Sstables<File>,
     source: Range<usize>,
     source_level: usize,
@@ -56,7 +56,7 @@ pub fn apply_compaction<File: PersistentHandle>(
 }
 
 // todo: return Stream<Item = Arc<SsTable<File>>>
-pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
+pub async fn compact_generate_new_sst<'a, P: SstPersistent, U, L>(
     upper_sstables: U,
     lower_sstables: L,
     next_sst_id: impl Fn() -> usize + Send + 'a + Sync,
@@ -114,7 +114,7 @@ async fn batch<I, P>(
     persistent: &P,
 ) -> Option<Arc<SsTable<P::Handle>>>
 where
-    P: Persistent,
+    P: SstPersistent,
     I: Stream<Item = anyhow::Result<Entry>> + Unpin,
 {
     let mut builder = SsTableBuilder::new(block_size);

@@ -13,7 +13,7 @@ use crate::block::BlockIterator;
 use crate::entry::Entry;
 use crate::iterators::{iter_fut_iter_to_stream, split_first, MergeIterator, TwoMergeIterator};
 use crate::key::{KeyBytes, KeySlice};
-use crate::persistent::PersistentHandle;
+use crate::persistent::SstHandle;
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::{bloom, BlockMeta, SsTable};
@@ -27,7 +27,7 @@ fn build_iter<'a, File>(
     upper: Bound<&'a [u8]>,
 ) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     let iter = match lower {
         Bound::Included(key) => future::Either::Left(future::Either::Left(build_bounded_iter(
@@ -80,7 +80,7 @@ fn build_bounded_iter<'a, File>(
     partition: impl for<'c> Fn(&'c BlockMeta, &'c [u8]) -> bool,
 ) -> impl Stream<Item = anyhow::Result<Entry>> + 'a
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     let index = table
         .block_meta
@@ -118,7 +118,7 @@ fn build_unbounded_iter<File>(
     table: &SsTable<File>,
 ) -> impl Stream<Item = anyhow::Result<Entry>> + '_
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     let iter = (0..table.block_meta.len()).map(|block_index| table.get_block_iter(block_index));
     iter_fut_iter_to_stream(iter)
@@ -140,7 +140,7 @@ impl<'a, File> SsTableIterator<'a, File> {
 
 impl<'a, File> SsTableIterator<'a, File>
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     pub fn create_and_seek_to_first(table: &'a SsTable<File>) -> Self {
         Self::scan(table, Bound::Unbounded, Bound::Unbounded)
@@ -154,7 +154,7 @@ where
 
 impl<'a, File> SsTableIterator<'a, File>
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     pub fn scan(table: &'a SsTable<File>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
         let iter = build_iter(table, lower, upper);

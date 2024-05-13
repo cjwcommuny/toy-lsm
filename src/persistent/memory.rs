@@ -3,14 +3,14 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use dashmap::DashMap;
 
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::persistent::{SstPersistent, SstHandle};
 
 #[derive(Default)]
 pub struct Memory {
     map: DashMap<usize, Arc<MemoryObject>>,
 }
 
-impl Persistent for Memory {
+impl SstPersistent for Memory {
     type Handle = Arc<MemoryObject>;
 
     async fn create(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::Handle> {
@@ -34,7 +34,7 @@ pub struct MemoryObject {
     data: Vec<u8>,
 }
 
-impl PersistentHandle for MemoryObject {
+impl SstHandle for MemoryObject {
     async fn read(&self, offset: u64, len: usize) -> anyhow::Result<Vec<u8>> {
         let offset = offset.try_into()?;
         let output = self.data[offset..offset + len].to_vec();

@@ -15,19 +15,19 @@ use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-use crate::persistent::Persistent;
+use crate::persistent::SstPersistent;
 use crate::sst::SstOptions;
 use crate::state::{LsmStorageState, Map};
 use crate::utils::func::do_nothing;
 
-pub struct Lsm<P: Persistent> {
+pub struct Lsm<P: SstPersistent> {
     state: Arc<LsmStorageState<P>>,
     cancel_token: CancellationToken,
     flush_handle: Option<JoinHandle<()>>,
     compaction_handle: Option<JoinHandle<()>>,
 }
 
-impl<P: Persistent> Lsm<P> {
+impl<P: SstPersistent> Lsm<P> {
     pub fn new(options: SstOptions, persistent: P) -> Self {
         let state = Arc::new(LsmStorageState::new(options, persistent));
         let cancel_token = CancellationToken::new();
@@ -90,7 +90,7 @@ impl<P: Persistent> Lsm<P> {
 
 impl<P> Map for Lsm<P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     type Error = anyhow::Error;
 
@@ -114,14 +114,14 @@ where
     }
 }
 
-impl<P: Persistent> Drop for Lsm<P> {
+impl<P: SstPersistent> Drop for Lsm<P> {
     fn drop(&mut self) {
         self.cancel_token.cancel();
     }
 }
 
 #[cfg(test)]
-impl<P: Persistent> Lsm<P> {
+impl<P: SstPersistent> Lsm<P> {
     async fn put_for_test(&self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
             .await
@@ -144,7 +144,7 @@ mod tests {
 
     use crate::lsm::core::Lsm;
     use crate::persistent::memory::Memory;
-    use crate::persistent::{LocalFs, Persistent};
+    use crate::persistent::{LocalFs, SstPersistent};
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
     use crate::state::Map;
@@ -174,7 +174,7 @@ mod tests {
             .is_empty());
     }
 
-    fn build_lsm(dir: &TempDir) -> Lsm<impl Persistent> {
+    fn build_lsm(dir: &TempDir) -> Lsm<impl SstPersistent> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
             .target_sst_size(1024)

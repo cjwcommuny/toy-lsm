@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::ops::Range;
 
-use crate::persistent::Persistent;
+use crate::persistent::SstPersistent;
 use crate::state::Map;
 
 mod command;

@@ -6,7 +6,7 @@ use futures::{stream, Stream, StreamExt};
 
 use crate::entry::Entry;
 use crate::key::KeySlice;
-use crate::persistent::PersistentHandle;
+use crate::persistent::SstHandle;
 use crate::sst::iterator::iter::SsTableIterator;
 use crate::sst::SsTable;
 
@@ -20,7 +20,7 @@ pub fn create_sst_concat_and_seek_to_first<File>(
     sstables: Vec<&SsTable<File>>,
 ) -> Result<SstConcatIterator>
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     let iter = stream::iter(sstables).flat_map(SsTableIterator::create_and_seek_to_first);
     Ok(Box::new(iter) as _)
@@ -31,7 +31,7 @@ pub fn create_sst_concat_and_seek_to_key<'a, File>(
     _key: KeySlice,
 ) -> Result<SstConcatIterator<'a>>
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     // let key = key.to_key_vec();
     // // todo: 理论上只有第一个 iter 需要 seek，会不会有点慢
@@ -46,7 +46,7 @@ pub fn scan_sst_concat<'a, File, I>(
     upper: Bound<&'a [u8]>,
 ) -> Result<SstConcatIterator<'a>>
 where
-    File: PersistentHandle + 'a,
+    File: SstHandle + 'a,
     I: IntoIterator<Item = &'a SsTable<File>> + 'a,
     I::IntoIter: Send,
 {

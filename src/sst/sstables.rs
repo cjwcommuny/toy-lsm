@@ -23,7 +23,7 @@ use crate::iterators::{
     iter_fut_to_stream, MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::persistent::{SstPersistent, SstHandle};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };
@@ -57,7 +57,7 @@ impl<File> Clone for Sstables<File> {
     }
 }
 
-impl<File: PersistentHandle> Debug for Sstables<File> {
+impl<File: SstHandle> Debug for Sstables<File> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sstables")
             .field("l0_sstables", &self.l0_sstables)
@@ -102,7 +102,7 @@ impl<File> Sstables<File> {
 
 impl<File> Sstables<File>
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     pub fn insert_sst(&mut self, table: Arc<SsTable<File>>) {
         self.l0_sstables.insert(0, *table.id());

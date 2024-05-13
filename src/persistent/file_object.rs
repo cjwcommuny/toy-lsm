@@ -11,7 +11,7 @@ use tokio::spawn;
 use tokio::task::spawn_blocking;
 use tracing::Instrument;
 
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::persistent::{SstPersistent, SstHandle};
 
 #[derive(new)]
 pub struct LocalFs {
@@ -24,7 +24,7 @@ impl LocalFs {
     }
 }
 
-impl Persistent for LocalFs {
+impl SstPersistent for LocalFs {
     type Handle = FileObject;
 
     /// Create a new file object (day 2) and write the file to the disk (day 4).
@@ -62,7 +62,7 @@ pub struct FileObject {
     size: u64,
 }
 
-impl PersistentHandle for FileObject {
+impl SstHandle for FileObject {
     async fn read(&self, offset: u64, len: usize) -> anyhow::Result<Vec<u8>> {
         let file = self.file.clone();
         let data = spawn_blocking(move || {

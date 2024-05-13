@@ -14,7 +14,7 @@ use crate::iterators::{
     NoDeletedIterator, TwoMergeIterator,
 };
 use crate::memtable::MemTableIterator;
-use crate::persistent::Persistent;
+use crate::persistent::SstPersistent;
 use crate::sst::iterator::MergedSstIterator;
 use crate::state::LsmStorageStateInner;
 
@@ -27,7 +27,7 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
 >;
 
 #[derive(new)]
-pub struct LockedLsmIter<'a, P: Persistent> {
+pub struct LockedLsmIter<'a, P: SstPersistent> {
     state: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
     lower: Bound<&'a [u8]>,
     upper: Bound<&'a [u8]>,
@@ -35,7 +35,7 @@ pub struct LockedLsmIter<'a, P: Persistent> {
 
 impl<'a, P> LockedLsmIter<'a, P>
 where
-    P: Persistent,
+    P: SstPersistent,
 {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a, P::Handle>> {
         let a = self.build_memtable_iter().await;

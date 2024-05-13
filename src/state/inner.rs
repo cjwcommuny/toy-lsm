@@ -5,17 +5,17 @@ use derive_getters::Getters;
 use typed_builder::TypedBuilder;
 
 use crate::memtable::{ImmutableMemTable, MemTable};
-use crate::persistent::Persistent;
+use crate::persistent::SstPersistent;
 use crate::sst::Sstables;
 
 #[derive(Getters, TypedBuilder)]
-pub struct LsmStorageStateInner<P: Persistent> {
+pub struct LsmStorageStateInner<P: SstPersistent> {
     memtable: Arc<MemTable>,
     imm_memtables: Vec<Arc<ImmutableMemTable>>,
     pub(crate) sstables_state: Arc<Sstables<P::Handle>>,
 }
 
-impl<P: Persistent> Clone for LsmStorageStateInner<P> {
+impl<P: SstPersistent> Clone for LsmStorageStateInner<P> {
     fn clone(&self) -> Self {
         Self {
             memtable: self.memtable.clone(),
@@ -25,7 +25,7 @@ impl<P: Persistent> Clone for LsmStorageStateInner<P> {
     }
 }
 
-impl<P: Persistent> Debug for LsmStorageStateInner<P> {
+impl<P: SstPersistent> Debug for LsmStorageStateInner<P> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LsmStorageStateInner")
             .field("memtable", &self.memtable)
