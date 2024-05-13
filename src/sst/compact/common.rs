@@ -6,6 +6,7 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use futures::{stream, Stream, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::future::{ready, Future};
 use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
@@ -14,6 +15,9 @@ use tracing::error;
 use crate::persistent::{Persistent, PersistentHandle};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
+
+#[derive(Serialize, Deserialize)]
+pub struct CompactionTask {}
 
 pub fn apply_compaction<File: PersistentHandle>(
     sstables: &mut Sstables<File>,

@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::sync::Arc;
+use bytes::Bytes;
 
 pub trait Persistent: Send + Sync + 'static {
     type Handle: PersistentHandle;

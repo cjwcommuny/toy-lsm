@@ -1,9 +1,12 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use bytes::Bytes;
 
 use derive_new::new;
+use nom::AsBytes;
 use tokio::spawn;
 use tokio::task::spawn_blocking;
 use tracing::Instrument;
@@ -31,7 +34,7 @@ impl Persistent for LocalFs {
         let file = spawn_blocking(move || {
             std::fs::write(&path, &data)?;
             File::open(&path)?.sync_all()?;
-            let file = File::options().read(true).write(false).open(&path)?;
+            let file = File::options().read(true).append(true).open(&path)?;
             Ok::<_, anyhow::Error>(Arc::new(file))
         })
         .await??;
@@ -75,4 +78,8 @@ impl PersistentHandle for FileObject {
     fn size(&self) -> u64 {
         self.size
     }
+}
+
+impl FileObject {
+
 }
