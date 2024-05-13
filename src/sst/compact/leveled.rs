@@ -57,13 +57,15 @@ pub async fn force_compaction<P: Persistent>(
     let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
 
     // todo: only select one source sst
-    let Some(source) = select_level_source(&level_sizes, &target_sizes, compact_options) else {
+    let Some(source) = select_level_source(
+        &level_sizes,
+        &target_sizes,
+        compact_options.max_bytes_for_level_base(),
+    ) else {
         return Ok(());
     };
-    dbg!(source);
-    let Some(destination) = select_level_destination(sstables, compact_options, source) else {
-        return Ok(());
-    };
+    let destination = select_level_destination(compact_options, source, &target_sizes);
+
     force_compact_level(
         sstables,
         next_sst_id,
@@ -116,24 +118,21 @@ async fn force_compact_level<P: Persistent>(
 fn select_level_source(
     level_sizes: &[u64],
     target_sizes: &[u64],
-    options: &LeveledCompactionOptions,
-) -> Option<usize>
-{
+    max_bytes_for_level_base: u64,
+) -> Option<usize> {
     let scores: Vec<_> = level_sizes
         .iter()
         .zip(target_sizes)
         .enumerate()
         .map(|(index, (level_size, target_size))| {
             let denominator = if index == 0 {
-                options.max_bytes_for_level_base
+                max_bytes_for_level_base
             } else {
                 *target_size
             };
             *level_size as f64 / denominator as f64
         })
         .collect();
-    println!("source.scores = {:?}", scores);
-
 
     let source = scores
         .iter()
@@ -145,74 +144,26 @@ fn select_level_source(
             // todo: make it looking better...
         })?
         .0;
-    Some(source)
+    if source == level_sizes.len() - 1 {
+        None
+    } else {
+        Some(source)
+    }
 }
 
-fn select_level_destination<File>(
-    sstables: &Sstables<File>,
+fn select_level_destination(
     options: &LeveledCompactionOptions,
     source: usize,
-) -> Option<usize>
-where
-    File: PersistentHandle,
-{
-    let last_level_table_size: u64 = sstables
-        .levels
-        .last()?
-        .iter()
-        .map(|id| sstables.sstables.get(id).unwrap().table_size())
-        .sum();
-    select_level_destination_impl(options, source, last_level_table_size)
-}
-
-fn compute_compact_priority(target_size: u64, table_sizes: impl IntoIterator<Item = u64>) -> f64 {
-    let (_, size) = table_sizes
-        .into_iter()
-        .fold((0, 0), |(prev_count, prev_size), table_size| {
-            (prev_count + 1, prev_size + table_size)
-        });
-
-    let size_priority = size as f64 / target_size as f64;
-    size_priority
-}
-
-fn select_level_destination_impl(
-    options: &LeveledCompactionOptions,
     target_sizes: &[u64],
-) -> Option<usize> {
-    
-
-
-    if source == options.max_levels() - 1 {
-        return None;
-    }
-
-    let max_bytes_for_level_base = options.max_bytes_for_level_base();
-    let last_level_target_size = max(last_level_table_size, max_bytes_for_level_base);
-    let target_sizes = {
-        let mut target_sizes: Vec<_> = iter::successors(
-            Some((
-                last_level_target_size / options.level_size_multiplier() as u64,
-                last_level_target_size,
-            )),
-            |(size, next_size)| Some((size / options.level_size_multiplier() as u64, *size)),
-        )
-        .take(options.max_levels() - 1)
-        .collect();
-        target_sizes.reverse();
-        target_sizes
-    };
-    println!("target_size = {:?}", target_sizes);
-    let destination = target_sizes
-        .into_iter()
+) -> usize {
+    assert!(source < target_sizes.len() - 1);
+    target_sizes
+        .iter()
         .enumerate()
-        .skip(source + 1)
-        .find(|(level, (_, target_size_next_level))| {
-            *target_size_next_level > max_bytes_for_level_base
-        })
-        .map(|(level, _)| level)
-        .unwrap_or(options.max_levels - 1);
-    Some(destination)
+        .skip(source + 2)
+        .find(|(_, &target_size)| target_size > options.max_bytes_for_level_base)
+        .map(|(level, _)| level - 1)
+        .unwrap_or(target_sizes.len() - 1)
 }
 
 fn compute_level_sizes<File: PersistentHandle>(sstables: &Sstables<File>) -> Vec<u64> {
@@ -230,14 +181,12 @@ fn compute_level_sizes<File: PersistentHandle>(sstables: &Sstables<File>) -> Vec
         .collect()
 }
 
-fn compute_target_sizes(
-    last_level_target_size: u64,
-    options: &LeveledCompactionOptions,
-) -> Vec<u64> {
+fn compute_target_sizes(last_level_size: u64, options: &LeveledCompactionOptions) -> Vec<u64> {
+    let last_level_target_size = max(last_level_size, options.max_bytes_for_level_base);
     let mut target_sizes: Vec<_> = iter::successors(Some(last_level_target_size), |size| {
         Some(size / options.level_size_multiplier() as u64)
     })
-    .take(options.max_levels() - 1)
+    .take(options.max_levels())
     .collect();
     target_sizes.reverse();
     target_sizes
@@ -253,8 +202,7 @@ mod tests {
 
     use crate::persistent::memory::{Memory, MemoryObject};
     use crate::sst::compact::leveled::{
-        compute_compact_priority, force_compact_level, force_compaction,
-        select_level_destination_impl,
+        force_compact_level, force_compaction, select_level_destination, select_level_source,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
@@ -263,11 +211,32 @@ mod tests {
     use crate::test_utils::insert_sst;
 
     #[test]
+    fn test_select_level_source() {
+        assert_eq!(
+            select_level_source(&[120, 301, 600], &[150, 300, 600], 300),
+            Some(1)
+        );
+        assert_eq!(
+            select_level_source(&[120, 300, 601], &[150, 300, 600], 300),
+            None
+        );
+    }
+
+    #[test]
     fn test_select_level_destination() {
         let options = LeveledCompactionOptions::new(1, 4, 300);
-        assert_eq!(select_level_destination_impl(&options, 0, 0), Some(3));
-        assert_eq!(select_level_destination_impl(&options, 0, 600), Some(2));
-        assert_eq!(select_level_destination_impl(&options, 2, 600), Some(3));
+        assert_eq!(
+            select_level_destination(&options, 0, &[120, 240, 480, 960]),
+            1
+        );
+        assert_eq!(
+            select_level_destination(&options, 0, &[75, 150, 300, 600]),
+            2
+        );
+        assert_eq!(
+            select_level_destination(&options, 2, &[75, 150, 300, 600]),
+            3
+        );
     }
 
     #[tokio::test]

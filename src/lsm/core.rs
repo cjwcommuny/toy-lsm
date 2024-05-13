@@ -70,8 +70,7 @@ impl<P: Persistent> Lsm<P> {
     ) -> JoinHandle<()> {
         use Signal::*;
         tokio::spawn(async move {
-            let trigger =
-                IntervalStream::new(interval(Duration::from_millis(102))).map(|_| Trigger);
+            let trigger = IntervalStream::new(interval(Duration::from_millis(10))).map(|_| Trigger);
             let cancel_stream = cancel_token.cancelled().into_stream().map(|_| Cancel);
             (trigger, cancel_stream)
                 .merge()
@@ -148,6 +147,7 @@ mod tests {
     use crate::persistent::{LocalFs, Persistent};
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
+    use crate::state::Map;
     use crate::test_utils::insert_sst;
 
     #[tokio::test]
@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_force_compaction() {
+    async fn test_auto_compaction() {
         let persistent = Memory::default();
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(4)
@@ -204,18 +204,18 @@ mod tests {
             let begin = i * 100;
             insert_sst(&lsm, begin..begin + 100).await.unwrap();
         }
-        sleep(Duration::from_secs(10)).await;
+        sleep(Duration::from_secs(2)).await;
         dbg!(&lsm.state);
 
-        // for i in 0..10 {
-        //     let begin = i * 100;
-        //     let range = begin..begin + 100;
-        //     for i in range {
-        //         let key = format!("key-{:04}", i);
-        //         let expected_value = format!("value-{:04}", i);
-        //         let value = lsm.get(key.as_bytes()).await.unwrap().unwrap();
-        //         assert_eq!(expected_value.as_bytes(), value.as_bytes());
-        //     }
-        // }
+        for i in 0..10 {
+            let begin = i * 100;
+            let range = begin..begin + 100;
+            for i in range {
+                let key = format!("key-{:04}", i);
+                let expected_value = format!("value-{:04}", i);
+                let value = lsm.get(key.as_bytes()).await.unwrap().unwrap();
+                assert_eq!(expected_value.as_bytes(), value.as_bytes());
+            }
+        }
     }
 }
