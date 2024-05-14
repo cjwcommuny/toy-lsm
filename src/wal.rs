@@ -1,10 +1,10 @@
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Cursor, Read, Seek};
+use std::io::{BufWriter, Cursor, Read, Seek, Write};
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use byteorder::ReadBytesExt;
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
 use parking_lot::Mutex;
@@ -40,11 +40,19 @@ impl Wal {
         Ok((wal, map))
     }
 
-    pub fn put(&self, _key: &[u8], _value: &[u8]) -> Result<()> {
-        unimplemented!()
+    pub fn put_sync(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        let mut guard = self.file.lock();
+        guard.write_u32::<BigEndian>(key.len() as u32)?;
+        guard.write(key)?;
+        guard.write_u32::<BigEndian>(value.len() as u32)?;
+        guard.write(value)?;
+        guard.flush()?;
+        Ok(())
     }
 
     pub fn sync(&self) -> Result<()> {
-        unimplemented!()
+        let mut guard = self.file.lock();
+        guard.get_mut().sync_all()?;
+        Ok(())
     }
 }
