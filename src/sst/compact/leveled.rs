@@ -106,6 +106,7 @@ async fn force_compact_level<P: SstPersistent>(
     )
     .await?;
     // todo: persistent manifest
+    // todo: flush manifest in drop
     let task = CompactionTask::new(source, source_index, destination);
 
     apply_compaction(
