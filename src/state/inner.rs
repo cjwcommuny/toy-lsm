@@ -1,16 +1,18 @@
+use std::cmp::max;
 use std::fmt::{Debug, Formatter};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::block::BlockCache;
+use crate::manifest::ManifestRecord;
 use derive_getters::Getters;
 use nom::combinator::opt;
 use typed_builder::TypedBuilder;
-use crate::manifest::ManifestRecord;
 
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::memory::Memory;
 use crate::persistent::SstPersistent;
-use crate::sst::{Sstables, SstOptions};
+use crate::sst::{SsTable, SstOptions, Sstables};
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: SstPersistent> {
@@ -20,21 +22,46 @@ pub struct LsmStorageStateInner<P: SstPersistent> {
 }
 
 impl<P: SstPersistent> LsmStorageStateInner<P> {
-    pub async fn recover(options: &SstOptions, manifest: Vec<ManifestRecord>) -> anyhow::Result<Self> {
-        let imm_memtable = Vec::new();
-        let sstables_state = manifest.into_iter().fold(Sstables::new(options), |mut sstables, manifest| match manifest {
-            ManifestRecord::Flush(record) => {
-                sstables.fold_flush_manifest(record);
-                sstables
-            }
-            ManifestRecord::NewMemtable(_) => unreachable!(),
-            ManifestRecord::Compaction(record) => {
-                sstables.fold_compaction_manifest(record);
-                sstables
-            }
-        });
-        // let memtable = MemTable::create()
-        todo!()
+    pub async fn recover(
+        options: &SstOptions,
+        manifest: Vec<ManifestRecord>,
+        persistent: &P,
+        block_cache: Option<Arc<BlockCache>>,
+    ) -> anyhow::Result<(Self, usize)> {
+        let mut sstables_state =
+            manifest
+                .into_iter()
+                .fold(
+                    Sstables::new(options),
+                    |mut sstables, manifest| match manifest {
+                        ManifestRecord::Flush(record) => {
+                            sstables.fold_flush_manifest(record);
+                            sstables
+                        }
+                        ManifestRecord::NewMemtable(_) => unreachable!(),
+                        ManifestRecord::Compaction(record) => {
+                            sstables.fold_compaction_manifest(record);
+                            sstables
+                        }
+                    },
+                );
+        // todo: split sst_ids & sst hashmap
+        let sst_ids: Vec<_> = sstables_state.sst_ids().collect();
+        let ssts = sstables_state.sstables_mut();
+        let mut max_sst_id = 0;
+
+        for sst_id in sst_ids {
+            let block_cache = block_cache.as_ref().map(Clone::clone);
+            let sst = SsTable::open(sst_id, block_cache, persistent).await?;
+            ssts.insert(sst_id, Arc::new(sst));
+            max_sst_id = max(max_sst_id, sst_id);
+        }
+        let this = Self {
+            memtable: Arc::new(MemTable::create(max_sst_id + 1)),
+            imm_memtables: Vec::new(),
+            sstables_state: Arc::new(sstables_state),
+        };
+        Ok((this, max_sst_id + 2))
     }
 }
 

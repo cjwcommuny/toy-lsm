@@ -7,11 +7,11 @@ use crate::iterators::{
 use crate::key::KeySlice;
 use derive_new::new;
 use futures::{stream, Stream, StreamExt};
+use getset::CopyGetters;
 use serde::{Deserialize, Serialize};
 use std::future::{ready, Future};
 use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
-use getset::CopyGetters;
 use tracing::error;
 
 use crate::persistent::{SstHandle, SstPersistent};

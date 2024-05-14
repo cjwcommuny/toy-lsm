@@ -69,6 +69,15 @@ impl<File: SstHandle> Debug for Sstables<File> {
     }
 }
 
+impl<File> Sstables<File> {
+    pub fn sst_ids(&self) -> impl Iterator<Item = usize> + '_ {
+        self.l0_sstables
+            .iter()
+            .chain(self.levels.iter().flatten())
+            .copied()
+    }
+}
+
 #[cfg(test)]
 impl<File> Sstables<File> {
     pub fn l0_sstables(&self) -> &[usize] {
@@ -194,7 +203,7 @@ where
         }
     }
 
-    pub(super) fn table_ids(&self, level: usize) -> &Vec<usize> {
+    pub(crate) fn table_ids(&self, level: usize) -> &Vec<usize> {
         if level == 0 {
             &self.l0_sstables
         } else {
