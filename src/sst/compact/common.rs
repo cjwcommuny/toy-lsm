@@ -5,6 +5,7 @@ use crate::iterators::{
     MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
+use derive_new::new;
 use futures::{stream, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::future::{ready, Future};
@@ -16,8 +17,12 @@ use crate::persistent::{SstHandle, SstPersistent};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
-#[derive(Serialize, Deserialize)]
-pub struct CompactionTask {}
+#[derive(Serialize, Deserialize, new)]
+pub struct CompactionTask {
+    source: usize,
+    source_index: usize,
+    destination: usize,
+}
 
 pub fn apply_compaction<File: SstHandle>(
     sstables: &mut Sstables<File>,

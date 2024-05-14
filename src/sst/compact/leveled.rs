@@ -10,7 +10,7 @@ use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{SstHandle, SstPersistent};
-use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst};
+use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst, CompactionTask};
 use crate::sst::compact::CompactionOptions::Leveled;
 use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::utils::num::power_of_2;
@@ -92,25 +92,28 @@ async fn force_compact_level<P: SstPersistent>(
         .copied()
         .enumerate()
         .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id));
-    let source_level =
-        source_index_and_id.map(|(_, id)| sstables.sstables.get(&id).unwrap().as_ref());
-    let new_sst = {
-        let destination_level = sstables.tables(destination);
-        compact_generate_new_sst(
-            source_level,
-            destination_level,
-            next_sst_id,
-            options,
-            persistent,
-        )
-        .await?
+    let Some((source_index, source_id)) = source_index_and_id else {
+        return Ok(());
     };
 
-    let source_range = match source_index_and_id {
-        Some((index, _)) => index..index + 1,
-        None => 0..0, // empty range
-    };
-    apply_compaction(sstables, source_range, source, destination, new_sst);
+    let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+    let new_sst = compact_generate_new_sst(
+        iter::once(source_level),
+        sstables.tables(destination),
+        next_sst_id,
+        options,
+        persistent,
+    )
+    .await?;
+    let task = CompactionTask::new(source, source_index, destination);
+
+    apply_compaction(
+        sstables,
+        source_index..source_index + 1,
+        source,
+        destination,
+        new_sst,
+    );
 
     Ok(())
 }

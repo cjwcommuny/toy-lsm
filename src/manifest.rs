@@ -5,11 +5,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use futures_concurrency::stream::StreamExt;
 use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
-use serde_json::de::IoRead;
-use serde_json::{Deserializer, StreamDeserializer};
+use serde_json::Deserializer;
 
 use crate::sst::compact::common::CompactionTask;
 
