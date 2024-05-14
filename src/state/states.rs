@@ -2,6 +2,7 @@ use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::Deref;
+use std::path::Path;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -10,10 +11,12 @@ use bytes::Bytes;
 use deref_ext::DerefExt;
 use derive_getters::Getters;
 use futures::StreamExt;
+use nom::sequence::pair;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
+use crate::manifest::Manifest;
 use crate::memtable::MemTable;
 use crate::persistent::SstPersistent;
 use crate::sst::compact::leveled::force_compaction;
@@ -64,6 +67,32 @@ where
             options,
             sst_id: AtomicUsize::new(1),
         }
+    }
+
+    pub async fn recover(
+        options: SstOptions,
+        persistent: P,
+        manifest_path: impl AsRef<Path> + Send + 'static,
+    ) -> anyhow::Result<Self> {
+        let (manifest, manifest_records) = Manifest::recover(manifest_path).await?;
+        let block_cache = Arc::new(BlockCache::new(1024));
+        let (inner, next_sst_id) = LsmStorageStateInner::recover(
+            &options,
+            manifest_records,
+            &persistent,
+            Some(block_cache.clone()),
+        )
+        .await?;
+        let sst_id = AtomicUsize::new(next_sst_id);
+        let this = Self {
+            inner: ArcSwap::new(Arc::new(inner)),
+            block_cache,
+            state_lock: Default::default(),
+            persistent,
+            options,
+            sst_id,
+        };
+        Ok(this)
     }
 }
 
