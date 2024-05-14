@@ -17,10 +17,19 @@ pub struct Manifest {
 
 #[derive(Serialize, Deserialize)]
 pub enum ManifestRecord {
-    Flush(usize),
-    NewMemtable(usize),
-    Compaction(CompactionTask, Vec<usize>),
+    Flush(Flush),
+    NewMemtable(NewMemtable),
+    Compaction(Compaction),
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct Flush(pub(crate) usize);
+
+#[derive(Serialize, Deserialize)]
+pub struct NewMemtable(pub(crate) usize);
+
+#[derive(Serialize, Deserialize)]
+pub struct Compaction(pub(crate) CompactionTask, pub(crate) Vec<usize>);
 
 impl Manifest {
     pub async fn create(path: impl AsRef<Path> + Send + 'static) -> Result<Self> {

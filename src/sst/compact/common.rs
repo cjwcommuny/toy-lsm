@@ -11,13 +11,15 @@ use serde::{Deserialize, Serialize};
 use std::future::{ready, Future};
 use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
+use getset::CopyGetters;
 use tracing::error;
 
 use crate::persistent::{SstHandle, SstPersistent};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
-#[derive(Serialize, Deserialize, new)]
+#[derive(Serialize, Deserialize, new, CopyGetters)]
+#[getset(get_copy = "pub")]
 pub struct CompactionTask {
     source: usize,
     source_index: usize,

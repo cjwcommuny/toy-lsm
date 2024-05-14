@@ -23,6 +23,7 @@ use crate::iterators::{
     iter_fut_to_stream, MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
+use crate::manifest::{Compaction, Flush, ManifestRecord};
 use crate::persistent::{SstHandle, SstPersistent};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
@@ -33,6 +34,7 @@ use crate::sst::iterator::{
 };
 use crate::sst::option::SstOptions;
 use crate::sst::{bloom, SsTable, SsTableBuilder};
+use crate::state::LsmStorageStateInner;
 
 #[derive(Default)]
 pub struct Sstables<File> {
@@ -222,6 +224,17 @@ where
             size,
             count,
         }
+    }
+
+    pub fn fold_flush_manifest(&mut self, Flush(id): Flush) {
+        self.l0_sstables.insert(0, id);
+    }
+
+    pub fn fold_compaction_manifest(&mut self, Compaction(task, result_ids): Compaction) {
+        let source = self.table_ids_mut(task.source());
+        source.remove(task.source_index());
+        let destination = self.table_ids_mut(task.destination());
+        let _ = mem::replace(destination, result_ids);
     }
 }
 
