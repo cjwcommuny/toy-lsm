@@ -218,4 +218,55 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_integration() {
+        let compaction_options = LeveledCompactionOptions::builder()
+            .max_levels(4)
+            .max_bytes_for_level_base(2048)
+            .level_size_multiplier_2_exponent(1)
+            .build();
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(CompactionOptions::Leveled(compaction_options))
+            .enable_wal(true)
+            .build();
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let lsm = Lsm::new(options, persistent);
+        for i in 0..=20 {
+            lsm.put(b"0", format!("v{}", i).as_bytes()).unwrap();
+            if i % 2 == 0 {
+                lsm.put(b"1", format!("v{}", i).as_bytes()).unwrap();
+            } else {
+                lsm.delete(b"1").unwrap();
+            }
+            if i % 2 == 1 {
+                lsm.put(b"2", format!("v{}", i).as_bytes()).unwrap();
+            } else {
+                lsm.delete(b"2").unwrap();
+            }
+            storage
+                .inner
+                .force_freeze_memtable(&storage.inner.state_lock.lock())
+                .unwrap();
+        }
+        lsm.close().unwrap();
+        // ensure some SSTs are not flushed
+        assert!(
+            !storage.inner.state.read().memtable.is_empty()
+                || !storage.inner.state.read().imm_memtables.is_empty()
+        );
+        storage.dump_structure();
+        drop(storage);
+        dump_files_in_dir(&dir);
+
+        let storage = MiniLsm::open(&dir, options).unwrap();
+        assert_eq!(&storage.get(b"0").unwrap().unwrap()[..], b"v20".as_slice());
+        assert_eq!(&storage.get(b"1").unwrap().unwrap()[..], b"v20".as_slice());
+        assert_eq!(storage.get(b"2").unwrap(), None);
+    }
+
 }

@@ -11,4 +11,5 @@ pub struct SstOptions {
     // Maximum number of memtables in memory, flush to L0 when exceeding this limit
     num_memtable_limit: usize,
     compaction_option: CompactionOptions,
+    enable_wal: bool,
 }
