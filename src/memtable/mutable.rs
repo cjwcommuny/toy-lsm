@@ -101,9 +101,9 @@ impl MemTable {
         Ok(())
     }
 
-    pub fn sync_wal(&self) -> Result<()> {
+    pub async fn sync_wal(&self) -> Result<()> {
         if let Some(ref wal) = self.wal {
-            wal.sync()?;
+            wal.sync().await?;
         }
         Ok(())
     }
