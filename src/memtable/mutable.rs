@@ -95,6 +95,9 @@ impl MemTable {
     pub fn put(&self, key: Bytes, value: Bytes) -> Result<()> {
         let size = key.len() + value.len();
         self.map.insert(key, value);
+        if let Some(wal) = self.wal.as_ref() {
+            // wal.put()
+        }
 
         self.approximate_size.fetch_add(size, Ordering::Release);
 
