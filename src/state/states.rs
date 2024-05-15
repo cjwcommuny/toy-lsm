@@ -121,14 +121,14 @@ where
         value: impl Into<Bytes> + Send,
     ) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
-        snapshot.memtable().put(key.into(), value.into())?;
+        snapshot.memtable().put(key.into(), value.into()).await?;
         self.try_freeze_memtable(&snapshot).await;
         Ok(())
     }
 
     async fn delete(&self, key: impl Into<Bytes> + Send) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
-        snapshot.memtable().put(key.into(), Bytes::new())?;
+        snapshot.memtable().put(key.into(), Bytes::new()).await?;
         self.try_freeze_memtable(&snapshot).await;
         Ok(())
     }

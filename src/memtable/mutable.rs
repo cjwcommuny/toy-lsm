@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+use std::future::Future;
 use std::ops::{Bound, RangeBounds};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,6 +11,7 @@ use bytes::Bytes;
 use crossbeam_skiplist::map::Range;
 use crossbeam_skiplist::{map, SkipMap};
 use derive_getters::Getters;
+use nom::AsBytes;
 
 use crate::bound::{map_bound_own, BytesBound};
 use crate::entry::Entry;
@@ -92,16 +94,17 @@ impl MemTable {
     ///
     /// In week 1, day 1, simply put the key-value pair into the skipmap.
     /// In week 2, day 6, also flush the data to WAL.
-    pub fn put(&self, key: Bytes, value: Bytes) -> Result<()> {
-        let size = key.len() + value.len();
-        self.map.insert(key, value);
-        if let Some(wal) = self.wal.as_ref() {
-            // wal.put()
+    pub fn put(&self, key: Bytes, value: Bytes) -> impl Future<Output = Result<()>> + Send + '_ {
+        async {
+            let size = key.len() + value.len();
+            if let Some(wal) = self.wal.as_ref() {
+                wal.put(key.as_bytes(), value.as_bytes()).await?
+            }
+            self.map.insert(key, value);
+            self.approximate_size.fetch_add(size, Ordering::Release);
+
+            Ok(())
         }
-
-        self.approximate_size.fetch_add(size, Ordering::Release);
-
-        Ok(())
     }
 
     pub async fn sync_wal(&self) -> Result<()> {
@@ -128,8 +131,8 @@ impl MemTable {
 
 #[cfg(test)]
 impl MemTable {
-    pub fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
+    pub async fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value)).await
     }
 
     pub fn for_testing_get_slice(&self, key: &[u8]) -> Option<Bytes> {
@@ -163,12 +166,12 @@ impl MemTable {
 mod test {
     use crate::memtable::mutable::MemTable;
 
-    #[test]
-    fn test_task1_memtable_get() {
+    #[tokio::test]
+    async fn test_task1_memtable_get() {
         let memtable = MemTable::create(0);
-        memtable.for_testing_put_slice(b"key1", b"value1").unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value2").unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value3").unwrap();
+        memtable.for_testing_put_slice(b"key1", b"value1").await.unwrap();
+        memtable.for_testing_put_slice(b"key2", b"value2").await.unwrap();
+        memtable.for_testing_put_slice(b"key3", b"value3").await.unwrap();
         assert_eq!(
             &memtable.for_testing_get_slice(b"key1").unwrap()[..],
             b"value1"
@@ -183,15 +186,15 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_task1_memtable_overwrite() {
+    #[tokio::test]
+    async fn test_task1_memtable_overwrite() {
         let memtable = MemTable::create(0);
-        memtable.for_testing_put_slice(b"key1", b"value1").unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value2").unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value3").unwrap();
-        memtable.for_testing_put_slice(b"key1", b"value11").unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value22").unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value33").unwrap();
+        memtable.for_testing_put_slice(b"key1", b"value1").await.unwrap();
+        memtable.for_testing_put_slice(b"key2", b"value2").await.unwrap();
+        memtable.for_testing_put_slice(b"key3", b"value3").await.unwrap();
+        memtable.for_testing_put_slice(b"key1", b"value11").await.unwrap();
+        memtable.for_testing_put_slice(b"key2", b"value22").await.unwrap();
+        memtable.for_testing_put_slice(b"key3", b"value33").await.unwrap();
         assert_eq!(
             &memtable.for_testing_get_slice(b"key1").unwrap()[..],
             b"value11"

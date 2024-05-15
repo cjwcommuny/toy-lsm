@@ -57,6 +57,7 @@ impl Wal {
             guard.write_u32(value.len() as u32).await?;
             guard.write(value).await?;
             guard.flush().await?;
+            guard.get_mut().sync_all().await?;
             Ok(())
         }
     }
