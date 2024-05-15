@@ -6,6 +6,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
+use futures::Stream;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::sync::Mutex;
@@ -15,16 +16,16 @@ pub struct Wal {
 }
 
 impl Wal {
-    pub fn create(_path: impl AsRef<Path>) -> Result<Self> {
-        unimplemented!()
+    pub async fn create(path: impl AsRef<Path>) -> Result<Self> {
+        let file = get_file(path).await?;
+        let wal = Wal {
+            file: Arc::new(Mutex::new(BufWriter::new(file))),
+        };
+        Ok(wal)
     }
 
     pub async fn recover(path: impl AsRef<Path>) -> Result<(Self, SkipMap<Bytes, Bytes>)> {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .await?;
+        let mut file = get_file(path).await?;
         let data = {
             let mut data = Vec::new();
             file.read_to_end(&mut data).await?;
@@ -69,4 +70,13 @@ impl Wal {
             Ok(())
         }
     }
+}
+
+async fn get_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await?;
+    Ok(file)
 }

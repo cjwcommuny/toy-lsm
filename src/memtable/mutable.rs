@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::{Bound, RangeBounds};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -59,12 +59,7 @@ impl Debug for MemTable {
 impl MemTable {
     /// Create a new mem-table.
     pub fn create(id: usize) -> Self {
-        Self {
-            map: SkipMap::new(),
-            wal: None,
-            id,
-            approximate_size: Arc::default(),
-        }
+        Self::new(id, SkipMap::new(), None)
     }
 
     pub fn into_imm(self: Arc<Self>) -> Arc<ImmutableMemTable> {
@@ -75,14 +70,29 @@ impl MemTable {
         ImmutableMemTable::ref_cast(self)
     }
 
+    pub fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal>>) -> Self {
+        Self {
+            map,
+            wal: wal.into(),
+            id,
+            approximate_size: Arc::default(),
+        }
+    }
+
     /// Create a new mem-table with WAL
-    pub fn create_with_wal(_id: usize, _path: impl AsRef<Path>) -> Result<Self> {
-        unimplemented!()
+    pub async fn create_with_wal(id: usize, path: impl AsRef<Path>) -> Result<Self> {
+        let path = build_path(path, id);
+        let wal = Wal::create(path).await?;
+        let this = Self::new(id, SkipMap::new(), wal);
+        Ok(this)
     }
 
     /// Create a memtable from WAL
-    pub fn recover_from_wal(_id: usize, _path: impl AsRef<Path>) -> Result<Self> {
-        unimplemented!()
+    pub async fn recover_from_wal(id: usize, path: impl AsRef<Path>) -> Result<Self> {
+        let path = build_path(path, id);
+        let (wal, map) = Wal::recover(path).await?;
+        let this = Self::new(id, map, wal);
+        Ok(this)
     }
 
     /// Get a value by key.
@@ -129,10 +139,15 @@ impl MemTable {
     }
 }
 
+fn build_path(dir: impl AsRef<Path>, id: usize) -> PathBuf {
+    dir.as_ref().join(format!("{}.wal", id))
+}
+
 #[cfg(test)]
 impl MemTable {
     pub async fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value)).await
+        self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
+            .await
     }
 
     pub fn for_testing_get_slice(&self, key: &[u8]) -> Option<Bytes> {
@@ -169,9 +184,18 @@ mod test {
     #[tokio::test]
     async fn test_task1_memtable_get() {
         let memtable = MemTable::create(0);
-        memtable.for_testing_put_slice(b"key1", b"value1").await.unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value2").await.unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value3").await.unwrap();
+        memtable
+            .for_testing_put_slice(b"key1", b"value1")
+            .await
+            .unwrap();
+        memtable
+            .for_testing_put_slice(b"key2", b"value2")
+            .await
+            .unwrap();
+        memtable
+            .for_testing_put_slice(b"key3", b"value3")
+            .await
+            .unwrap();
         assert_eq!(
             &memtable.for_testing_get_slice(b"key1").unwrap()[..],
             b"value1"
@@ -189,12 +213,30 @@ mod test {
     #[tokio::test]
     async fn test_task1_memtable_overwrite() {
         let memtable = MemTable::create(0);
-        memtable.for_testing_put_slice(b"key1", b"value1").await.unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value2").await.unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value3").await.unwrap();
-        memtable.for_testing_put_slice(b"key1", b"value11").await.unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value22").await.unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value33").await.unwrap();
+        memtable
+            .for_testing_put_slice(b"key1", b"value1")
+            .await
+            .unwrap();
+        memtable
+            .for_testing_put_slice(b"key2", b"value2")
+            .await
+            .unwrap();
+        memtable
+            .for_testing_put_slice(b"key3", b"value3")
+            .await
+            .unwrap();
+        memtable
+            .for_testing_put_slice(b"key1", b"value11")
+            .await
+            .unwrap();
+        memtable
+            .for_testing_put_slice(b"key2", b"value22")
+            .await
+            .unwrap();
+        memtable
+            .for_testing_put_slice(b"key3", b"value33")
+            .await
+            .unwrap();
         assert_eq!(
             &memtable.for_testing_get_slice(b"key1").unwrap()[..],
             b"value11"
