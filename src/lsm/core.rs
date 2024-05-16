@@ -1,12 +1,12 @@
-use std::future::{Future, ready};
+use std::future::{ready, Future};
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
 use bytes::Bytes;
-use futures::{FutureExt, ready, StreamExt};
 use futures::executor::block_on;
+use futures::{ready, FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
 use tokio::sync::MutexGuard;
 use tokio::task::{block_in_place, JoinHandle};
@@ -58,7 +58,8 @@ impl<P: Persistent> Lsm<P> {
                 .merge()
                 .take_while(|signal| ready(matches!(signal, Trigger)))
                 .for_each(|_| async {
-                    state.may_flush_imm_memtable()
+                    state
+                        .may_flush_imm_memtable()
                         .await
                         .inspect_err(|e| error!(error = ?e))
                         .ok();
@@ -274,14 +275,17 @@ mod tests {
 
     async fn add_data<P: Persistent>(lsm: &Lsm<P>) -> anyhow::Result<()> {
         for i in 0..=1024 {
-            lsm.put_for_test(b"key-0", format!("value-{}", i).as_bytes()).await?;
+            lsm.put_for_test(b"key-0", format!("value-{}", i).as_bytes())
+                .await?;
             if i % 2 == 0 {
-                lsm.put_for_test(b"key-1", format!("value-{}", i).as_bytes()).await?;
+                lsm.put_for_test(b"key-1", format!("value-{}", i).as_bytes())
+                    .await?;
             } else {
                 lsm.delete_for_test(b"key-1").await?;
             }
             if i % 2 == 1 {
-                lsm.put_for_test(b"key-2", format!("value-{}", i).as_bytes()).await?;
+                lsm.put_for_test(b"key-2", format!("value-{}", i).as_bytes())
+                    .await?;
             } else {
                 lsm.delete_for_test(b"key-2").await?;
             }

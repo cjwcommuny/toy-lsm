@@ -10,7 +10,7 @@ use typed_builder::TypedBuilder;
 use crate::block::{Block, BlockCache, BlockIterator};
 use crate::iterators::transpose_try_iter;
 use crate::key::{KeyBytes, KeySlice};
-use crate::persistent::{SstHandle, Persistent};
+use crate::persistent::{Persistent, SstHandle};
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::BlockFallibleIter;
 use crate::sst::BlockMeta;
@@ -48,7 +48,7 @@ impl<File: SstHandle> SsTable<File> {
     /// Open SSTable from a file.
     /// todo: 避免使用 get_u32 这种会 panic 的
     /// todo: encoding 的格式可以考虑变一下，使用 parser combinator 库
-    pub async fn open<P: Persistent<SstHandle= File>>(
+    pub async fn open<P: Persistent<SstHandle = File>>(
         id: usize,
         block_cache: Option<Arc<BlockCache>>,
         persistent: &P,

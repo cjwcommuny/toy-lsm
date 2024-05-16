@@ -1,31 +1,36 @@
-use std::future::Future;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::persistent::Persistent;
 use anyhow::Result;
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
-use futures::Stream;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::sync::Mutex;
 
-pub struct Wal {
-    file: Arc<Mutex<BufWriter<File>>>,
+pub struct Wal<File> {
+    file: Arc<Mutex<File>>,
 }
 
-impl Wal {
-    pub async fn create(path: impl AsRef<Path>) -> Result<Self> {
-        let file = get_file(path).await?;
+impl<File> Wal<File> {
+    pub async fn create<P: Persistent<WalHandle = File>>(
+        id: usize,
+        persistent: &P,
+    ) -> Result<Self> {
+        let file = persistent.open_wal_handle(id).await?;
         let wal = Wal {
-            file: Arc::new(Mutex::new(BufWriter::new(file))),
+            file: Arc::new(Mutex::new(file)),
         };
         Ok(wal)
     }
 
-    pub async fn recover(path: impl AsRef<Path>) -> Result<(Self, SkipMap<Bytes, Bytes>)> {
-        let mut file = get_file(path).await?;
+    pub async fn recover<P: Persistent<WalHandle = File>>(
+        id: usize,
+        persistent: &P,
+    ) -> Result<(Self, SkipMap<Bytes, Bytes>)> {
+        let mut file = persistent.open_wal_handle(id).await?;
         let data = {
             let mut data = Vec::new();
             file.read_to_end(&mut data).await?;

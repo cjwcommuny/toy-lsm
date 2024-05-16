@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::future::{Future, ready};
+use std::future::{ready, Future};
 use std::iter;
 use std::sync::Arc;
 
@@ -10,9 +10,9 @@ use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{Persistent, SstHandle};
-use crate::sst::{SsTable, Sstables, SstOptions};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst, CompactionTask};
 use crate::sst::compact::CompactionOptions::Leveled;
+use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::utils::num::power_of_2;
 
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
@@ -204,17 +204,17 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use nom::AsBytes;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::{tempdir, TempDir};
     use tokio::sync::Mutex;
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
-    use crate::sst::{Sstables, SstOptions};
-    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::compact::leveled::{
         force_compact_level, force_compaction, select_level_destination, select_level_source,
     };
+    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
+    use crate::sst::{SstOptions, Sstables};
     use crate::state::{LsmStorageState, Map};
     use crate::test_utils::insert_sst;
 

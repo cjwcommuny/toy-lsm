@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use std::fs::{File, OpenOptions};
+use std::future::Future;
 use std::io::Write;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
@@ -7,11 +8,14 @@ use std::sync::Arc;
 
 use derive_new::new;
 use nom::AsBytes;
+use tokio::io::BufWriter;
 use tokio::spawn;
 use tokio::task::spawn_blocking;
 use tracing::Instrument;
 
-use crate::persistent::{SstHandle, Persistent};
+use crate::persistent::interface::WalHandle;
+use crate::persistent::wal_handle::WalFile;
+use crate::persistent::{Persistent, SstHandle};
 
 #[derive(new)]
 pub struct LocalFs {
@@ -19,18 +23,23 @@ pub struct LocalFs {
 }
 
 impl LocalFs {
-    fn build_path(&self, id: usize) -> PathBuf {
+    fn build_sst_path(&self, id: usize) -> PathBuf {
         self.dir.join(format!("{}.sst", id))
+    }
+
+    fn build_wal_path(&self, id: usize) -> PathBuf {
+        self.dir.join(format!("{}.wal", id))
     }
 }
 
 impl Persistent for LocalFs {
     type SstHandle = FileObject;
+    type WalHandle = WalFile;
 
     /// Create a new file object (day 2) and write the file to the disk (day 4).
     async fn create_sst(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::SstHandle> {
         let size = data.len().try_into()?;
-        let path = self.build_path(id);
+        let path = self.build_sst_path(id);
         let file = spawn_blocking(move || {
             std::fs::write(&path, &data)?;
             File::open(&path)?.sync_all()?;
@@ -43,7 +52,7 @@ impl Persistent for LocalFs {
     }
 
     async fn open_sst(&self, id: usize) -> anyhow::Result<Self::SstHandle> {
-        let path = self.build_path(id);
+        let path = self.build_sst_path(id);
         let handle = spawn_blocking(|| {
             let file = File::options().read(true).write(false).open(path)?;
             let file = Arc::new(file);
@@ -53,6 +62,17 @@ impl Persistent for LocalFs {
         })
         .await??;
         Ok(handle)
+    }
+
+    async fn open_wal_handle(&self, id: usize) -> anyhow::Result<Self::WalHandle> {
+        let path = self.build_wal_path(id);
+        let file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .await?;
+        let wal = WalFile::new(BufWriter::new(file));
+        Ok(wal)
     }
 }
 

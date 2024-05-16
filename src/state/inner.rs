@@ -9,7 +9,7 @@ use crate::block::BlockCache;
 use crate::manifest::ManifestRecord;
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
-use crate::sst::{SsTable, Sstables, SstOptions};
+use crate::sst::{SsTable, SstOptions, Sstables};
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {

@@ -24,7 +24,7 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use crate::manifest::{Compaction, Flush, ManifestRecord};
-use crate::persistent::{SstHandle, Persistent};
+use crate::persistent::{Persistent, SstHandle};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };

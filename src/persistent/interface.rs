@@ -1,17 +1,23 @@
 use std::future::Future;
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait Persistent: Send + Sync + 'static {
     type SstHandle: SstHandle;
+    type WalHandle: WalHandle;
 
     fn create_sst(
         &self,
         id: usize,
         data: Vec<u8>,
     ) -> impl Future<Output = anyhow::Result<Self::SstHandle>> + Send;
+
     fn open_sst(&self, id: usize) -> impl Future<Output = anyhow::Result<Self::SstHandle>> + Send;
 
-
+    fn open_wal_handle(
+        &self,
+        id: usize,
+    ) -> impl Future<Output = anyhow::Result<Self::WalHandle>> + Send;
 }
 
 pub trait SstHandle: Send + Sync + 'static {
@@ -30,3 +36,5 @@ impl<T: SstHandle> SstHandle for Arc<T> {
         self.as_ref().size()
     }
 }
+
+pub trait WalHandle: AsyncWrite + AsyncRead + Send + Sync + 'static {}

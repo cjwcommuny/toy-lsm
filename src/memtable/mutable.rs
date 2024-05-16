@@ -31,16 +31,16 @@ use crate::wal::Wal;
 /// chapters of week 1 and week 2.
 /// todo: MemTable 本质是 Map，可以抽象为 trait
 #[derive(Getters)]
-pub struct MemTable {
+pub struct MemTable<W> {
     pub(self) map: SkipMap<Bytes, Bytes>,
-    wal: Option<Wal>,
+    wal: Option<Wal<W>>,
     id: usize,
 
     #[getter(skip)]
     approximate_size: Arc<AtomicUsize>,
 }
 
-impl Debug for MemTable {
+impl<W> Debug for MemTable<W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let first = self.map.iter().next();
         let first = first.as_ref().map(|entry| entry.key());
@@ -56,7 +56,7 @@ impl Debug for MemTable {
     }
 }
 
-impl MemTable {
+impl<W> MemTable<W> {
     /// Create a new mem-table.
     pub fn create(id: usize) -> Self {
         Self::new(id, SkipMap::new(), None)
@@ -81,18 +81,20 @@ impl MemTable {
 
     /// Create a new mem-table with WAL
     pub async fn create_with_wal(id: usize, path: impl AsRef<Path>) -> Result<Self> {
-        let path = build_path(path, id);
-        let wal = Wal::create(path).await?;
-        let this = Self::new(id, SkipMap::new(), wal);
-        Ok(this)
+        // let path = build_path(path, id);
+        // let wal = Wal::create(path).await?;
+        // let this = Self::new(id, SkipMap::new(), wal);
+        // Ok(this)
+        todo!()
     }
 
     /// Create a memtable from WAL
     pub async fn recover_from_wal(id: usize, path: impl AsRef<Path>) -> Result<Self> {
-        let path = build_path(path, id);
-        let (wal, map) = Wal::recover(path).await?;
-        let this = Self::new(id, map, wal);
-        Ok(this)
+        // let path = build_path(path, id);
+        // let (wal, map) = Wal::recover(path).await?;
+        // let this = Self::new(id, map, wal);
+        // Ok(this)
+        todo!()
     }
 
     /// Get a value by key.
