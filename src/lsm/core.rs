@@ -42,7 +42,8 @@ impl<P: SstPersistent> Lsm<P> {
     }
 
     pub async fn sync(&self) -> anyhow::Result<()> {
-        todo!()
+        // todo
+        Ok(())
     }
 
     fn spawn_flush(
@@ -57,9 +58,7 @@ impl<P: SstPersistent> Lsm<P> {
                 .merge()
                 .take_while(|signal| ready(matches!(signal, Trigger)))
                 .for_each(|_| async {
-                    let lock = state.state_lock().lock().await;
-                    state
-                        .force_flush_imm_memtable(&lock)
+                    state.may_flush_imm_memtable()
                         .await
                         .inspect_err(|e| error!(error = ?e))
                         .ok();
@@ -232,13 +231,13 @@ mod tests {
     #[tokio::test]
     async fn test_wal_integration() {
         let compaction_options = LeveledCompactionOptions::builder()
-            .max_levels(4)
-            .max_bytes_for_level_base(2048)
+            .max_levels(3)
+            .max_bytes_for_level_base(512)
             .level_size_multiplier_2_exponent(1)
             .build();
         let options = SstOptions::builder()
-            .target_sst_size(1024)
-            .block_size(4096)
+            .target_sst_size(128)
+            .block_size(64)
             .num_memtable_limit(1000)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(true)
@@ -247,44 +246,44 @@ mod tests {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let lsm = Lsm::new(options.clone(), persistent);
         add_data(&lsm).await.unwrap();
+        sleep(Duration::from_secs(2)).await;
+
         lsm.sync().await.unwrap();
         // ensure some SSTs are not flushed
         let inner = lsm.state.inner.load();
+        println!("{:?}", &inner);
 
         assert!(!inner.memtable.is_empty() || !inner.imm_memtables.is_empty());
-        println!("{:?}", &inner);
         drop(lsm);
 
         {
             let persistent = LocalFs::new(dir.path().to_path_buf());
             let lsm = Lsm::new(options, persistent);
             assert_eq!(
-                &lsm.get(b"0").await.unwrap().unwrap()[..],
-                b"v20".as_slice()
+                &lsm.get(b"key-0").await.unwrap().unwrap()[..],
+                b"value-1024".as_slice()
             );
             assert_eq!(
-                &lsm.get(b"1").await.unwrap().unwrap()[..],
-                b"v20".as_slice()
+                &lsm.get(b"key-1").await.unwrap().unwrap()[..],
+                b"value-1024".as_slice()
             );
-            assert_eq!(lsm.get(b"2").await.unwrap(), None);
+            assert_eq!(lsm.get(b"key-2").await.unwrap(), None);
         }
     }
 
     async fn add_data<P: SstPersistent>(lsm: &Lsm<P>) -> anyhow::Result<()> {
-        for i in 0..=20 {
-            lsm.put_for_test(b"0", format!("v{}", i).as_bytes()).await?;
+        for i in 0..=1024 {
+            lsm.put_for_test(b"key-0", format!("value-{}", i).as_bytes()).await?;
             if i % 2 == 0 {
-                lsm.put_for_test(b"1", format!("v{}", i).as_bytes()).await?;
+                lsm.put_for_test(b"key-1", format!("value-{}", i).as_bytes()).await?;
             } else {
-                lsm.delete_for_test(b"1").await?;
+                lsm.delete_for_test(b"key-1").await?;
             }
             if i % 2 == 1 {
-                lsm.put_for_test(b"2", format!("v{}", i).as_bytes()).await?;
+                lsm.put_for_test(b"key-2", format!("value-{}", i).as_bytes()).await?;
             } else {
-                lsm.delete_for_test(b"2").await?;
+                lsm.delete_for_test(b"key-2").await?;
             }
-            let guard = lsm.state.state_lock.lock().await;
-            lsm.state.force_freeze_memtable(&guard);
         }
         Ok(())
     }

@@ -173,6 +173,17 @@ where
         self.inner.store(new);
     }
 
+    pub async fn may_flush_imm_memtable(&self) -> anyhow::Result<()> {
+        let num_memtable_limit = *self.options.num_memtable_limit();
+        if self.inner.load().imm_memtables.len() + 1 >= num_memtable_limit {
+            let guard = self.state_lock.lock().await;
+            if self.inner.load().imm_memtables.len() + 1 >= num_memtable_limit {
+                self.force_flush_imm_memtable(&guard).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn force_flush_imm_memtable(
         &self,
         _guard: &MutexGuard<'_, ()>,
