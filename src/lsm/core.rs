@@ -73,13 +73,14 @@ impl<P: SstPersistent> Lsm<P> {
     ) -> JoinHandle<()> {
         use Signal::*;
         tokio::spawn(async move {
-            let trigger = IntervalStream::new(interval(Duration::from_millis(10))).map(|_| Trigger);
+            let trigger = IntervalStream::new(interval(Duration::from_millis(13))).map(|_| Trigger);
             let cancel_stream = cancel_token.cancelled().into_stream().map(|_| Cancel);
             (trigger, cancel_stream)
                 .merge()
                 .take_while(|signal| ready(matches!(signal, Trigger)))
                 .for_each(|_| async {
                     let lock = state.state_lock().lock().await;
+                    println!("trigger compaction");
                     state
                         .force_compact(&lock)
                         .await
@@ -232,7 +233,7 @@ mod tests {
     async fn test_wal_integration() {
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(3)
-            .max_bytes_for_level_base(4096)
+            .max_bytes_for_level_base(1024)
             .level_size_multiplier_2_exponent(1)
             .build();
         let options = SstOptions::builder()

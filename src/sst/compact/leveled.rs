@@ -55,6 +55,7 @@ pub async fn force_compaction<P: SstPersistent>(
 
     let level_sizes = compute_level_sizes(sstables);
     let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
+    println!("level_sizes={:?}, target_sizes={:?}", level_sizes, target_sizes);
 
     // todo: only select one source sst
     let Some(source) = select_level_source(
@@ -138,7 +139,7 @@ fn select_level_source(
             *level_size as f64 / denominator as f64
         })
         .collect();
-
+    println!("max_bytes_for_level_base={}, scores={:?}", max_bytes_for_level_base, scores);
     let source = scores
         .iter()
         .enumerate()
@@ -149,6 +150,7 @@ fn select_level_source(
             // todo: make it looking better...
         })?
         .0;
+    println!("source={}", source);
     if source == level_sizes.len() - 1 {
         None
     } else {
