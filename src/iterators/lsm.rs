@@ -14,7 +14,7 @@ use crate::iterators::{
     NoDeletedIterator, TwoMergeIterator,
 };
 use crate::memtable::MemTableIterator;
-use crate::persistent::SstPersistent;
+use crate::persistent::Persistent;
 use crate::sst::iterator::MergedSstIterator;
 use crate::state::LsmStorageStateInner;
 
@@ -27,7 +27,7 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
 >;
 
 #[derive(new)]
-pub struct LockedLsmIter<'a, P: SstPersistent> {
+pub struct LockedLsmIter<'a, P: Persistent> {
     state: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
     lower: Bound<&'a [u8]>,
     upper: Bound<&'a [u8]>,
@@ -35,9 +35,9 @@ pub struct LockedLsmIter<'a, P: SstPersistent> {
 
 impl<'a, P> LockedLsmIter<'a, P>
 where
-    P: SstPersistent,
+    P: Persistent,
 {
-    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a, P::Handle>> {
+    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a, P::SstHandle>> {
         let a = self.build_memtable_iter().await;
         let b = self.build_sst_iter().await?;
         let merge = create_two_merge_iter(a, b).await?;
@@ -61,7 +61,7 @@ where
         create_merge_iter_from_non_empty_iters(iters).await
     }
 
-    pub async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::Handle>> {
+    pub async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::SstHandle>> {
         self.state
             .sstables_state()
             .scan_sst(self.lower, self.upper)

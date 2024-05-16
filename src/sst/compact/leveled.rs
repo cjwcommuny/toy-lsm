@@ -9,7 +9,7 @@ use ordered_float::NotNan;
 use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
-use crate::persistent::{SstHandle, SstPersistent};
+use crate::persistent::{SstHandle, Persistent};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst, CompactionTask};
 use crate::sst::compact::CompactionOptions::Leveled;
 use crate::sst::{SsTable, SstOptions, Sstables};
@@ -42,8 +42,8 @@ impl LeveledCompactionOptions {
     }
 }
 
-pub async fn force_compaction<P: SstPersistent>(
-    sstables: &mut Sstables<P::Handle>,
+pub async fn force_compaction<P: Persistent>(
+    sstables: &mut Sstables<P::SstHandle>,
     next_sst_id: impl Fn() -> usize + Send + Sync,
     options: &SstOptions,
     persistent: &P,
@@ -78,8 +78,8 @@ pub async fn force_compaction<P: SstPersistent>(
     .await
 }
 
-async fn force_compact_level<P: SstPersistent>(
-    sstables: &mut Sstables<<P as SstPersistent>::Handle>,
+async fn force_compact_level<P: Persistent>(
+    sstables: &mut Sstables<<P as Persistent>::SstHandle>,
     next_sst_id: impl Fn() -> usize + Send + Sync,
     options: &SstOptions,
     persistent: &P,
@@ -139,7 +139,7 @@ fn select_level_source(
             *level_size as f64 / denominator as f64
         })
         .collect();
-    println!("max_bytes_for_level_base={}, scores={:?}", max_bytes_for_level_base, scores);
+    // println!("max_bytes_for_level_base={}, scores={:?}", max_bytes_for_level_base, scores);
     let source = scores
         .iter()
         .enumerate()

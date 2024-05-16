@@ -11,17 +11,17 @@ use typed_builder::TypedBuilder;
 
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::memory::Memory;
-use crate::persistent::SstPersistent;
+use crate::persistent::Persistent;
 use crate::sst::{SsTable, SstOptions, Sstables};
 
 #[derive(Getters, TypedBuilder)]
-pub struct LsmStorageStateInner<P: SstPersistent> {
+pub struct LsmStorageStateInner<P: Persistent> {
     pub(crate) memtable: Arc<MemTable>,
     pub(crate) imm_memtables: Vec<Arc<ImmutableMemTable>>,
-    pub(crate) sstables_state: Arc<Sstables<P::Handle>>,
+    pub(crate) sstables_state: Arc<Sstables<P::SstHandle>>,
 }
 
-impl<P: SstPersistent> LsmStorageStateInner<P> {
+impl<P: Persistent> LsmStorageStateInner<P> {
     pub async fn recover(
         options: &SstOptions,
         manifest: Vec<ManifestRecord>,
@@ -65,7 +65,7 @@ impl<P: SstPersistent> LsmStorageStateInner<P> {
     }
 }
 
-impl<P: SstPersistent> Clone for LsmStorageStateInner<P> {
+impl<P: Persistent> Clone for LsmStorageStateInner<P> {
     fn clone(&self) -> Self {
         Self {
             memtable: self.memtable.clone(),
@@ -75,7 +75,7 @@ impl<P: SstPersistent> Clone for LsmStorageStateInner<P> {
     }
 }
 
-impl<P: SstPersistent> Debug for LsmStorageStateInner<P> {
+impl<P: Persistent> Debug for LsmStorageStateInner<P> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LsmStorageStateInner")
             .field("memtable", &self.memtable)

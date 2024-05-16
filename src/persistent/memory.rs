@@ -3,23 +3,23 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use dashmap::DashMap;
 
-use crate::persistent::{SstHandle, SstPersistent};
+use crate::persistent::{SstHandle, Persistent};
 
 #[derive(Default)]
 pub struct Memory {
     map: DashMap<usize, Arc<MemoryObject>>,
 }
 
-impl SstPersistent for Memory {
-    type Handle = Arc<MemoryObject>;
+impl Persistent for Memory {
+    type SstHandle = Arc<MemoryObject>;
 
-    async fn create(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::Handle> {
+    async fn create_sst(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::SstHandle> {
         let handle = Arc::new(MemoryObject { id, data });
         self.map.insert(id, handle.clone());
         Ok(handle)
     }
 
-    async fn open(&self, id: usize) -> anyhow::Result<Self::Handle> {
+    async fn open_sst(&self, id: usize) -> anyhow::Result<Self::SstHandle> {
         let handle = self
             .map
             .get(&id)

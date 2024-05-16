@@ -14,7 +14,7 @@ use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
 use tracing::error;
 
-use crate::persistent::{SstHandle, SstPersistent};
+use crate::persistent::{SstHandle, Persistent};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
@@ -63,17 +63,17 @@ pub fn apply_compaction<File: SstHandle>(
 }
 
 // todo: return Stream<Item = Arc<SsTable<File>>>
-pub async fn compact_generate_new_sst<'a, P: SstPersistent, U, L>(
+pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
     upper_sstables: U,
     lower_sstables: L,
     next_sst_id: impl Fn() -> usize + Send + 'a + Sync,
     options: &'a SstOptions,
     persistent: &'a P,
-) -> anyhow::Result<Vec<Arc<SsTable<P::Handle>>>>
+) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>
 where
-    U: IntoIterator<Item = &'a SsTable<P::Handle>> + Send + 'a,
+    U: IntoIterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
     U::IntoIter: Send,
-    L: IntoIterator<Item = &'a SsTable<P::Handle>> + Send + 'a,
+    L: IntoIterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
     L::IntoIter: Send,
 {
     // todo: non-zero level should use concat iterator
@@ -119,9 +119,9 @@ async fn batch<I, P>(
     block_size: usize,
     target_sst_size: usize,
     persistent: &P,
-) -> Option<Arc<SsTable<P::Handle>>>
+) -> Option<Arc<SsTable<P::SstHandle>>>
 where
-    P: SstPersistent,
+    P: Persistent,
     I: Stream<Item = anyhow::Result<Entry>> + Unpin,
 {
     let mut builder = SsTableBuilder::new(block_size);

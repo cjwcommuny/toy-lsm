@@ -15,19 +15,19 @@ use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-use crate::persistent::SstPersistent;
+use crate::persistent::Persistent;
 use crate::sst::SstOptions;
 use crate::state::{LsmStorageState, Map};
 use crate::utils::func::do_nothing;
 
-pub struct Lsm<P: SstPersistent> {
+pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
     cancel_token: CancellationToken,
     flush_handle: Option<JoinHandle<()>>,
     compaction_handle: Option<JoinHandle<()>>,
 }
 
-impl<P: SstPersistent> Lsm<P> {
+impl<P: Persistent> Lsm<P> {
     pub fn new(options: SstOptions, persistent: P) -> Self {
         let state = Arc::new(LsmStorageState::new(options, persistent));
         let cancel_token = CancellationToken::new();
@@ -80,7 +80,7 @@ impl<P: SstPersistent> Lsm<P> {
                 .take_while(|signal| ready(matches!(signal, Trigger)))
                 .for_each(|_| async {
                     let lock = state.state_lock().lock().await;
-                    println!("trigger compaction");
+                    // println!("trigger compaction");
                     state
                         .force_compact(&lock)
                         .await
@@ -94,7 +94,7 @@ impl<P: SstPersistent> Lsm<P> {
 
 impl<P> Map for Lsm<P>
 where
-    P: SstPersistent,
+    P: Persistent,
 {
     type Error = anyhow::Error;
 
@@ -118,14 +118,14 @@ where
     }
 }
 
-impl<P: SstPersistent> Drop for Lsm<P> {
+impl<P: Persistent> Drop for Lsm<P> {
     fn drop(&mut self) {
         self.cancel_token.cancel();
     }
 }
 
 #[cfg(test)]
-impl<P: SstPersistent> Lsm<P> {
+impl<P: Persistent> Lsm<P> {
     async fn put_for_test(&self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
             .await
@@ -152,7 +152,7 @@ mod tests {
 
     use crate::lsm::core::Lsm;
     use crate::persistent::memory::Memory;
-    use crate::persistent::{LocalFs, SstPersistent};
+    use crate::persistent::{LocalFs, Persistent};
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
     use crate::state::Map;
@@ -182,7 +182,7 @@ mod tests {
             .is_empty());
     }
 
-    fn build_lsm(dir: &TempDir) -> Lsm<impl SstPersistent> {
+    fn build_lsm(dir: &TempDir) -> Lsm<impl Persistent> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
             .target_sst_size(1024)
@@ -272,7 +272,7 @@ mod tests {
         }
     }
 
-    async fn add_data<P: SstPersistent>(lsm: &Lsm<P>) -> anyhow::Result<()> {
+    async fn add_data<P: Persistent>(lsm: &Lsm<P>) -> anyhow::Result<()> {
         for i in 0..=1024 {
             lsm.put_for_test(b"key-0", format!("value-{}", i).as_bytes()).await?;
             if i % 2 == 0 {

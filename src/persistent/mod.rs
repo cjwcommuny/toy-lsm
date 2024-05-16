@@ -4,4 +4,4 @@ pub mod memory;
 
 pub use file_object::LocalFs;
 pub use interface::SstHandle;
-pub use interface::SstPersistent;
+pub use interface::Persistent;

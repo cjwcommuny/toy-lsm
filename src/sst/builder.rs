@@ -12,7 +12,7 @@ use crate::block::{BlockBuilder, BlockCache};
 use crate::key::{KeySlice, KeyVec};
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::file_object::FileObject;
-use crate::persistent::{LocalFs, SstPersistent};
+use crate::persistent::{LocalFs, Persistent};
 use crate::sst::bloom::Bloom;
 use crate::sst::{BlockMeta, SsTable};
 
@@ -83,9 +83,9 @@ impl SsTableBuilder {
         id: usize,
         block_cache: Option<Arc<BlockCache>>,
         persistent: &P,
-    ) -> Result<SsTable<P::Handle>>
+    ) -> Result<SsTable<P::SstHandle>>
     where
-        P: SstPersistent,
+        P: Persistent,
     {
         let Self {
             builder,
@@ -120,7 +120,7 @@ impl SsTableBuilder {
         bloom.encode(&mut data);
         data.put_u32(bloom_offset);
 
-        let file = persistent.create(id, data).await?;
+        let file = persistent.create_sst(id, data).await?;
 
         let table = SsTable::builder()
             .file(file)

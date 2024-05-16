@@ -11,7 +11,7 @@ use tokio::spawn;
 use tokio::task::spawn_blocking;
 use tracing::Instrument;
 
-use crate::persistent::{SstHandle, SstPersistent};
+use crate::persistent::{SstHandle, Persistent};
 
 #[derive(new)]
 pub struct LocalFs {
@@ -24,11 +24,11 @@ impl LocalFs {
     }
 }
 
-impl SstPersistent for LocalFs {
-    type Handle = FileObject;
+impl Persistent for LocalFs {
+    type SstHandle = FileObject;
 
     /// Create a new file object (day 2) and write the file to the disk (day 4).
-    async fn create(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::Handle> {
+    async fn create_sst(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::SstHandle> {
         let size = data.len().try_into()?;
         let path = self.build_path(id);
         let file = spawn_blocking(move || {
@@ -42,7 +42,7 @@ impl SstPersistent for LocalFs {
         Ok(handle)
     }
 
-    async fn open(&self, id: usize) -> anyhow::Result<Self::Handle> {
+    async fn open_sst(&self, id: usize) -> anyhow::Result<Self::SstHandle> {
         let path = self.build_path(id);
         let handle = spawn_blocking(|| {
             let file = File::options().read(true).write(false).open(path)?;
