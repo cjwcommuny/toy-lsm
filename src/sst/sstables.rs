@@ -303,6 +303,7 @@ mod tests {
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
+            .enable_wal(false)
             .build();
         let dir = TempDir::new().unwrap();
         let path = dir.as_ref();

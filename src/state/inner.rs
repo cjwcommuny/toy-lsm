@@ -16,8 +16,8 @@ use crate::sst::{SsTable, SstOptions, Sstables};
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: SstPersistent> {
-    memtable: Arc<MemTable>,
-    imm_memtables: Vec<Arc<ImmutableMemTable>>,
+    pub(crate) memtable: Arc<MemTable>,
+    pub(crate) imm_memtables: Vec<Arc<ImmutableMemTable>>,
     pub(crate) sstables_state: Arc<Sstables<P::Handle>>,
 }
 
@@ -51,7 +51,7 @@ impl<P: SstPersistent> LsmStorageStateInner<P> {
         let mut max_sst_id = 0;
 
         for sst_id in sst_ids {
-            let block_cache = block_cache.as_ref().map(Clone::clone);
+            let block_cache = block_cache.clone();
             let sst = SsTable::open(sst_id, block_cache, persistent).await?;
             ssts.insert(sst_id, Arc::new(sst));
             max_sst_id = max(max_sst_id, sst_id);

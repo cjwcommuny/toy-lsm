@@ -104,17 +104,15 @@ impl MemTable {
     ///
     /// In week 1, day 1, simply put the key-value pair into the skipmap.
     /// In week 2, day 6, also flush the data to WAL.
-    pub fn put(&self, key: Bytes, value: Bytes) -> impl Future<Output = Result<()>> + Send + '_ {
-        async {
-            let size = key.len() + value.len();
-            if let Some(wal) = self.wal.as_ref() {
-                wal.put(key.as_bytes(), value.as_bytes()).await?
-            }
-            self.map.insert(key, value);
-            self.approximate_size.fetch_add(size, Ordering::Release);
-
-            Ok(())
+    pub async fn put(&self, key: Bytes, value: Bytes) -> Result<()> {
+        let size = key.len() + value.len();
+        if let Some(wal) = self.wal.as_ref() {
+            wal.put(key.as_bytes(), value.as_bytes()).await?
         }
+        self.map.insert(key, value);
+        self.approximate_size.fetch_add(size, Ordering::Release);
+
+        Ok(())
     }
 
     pub async fn sync_wal(&self) -> Result<()> {

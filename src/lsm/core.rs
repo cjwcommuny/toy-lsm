@@ -41,6 +41,10 @@ impl<P: SstPersistent> Lsm<P> {
         }
     }
 
+    pub async fn sync(&self) -> anyhow::Result<()> {
+        todo!()
+    }
+
     fn spawn_flush(
         state: Arc<LsmStorageState<P>>,
         cancel_token: CancellationToken,
@@ -126,6 +130,10 @@ impl<P: SstPersistent> Lsm<P> {
         self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
             .await
     }
+
+    async fn delete_for_test(&self, key: &[u8]) -> anyhow::Result<()> {
+        self.delete(Bytes::copy_from_slice(key)).await
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -181,6 +189,7 @@ mod tests {
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
+            .enable_wal(false)
             .build();
         Lsm::new(options, persistent)
     }
@@ -198,6 +207,7 @@ mod tests {
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
+            .enable_wal(false)
             .build();
         let lsm = Lsm::new(options, persistent);
         for i in 0..10 {
@@ -220,7 +230,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_integration() {
+    async fn test_wal_integration() {
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(4)
             .max_bytes_for_level_base(2048)
@@ -235,38 +245,48 @@ mod tests {
             .build();
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
-        let lsm = Lsm::new(options, persistent);
+        let lsm = Lsm::new(options.clone(), persistent);
         for i in 0..=20 {
-            lsm.put(b"0", format!("v{}", i).as_bytes()).unwrap();
+            lsm.put_for_test(b"0", format!("v{}", i).as_bytes())
+                .await
+                .unwrap();
             if i % 2 == 0 {
-                lsm.put(b"1", format!("v{}", i).as_bytes()).unwrap();
+                lsm.put_for_test(b"1", format!("v{}", i).as_bytes())
+                    .await
+                    .unwrap();
             } else {
-                lsm.delete(b"1").unwrap();
+                lsm.delete_for_test(b"1").await.unwrap();
             }
             if i % 2 == 1 {
-                lsm.put(b"2", format!("v{}", i).as_bytes()).unwrap();
+                lsm.put_for_test(b"2", format!("v{}", i).as_bytes())
+                    .await
+                    .unwrap();
             } else {
-                lsm.delete(b"2").unwrap();
+                lsm.delete_for_test(b"2").await.unwrap();
             }
-            storage
-                .inner
-                .force_freeze_memtable(&storage.inner.state_lock.lock())
-                .unwrap();
+            let guard = lsm.state.state_lock.lock().await;
+            lsm.state.force_freeze_memtable(&guard);
         }
-        lsm.close().unwrap();
+        lsm.sync().await.unwrap();
         // ensure some SSTs are not flushed
-        assert!(
-            !storage.inner.state.read().memtable.is_empty()
-                || !storage.inner.state.read().imm_memtables.is_empty()
-        );
-        storage.dump_structure();
-        drop(storage);
-        dump_files_in_dir(&dir);
+        let inner = lsm.state.inner.load();
 
-        let storage = MiniLsm::open(&dir, options).unwrap();
-        assert_eq!(&storage.get(b"0").unwrap().unwrap()[..], b"v20".as_slice());
-        assert_eq!(&storage.get(b"1").unwrap().unwrap()[..], b"v20".as_slice());
-        assert_eq!(storage.get(b"2").unwrap(), None);
+        assert!(!inner.memtable.is_empty() || !inner.imm_memtables.is_empty());
+        println!("{:?}", &inner);
+        drop(lsm);
+
+        {
+            let persistent = LocalFs::new(dir.path().to_path_buf());
+            let lsm = Lsm::new(options, persistent);
+            assert_eq!(
+                &lsm.get(b"0").await.unwrap().unwrap()[..],
+                b"v20".as_slice()
+            );
+            assert_eq!(
+                &lsm.get(b"1").await.unwrap().unwrap()[..],
+                b"v20".as_slice()
+            );
+            assert_eq!(lsm.get(b"2").await.unwrap(), None);
+        }
     }
-
 }

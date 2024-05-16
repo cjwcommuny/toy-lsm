@@ -29,7 +29,7 @@ use crate::utils::vec::pop;
 pub struct LsmStorageState<P: SstPersistent> {
     pub(crate) inner: ArcSwap<LsmStorageStateInner<P>>,
     block_cache: Arc<BlockCache>,
-    state_lock: Mutex<()>,
+    pub(crate) state_lock: Mutex<()>,
     pub(crate) persistent: P,
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
@@ -167,7 +167,7 @@ where
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
-    fn force_freeze_memtable(&self, _guard: &MutexGuard<()>) {
+    pub(crate) fn force_freeze_memtable(&self, _guard: &MutexGuard<()>) {
         let snapshot = self.inner.load_full();
         let new = freeze_memtable(snapshot, self.next_sst_id());
         self.inner.store(new);
@@ -723,6 +723,7 @@ mod test {
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
+            .enable_wal(false)
             .build();
         LsmStorageState::new(options, persistent)
     }

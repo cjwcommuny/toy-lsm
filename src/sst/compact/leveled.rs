@@ -350,6 +350,7 @@ mod tests {
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
+            .enable_wal(false)
             .build();
         let mut state = LsmStorageState::new(options, persistent);
         let next_sst_id = AtomicUsize::default();

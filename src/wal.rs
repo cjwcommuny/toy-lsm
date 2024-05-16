@@ -46,29 +46,21 @@ impl Wal {
         Ok((wal, map))
     }
 
-    pub fn put<'a>(
-        &'a self,
-        key: &'a [u8],
-        value: &'a [u8],
-    ) -> impl Future<Output = Result<()>> + Send + 'a {
-        async move {
-            let mut guard = self.file.lock().await;
-            guard.write_u32(key.len() as u32).await?;
-            guard.write(key).await?;
-            guard.write_u32(value.len() as u32).await?;
-            guard.write(value).await?;
-            guard.flush().await?;
-            guard.get_mut().sync_all().await?;
-            Ok(())
-        }
+    pub async fn put<'a>(&'a self, key: &'a [u8], value: &'a [u8]) -> Result<()> {
+        let mut guard = self.file.lock().await;
+        guard.write_u32(key.len() as u32).await?;
+        guard.write_all(key).await?;
+        guard.write_u32(value.len() as u32).await?;
+        guard.write_all(value).await?;
+        guard.flush().await?;
+        guard.get_mut().sync_all().await?;
+        Ok(())
     }
 
-    pub fn sync(&self) -> impl Future<Output = Result<()>> + '_ {
-        async {
-            let mut guard = self.file.lock().await;
-            guard.get_mut().sync_all().await?;
-            Ok(())
-        }
+    pub async fn sync(&self) -> Result<()> {
+        let mut guard = self.file.lock().await;
+        guard.get_mut().sync_all().await?;
+        Ok(())
     }
 }
 
