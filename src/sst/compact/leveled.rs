@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::future::{ready, Future};
+use std::future::{Future, ready};
 use std::iter;
 use std::sync::Arc;
 
@@ -9,10 +9,10 @@ use ordered_float::NotNan;
 use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
-use crate::persistent::{SstHandle, Persistent};
+use crate::persistent::{Persistent, SstHandle};
+use crate::sst::{SsTable, Sstables, SstOptions};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst, CompactionTask};
 use crate::sst::compact::CompactionOptions::Leveled;
-use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::utils::num::power_of_2;
 
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
@@ -55,7 +55,7 @@ pub async fn force_compaction<P: Persistent>(
 
     let level_sizes = compute_level_sizes(sstables);
     let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
-    println!("level_sizes={:?}, target_sizes={:?}", level_sizes, target_sizes);
+    // println!("level_sizes={:?}, target_sizes={:?}", level_sizes, target_sizes);
 
     // todo: only select one source sst
     let Some(source) = select_level_source(
@@ -202,18 +202,19 @@ fn compute_target_sizes(last_level_size: u64, options: &LeveledCompactionOptions
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
-    use std::sync::Arc;
 
     use nom::AsBytes;
+    use tempfile::{TempDir, tempdir};
     use tokio::sync::Mutex;
 
-    use crate::persistent::memory::{Memory, MemoryObject};
+    use crate::persistent::file_object::FileObject;
+    use crate::persistent::LocalFs;
+    use crate::sst::{Sstables, SstOptions};
+    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::compact::leveled::{
         force_compact_level, force_compaction, select_level_destination, select_level_source,
     };
-    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
-    use crate::sst::{SstOptions, Sstables};
     use crate::state::{LsmStorageState, Map};
     use crate::test_utils::insert_sst;
 
@@ -248,7 +249,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_force_compact_level() {
-        let (state, mut sstables) = prepare_sstables().await;
+        let dir = tempdir().unwrap();
+        let (state, mut sstables) = prepare_sstables(&dir).await;
 
         {
             assert_eq!(sstables.l0_sstables, [4, 3, 2, 1, 0]);
@@ -313,7 +315,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_force_compaction() {
-        let (state, mut sstables) = prepare_sstables().await;
+        let dir = tempdir().unwrap();
+        let (state, mut sstables) = prepare_sstables(&dir).await;
         force_compaction(
             &mut sstables,
             || state.next_sst_id(),
@@ -340,8 +343,8 @@ mod tests {
         }
     }
 
-    async fn prepare_sstables() -> (LsmStorageState<Memory>, Sstables<Arc<MemoryObject>>) {
-        let persistent = Memory::default();
+    async fn prepare_sstables(dir: &TempDir) -> (LsmStorageState<LocalFs>, Sstables<FileObject>) {
+        let persistent = LocalFs::new(dir.path().to_path_buf());
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(4)
             .max_bytes_for_level_base(2048)

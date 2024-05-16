@@ -10,6 +10,8 @@ pub trait Persistent: Send + Sync + 'static {
         data: Vec<u8>,
     ) -> impl Future<Output = anyhow::Result<Self::SstHandle>> + Send;
     fn open_sst(&self, id: usize) -> impl Future<Output = anyhow::Result<Self::SstHandle>> + Send;
+
+
 }
 
 pub trait SstHandle: Send + Sync + 'static {

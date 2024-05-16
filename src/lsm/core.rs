@@ -1,12 +1,12 @@
-use std::future::{ready, Future};
+use std::future::{Future, ready};
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
 use bytes::Bytes;
+use futures::{FutureExt, ready, StreamExt};
 use futures::executor::block_on;
-use futures::{ready, FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
 use tokio::sync::MutexGuard;
 use tokio::task::{block_in_place, JoinHandle};
@@ -151,7 +151,6 @@ mod tests {
     use tokio::time::sleep;
 
     use crate::lsm::core::Lsm;
-    use crate::persistent::memory::Memory;
     use crate::persistent::{LocalFs, Persistent};
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
@@ -196,7 +195,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_compaction() {
-        let persistent = Memory::default();
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(4)
             .max_bytes_for_level_base(2048)

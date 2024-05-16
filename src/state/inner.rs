@@ -1,18 +1,15 @@
 use std::cmp::max;
 use std::fmt::{Debug, Formatter};
-use std::path::Path;
 use std::sync::Arc;
+
+use derive_getters::Getters;
+use typed_builder::TypedBuilder;
 
 use crate::block::BlockCache;
 use crate::manifest::ManifestRecord;
-use derive_getters::Getters;
-use nom::combinator::opt;
-use typed_builder::TypedBuilder;
-
 use crate::memtable::{ImmutableMemTable, MemTable};
-use crate::persistent::memory::Memory;
 use crate::persistent::Persistent;
-use crate::sst::{SsTable, SstOptions, Sstables};
+use crate::sst::{SsTable, Sstables, SstOptions};
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {
