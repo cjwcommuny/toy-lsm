@@ -246,27 +246,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let lsm = Lsm::new(options.clone(), persistent);
-        for i in 0..=20 {
-            lsm.put_for_test(b"0", format!("v{}", i).as_bytes())
-                .await
-                .unwrap();
-            if i % 2 == 0 {
-                lsm.put_for_test(b"1", format!("v{}", i).as_bytes())
-                    .await
-                    .unwrap();
-            } else {
-                lsm.delete_for_test(b"1").await.unwrap();
-            }
-            if i % 2 == 1 {
-                lsm.put_for_test(b"2", format!("v{}", i).as_bytes())
-                    .await
-                    .unwrap();
-            } else {
-                lsm.delete_for_test(b"2").await.unwrap();
-            }
-            let guard = lsm.state.state_lock.lock().await;
-            lsm.state.force_freeze_memtable(&guard);
-        }
+        add_data(&lsm).await.unwrap();
         lsm.sync().await.unwrap();
         // ensure some SSTs are not flushed
         let inner = lsm.state.inner.load();
@@ -288,5 +268,24 @@ mod tests {
             );
             assert_eq!(lsm.get(b"2").await.unwrap(), None);
         }
+    }
+
+    async fn add_data<P: SstPersistent>(lsm: &Lsm<P>) -> anyhow::Result<()> {
+        for i in 0..=20 {
+            lsm.put_for_test(b"0", format!("v{}", i).as_bytes()).await?;
+            if i % 2 == 0 {
+                lsm.put_for_test(b"1", format!("v{}", i).as_bytes()).await?;
+            } else {
+                lsm.delete_for_test(b"1").await?;
+            }
+            if i % 2 == 1 {
+                lsm.put_for_test(b"2", format!("v{}", i).as_bytes()).await?;
+            } else {
+                lsm.delete_for_test(b"2").await?;
+            }
+            let guard = lsm.state.state_lock.lock().await;
+            lsm.state.force_freeze_memtable(&guard);
+        }
+        Ok(())
     }
 }
