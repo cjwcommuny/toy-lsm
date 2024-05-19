@@ -1,4 +1,5 @@
 use derive_new::new;
+use std::future::Future;
 use std::io::Error;
 use std::pin::{pin, Pin};
 use std::task::{Context, Poll};
@@ -45,4 +46,9 @@ impl AsyncRead for WalFile {
     }
 }
 
-impl WalHandle for WalFile {}
+impl WalHandle for WalFile {
+    async fn sync_all(&self) -> anyhow::Result<()> {
+        self.0.get_ref().sync_all().await?;
+        Ok(())
+    }
+}

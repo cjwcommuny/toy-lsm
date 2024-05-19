@@ -12,6 +12,7 @@ use crate::block::{BlockBuilder, BlockCache};
 use crate::key::{KeySlice, KeyVec};
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::file_object::FileObject;
+use crate::persistent::interface::WalHandle;
 use crate::persistent::{LocalFs, Persistent};
 use crate::sst::bloom::Bloom;
 use crate::sst::{BlockMeta, SsTable};
@@ -141,7 +142,7 @@ impl SsTableBuilder {
         self.data.len() == 0 && self.builder.is_empty()
     }
 
-    pub fn flush(&mut self, memtable: &ImmutableMemTable) {
+    pub fn flush<W: WalHandle>(&mut self, memtable: &ImmutableMemTable<W>) {
         for entry in memtable.iter() {
             self.add(
                 KeySlice::from_slice(entry.key().as_bytes()),

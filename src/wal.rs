@@ -1,7 +1,10 @@
+use std::future::Future;
 use std::io::Cursor;
+use std::ops::DerefMut;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
 use anyhow::Result;
 use bytes::{Buf, Bytes};
@@ -14,7 +17,7 @@ pub struct Wal<File> {
     file: Arc<Mutex<File>>,
 }
 
-impl<File> Wal<File> {
+impl<File: WalHandle> Wal<File> {
     pub async fn create<P: Persistent<WalHandle = File>>(
         id: usize,
         persistent: &P,
@@ -46,25 +49,29 @@ impl<File> Wal<File> {
             map.insert(key, value);
         }
         let wal = Wal {
-            file: Arc::new(Mutex::new(BufWriter::new(file))),
+            file: Arc::new(Mutex::new(file)),
         };
         Ok((wal, map))
     }
 
-    pub async fn put<'a>(&'a self, key: &'a [u8], value: &'a [u8]) -> Result<()> {
+    pub async fn put<'a>(
+        &'a self,
+        key: &'a [u8],
+        value: &'a [u8],
+    ) -> Result<()> {
         let mut guard = self.file.lock().await;
         guard.write_u32(key.len() as u32).await?;
         guard.write_all(key).await?;
         guard.write_u32(value.len() as u32).await?;
         guard.write_all(value).await?;
         guard.flush().await?;
-        guard.get_mut().sync_all().await?;
+        guard.sync_all().await?;
         Ok(())
     }
 
     pub async fn sync(&self) -> Result<()> {
         let mut guard = self.file.lock().await;
-        guard.get_mut().sync_all().await?;
+        guard.sync_all().await?;
         Ok(())
     }
 }

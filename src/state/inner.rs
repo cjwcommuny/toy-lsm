@@ -13,8 +13,8 @@ use crate::sst::{SsTable, SstOptions, Sstables};
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {
-    pub(crate) memtable: Arc<MemTable>,
-    pub(crate) imm_memtables: Vec<Arc<ImmutableMemTable>>,
+    pub(crate) memtable: Arc<MemTable<P::WalHandle>>,
+    pub(crate) imm_memtables: Vec<Arc<ImmutableMemTable<P::WalHandle>>>,
     pub(crate) sstables_state: Arc<Sstables<P::SstHandle>>,
 }
 

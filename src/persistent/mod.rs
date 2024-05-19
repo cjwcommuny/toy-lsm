@@ -1,5 +1,5 @@
 pub mod file_object;
-mod interface;
+pub mod interface;
 pub mod wal_handle;
 
 pub use file_object::LocalFs;

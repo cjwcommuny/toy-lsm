@@ -21,6 +21,7 @@ use ref_cast::RefCast;
 use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
 use crate::memtable::mutable;
+use crate::persistent::interface::WalHandle;
 use crate::state::Map;
 
 use crate::wal::Wal;
@@ -62,15 +63,7 @@ impl<W> MemTable<W> {
         Self::new(id, SkipMap::new(), None)
     }
 
-    pub fn into_imm(self: Arc<Self>) -> Arc<ImmutableMemTable> {
-        TransparentWrapperAlloc::wrap_arc(self)
-    }
-
-    pub fn as_immutable_ref(&self) -> &ImmutableMemTable {
-        ImmutableMemTable::ref_cast(self)
-    }
-
-    pub fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal>>) -> Self {
+    pub fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
         Self {
             map,
             wal: wal.into(),
@@ -79,6 +72,16 @@ impl<W> MemTable<W> {
         }
     }
 
+    pub fn into_imm(self: Arc<Self>) -> Arc<ImmutableMemTable<W>> {
+        TransparentWrapperAlloc::wrap_arc(self)
+    }
+
+    pub fn as_immutable_ref(&self) -> &ImmutableMemTable<W> {
+        ImmutableMemTable::ref_cast(self)
+    }
+}
+
+impl<W: WalHandle> MemTable<W> {
     /// Create a new mem-table with WAL
     pub async fn create_with_wal(id: usize, path: impl AsRef<Path>) -> Result<Self> {
         // let path = build_path(path, id);
@@ -144,7 +147,7 @@ fn build_path(dir: impl AsRef<Path>, id: usize) -> PathBuf {
 }
 
 #[cfg(test)]
-impl MemTable {
+impl<W: WalHandle> MemTable<W> {
     pub async fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
             .await
@@ -163,7 +166,7 @@ impl MemTable {
     }
 }
 
-impl MemTable {
+impl<W> MemTable<W> {
     pub fn approximate_size(&self) -> usize {
         self.approximate_size.load(Ordering::Relaxed)
     }
@@ -180,10 +183,11 @@ impl MemTable {
 #[cfg(test)]
 mod test {
     use crate::memtable::mutable::MemTable;
+    use crate::persistent::wal_handle::WalFile;
 
     #[tokio::test]
     async fn test_task1_memtable_get() {
-        let memtable = MemTable::create(0);
+        let memtable: MemTable<WalFile> = MemTable::create(0);
         memtable
             .for_testing_put_slice(b"key1", b"value1")
             .await
@@ -212,7 +216,7 @@ mod test {
 
     #[tokio::test]
     async fn test_task1_memtable_overwrite() {
-        let memtable = MemTable::create(0);
+        let memtable: MemTable<WalFile> = MemTable::create(0);
         memtable
             .for_testing_put_slice(b"key1", b"value1")
             .await

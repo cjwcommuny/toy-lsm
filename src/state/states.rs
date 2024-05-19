@@ -163,7 +163,7 @@ where
         }
     }
 
-    fn exceed_memtable_size_limit(&self, memtable: &impl Deref<Target = MemTable>) -> bool {
+    fn exceed_memtable_size_limit<W>(&self, memtable: &impl Deref<Target = MemTable<W>>) -> bool {
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
