@@ -88,7 +88,6 @@ async fn get_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use crossbeam_skiplist::map::Entry;
     use tempfile::tempdir;
 
     use crate::persistent::LocalFs;
@@ -108,7 +107,7 @@ mod tests {
             wal.put("4".as_bytes(), "".as_bytes()).await.unwrap();
             wal.sync().await.unwrap();
         }
-        
+
         {
             let (wal, map) = Wal::recover(id, &persistent).await.unwrap();
 
