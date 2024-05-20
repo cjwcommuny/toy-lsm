@@ -16,20 +16,20 @@ pub struct Manifest<File> {
     file: Arc<Mutex<File>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum ManifestRecord {
     Flush(Flush),
     NewMemtable(NewMemtable),
     Compaction(Compaction),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Flush(pub(crate) usize);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct NewMemtable(pub(crate) usize);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Compaction(pub(crate) CompactionTask, pub(crate) Vec<usize>);
 
 impl<File: ManifestHandle> Manifest<File> {
@@ -79,6 +79,49 @@ impl<File: ManifestHandle> Manifest<File> {
 
 #[cfg(test)]
 mod tests {
+    use crate::manifest::{Compaction, Flush, Manifest, ManifestRecord, NewMemtable};
+    use crate::persistent::LocalFs;
+    use crate::sst::compact::common::CompactionTask;
+    use tempfile::tempdir;
+
     #[tokio::test]
-    async fn test_manifest() {}
+    async fn test_manifest() {
+        use ManifestRecord as R;
+
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+
+        {
+            let manifest = Manifest::create(&persistent).await.unwrap();
+
+            let record = Compaction(CompactionTask::new(1, 2, 3), vec![1, 2, 3]);
+            manifest
+                .add_record_when_init(R::Compaction(record))
+                .await
+                .unwrap();
+            manifest
+                .add_record_when_init(R::Flush(Flush(100)))
+                .await
+                .unwrap();
+            manifest
+                .add_record_when_init(R::NewMemtable(NewMemtable(2000)))
+                .await
+                .unwrap();
+        }
+
+        {
+            let (manifest, records) = Manifest::recover(&persistent).await.unwrap();
+
+            let record = Compaction(CompactionTask::new(1, 2, 3), vec![1, 2, 3]);
+
+            assert_eq!(
+                records,
+                vec![
+                    R::Compaction(record),
+                    R::Flush(Flush(100)),
+                    R::NewMemtable(NewMemtable(2000))
+                ]
+            );
+        }
+    }
 }

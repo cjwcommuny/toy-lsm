@@ -18,7 +18,7 @@ use crate::persistent::{Persistent, SstHandle};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
-#[derive(Serialize, Deserialize, new, CopyGetters)]
+#[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
 #[getset(get_copy = "pub")]
 pub struct CompactionTask {
     source: usize,

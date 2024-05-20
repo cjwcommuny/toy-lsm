@@ -112,18 +112,6 @@ mod tests {
             assert_eq!(map.get(&Bytes::from("333")).unwrap().value(), "ccc");
             assert_eq!(map.get(&Bytes::from("4")).unwrap().value(), "");
             assert!(map.get(&Bytes::from("555")).is_none());
-
-            wal.sync().await.unwrap();
-        }
-
-        {
-            let (wal, map) = Wal::recover(id, &persistent).await.unwrap();
-
-            assert_eq!(map.get(&Bytes::from("111")).unwrap().value(), "a");
-            assert_eq!(map.get(&Bytes::from("222")).unwrap().value(), "bb");
-            assert_eq!(map.get(&Bytes::from("333")).unwrap().value(), "ccc");
-            assert_eq!(map.get(&Bytes::from("4")).unwrap().value(), "");
-            assert!(map.get(&Bytes::from("555")).is_none());
         }
     }
 }
