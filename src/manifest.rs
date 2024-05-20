@@ -1,17 +1,18 @@
-use std::fs::{File, OpenOptions};
 use std::future::Future;
 use std::io::{Read, Write};
-use std::path::Path;
 use std::sync::Arc;
 
+use crate::persistent::interface::ManifestHandle;
 use anyhow::Result;
-use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::Deserializer;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{Mutex, MutexGuard};
 
+use crate::persistent::Persistent;
 use crate::sst::compact::common::CompactionTask;
 
-pub struct Manifest {
+pub struct Manifest<File> {
     file: Arc<Mutex<File>>,
 }
 
@@ -31,23 +32,22 @@ pub struct NewMemtable(pub(crate) usize);
 #[derive(Serialize, Deserialize)]
 pub struct Compaction(pub(crate) CompactionTask, pub(crate) Vec<usize>);
 
-impl Manifest {
-    pub async fn create(path: impl AsRef<Path> + Send + 'static) -> Result<Self> {
-        let file = tokio::spawn(async { OpenOptions::new().append(true).create(true).open(path) })
-            .await??;
+impl<File: ManifestHandle> Manifest<File> {
+    pub async fn create<P: Persistent<ManifestHandle = File>>(persistent: &P) -> Result<Self> {
+        let file = persistent.open_manifest().await?;
         let file = Arc::new(Mutex::new(file));
         let manifest = Manifest { file };
         Ok(manifest)
     }
 
-    pub async fn recover(
-        path: impl AsRef<Path> + Send + 'static,
+    pub async fn recover<P: Persistent<ManifestHandle = File>>(
+        persistent: &P,
     ) -> Result<(Self, Vec<ManifestRecord>)> {
-        let manifest = Self::create(path).await?;
+        let manifest = Self::create(persistent).await?;
         let records = {
-            let mut guard = manifest.file.lock();
+            let mut guard = manifest.file.lock().await;
             let mut buffer = Vec::new();
-            guard.read_to_end(&mut buffer)?;
+            guard.read_to_end(&mut buffer).await?;
             let de = Deserializer::from_slice(&buffer);
             de.into_iter().collect::<std::result::Result<_, _>>()?
         };
@@ -70,8 +70,8 @@ impl Manifest {
         async move {
             // todo: use a buffer
             let data = serde_json::to_vec(&record)?;
-            let mut guard = file.lock();
-            guard.write_all(&data)?;
+            let mut guard = file.lock().await;
+            guard.write_all(&data).await?;
             Ok(())
         }
     }
@@ -80,7 +80,5 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     #[tokio::test]
-    async fn test_manifest() {
-        
-    }
+    async fn test_manifest() {}
 }

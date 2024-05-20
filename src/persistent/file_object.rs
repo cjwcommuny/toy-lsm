@@ -14,6 +14,7 @@ use tokio::task::spawn_blocking;
 use tracing::Instrument;
 
 use crate::persistent::interface::WalHandle;
+use crate::persistent::manifest_handle::ManifestFile;
 use crate::persistent::wal_handle::WalFile;
 use crate::persistent::{Persistent, SstHandle};
 
@@ -30,11 +31,16 @@ impl LocalFs {
     fn build_wal_path(&self, id: usize) -> PathBuf {
         self.dir.join(format!("{}.wal", id))
     }
+
+    fn build_manifest_path(&self) -> PathBuf {
+        self.dir.join("MANIFEST")
+    }
 }
 
 impl Persistent for LocalFs {
     type SstHandle = FileObject;
     type WalHandle = WalFile;
+    type ManifestHandle = ManifestFile;
 
     /// Create a new file object (day 2) and write the file to the disk (day 4).
     async fn create_sst(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::SstHandle> {
@@ -74,6 +80,18 @@ impl Persistent for LocalFs {
             .await?;
         let wal = WalFile::new(BufWriter::new(file));
         Ok(wal)
+    }
+
+    async fn open_manifest(&self) -> anyhow::Result<Self::ManifestHandle> {
+        let path = self.build_manifest_path();
+        let file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(path)
+            .await?;
+        let manifest = ManifestFile::new(BufWriter::new(file));
+        Ok(manifest)
     }
 }
 

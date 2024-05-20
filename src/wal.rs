@@ -54,11 +54,7 @@ impl<File: WalHandle> Wal<File> {
         Ok((wal, map))
     }
 
-    pub async fn put<'a>(
-        &'a self,
-        key: &'a [u8],
-        value: &'a [u8],
-    ) -> anyhow::Result<()> {
+    pub async fn put<'a>(&'a self, key: &'a [u8], value: &'a [u8]) -> anyhow::Result<()> {
         let mut guard = self.file.lock().await;
         guard.write_u32(key.len() as u32).await?;
         guard.write_all(key).await?;

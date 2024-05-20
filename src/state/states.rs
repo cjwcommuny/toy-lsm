@@ -69,12 +69,8 @@ where
         }
     }
 
-    pub async fn recover(
-        options: SstOptions,
-        persistent: P,
-        manifest_path: impl AsRef<Path> + Send + 'static,
-    ) -> anyhow::Result<Self> {
-        let (manifest, manifest_records) = Manifest::recover(manifest_path).await?;
+    pub async fn recover(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
+        let (manifest, manifest_records) = Manifest::recover(&persistent).await?;
         let block_cache = Arc::new(BlockCache::new(1024));
         let (inner, next_sst_id) = LsmStorageStateInner::recover(
             &options,
