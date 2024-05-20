@@ -69,6 +69,7 @@ impl Persistent for LocalFs {
         let file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
+            .read(true)
             .open(path)
             .await?;
         let wal = WalFile::new(BufWriter::new(file));
