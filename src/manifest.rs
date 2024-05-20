@@ -72,6 +72,8 @@ impl<File: ManifestHandle> Manifest<File> {
             let data = serde_json::to_vec(&record)?;
             let mut guard = file.lock().await;
             guard.write_all(&data).await?;
+            guard.flush().await?;
+            guard.sync_all().await?;
             Ok(())
         }
     }

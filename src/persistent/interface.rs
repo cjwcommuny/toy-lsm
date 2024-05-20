@@ -44,4 +44,6 @@ pub trait WalHandle: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static {
     fn sync_all(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
-pub trait ManifestHandle: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static {}
+pub trait ManifestHandle: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static {
+    fn sync_all(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
+}
