@@ -93,11 +93,32 @@ async fn force_compact_level<P: Persistent>(
         .copied()
         .enumerate()
         .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id));
-    let Some((source_index, source_id)) = source_index_and_id else {
+    let Some((source_index, _)) = source_index_and_id else {
         return Ok(());
     };
 
+    // todo: persistent manifest
+    // todo: flush manifest in drop
+    let task = CompactionTask::new(source, source_index, destination);
+
+    compact_with_task(sstables, next_sst_id, options, persistent, task).await?;
+
+    Ok(())
+}
+
+async fn compact_with_task<P: Persistent>(
+    sstables: &mut Sstables<P::SstHandle>,
+    next_sst_id: impl Fn() -> usize + Send + Sync,
+    options: &SstOptions,
+    persistent: &P,
+    task: CompactionTask
+) -> anyhow::Result<()> {
+    let source = task.source();
+    let source_index = task.source_index();
+    let source_id = *sstables.table_ids(source).get(source_index).unwrap();
     let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+    let destination = task.destination();
+
     let new_sst = compact_generate_new_sst(
         iter::once(source_level),
         sstables.tables(destination),
@@ -105,10 +126,7 @@ async fn force_compact_level<P: Persistent>(
         options,
         persistent,
     )
-    .await?;
-    // todo: persistent manifest
-    // todo: flush manifest in drop
-    let task = CompactionTask::new(source, source_index, destination);
+        .await?;
 
     apply_compaction(
         sstables,
