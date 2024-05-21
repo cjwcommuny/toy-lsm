@@ -49,8 +49,8 @@ pub async fn compact_with_task<P: Persistent>(
     next_sst_id: impl Fn() -> usize + Send + Sync,
     options: &SstOptions,
     persistent: &P,
-    task: CompactionTask,
-) -> anyhow::Result<()> {
+    task: &CompactionTask,
+) -> anyhow::Result<Vec<usize>> {
     let source = task.source();
     let source_index = task.source_index();
     let source_id = *sstables.table_ids(source).get(source_index).unwrap();
@@ -66,6 +66,8 @@ pub async fn compact_with_task<P: Persistent>(
     )
     .await?;
 
+    let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
+
     apply_compaction(
         sstables,
         source_index..source_index + 1,
@@ -74,7 +76,7 @@ pub async fn compact_with_task<P: Persistent>(
         new_sst,
     );
 
-    Ok(())
+    Ok(new_sst_ids)
 }
 
 fn select_level_source(

@@ -16,7 +16,7 @@ use tokio::sync::{Mutex, MutexGuard};
 
 use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
-use crate::manifest::Manifest;
+use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::persistent::Persistent;
 use crate::sst::compact::leveled::{compact_with_task, generate_task};
@@ -198,14 +198,20 @@ where
             let mut new = Clone::clone(cur.as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
 
-            compact_with_task(
+            let new_sst_ids = compact_with_task(
                 &mut new_sstables,
                 || self.next_sst_id(),
                 self.options(),
                 self.persistent(),
-                task,
+                &task,
             )
             .await?;
+
+            {
+                let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
+                self.manifest.add_record(guard, record).await?;
+            }
+            
             new.sstables_state = Arc::new(new_sstables);
             new
         };
