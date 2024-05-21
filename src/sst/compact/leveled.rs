@@ -3,9 +3,11 @@ use std::future::{ready, Future};
 use std::iter;
 use std::sync::Arc;
 
+use crate::manifest::Manifest;
 use derive_new::new;
 use getset::CopyGetters;
 use ordered_float::NotNan;
+use tokio::sync::MutexGuard;
 use tracing::{info, trace};
 use typed_builder::TypedBuilder;
 
@@ -42,76 +44,12 @@ impl LeveledCompactionOptions {
     }
 }
 
-pub async fn force_compaction<P: Persistent>(
+pub async fn compact_with_task<P: Persistent>(
     sstables: &mut Sstables<P::SstHandle>,
     next_sst_id: impl Fn() -> usize + Send + Sync,
     options: &SstOptions,
     persistent: &P,
-) -> anyhow::Result<()> {
-    let Leveled(compact_options) = options.compaction_option() else {
-        trace!("skip force compaction");
-        return Ok(());
-    };
-
-    let level_sizes = compute_level_sizes(sstables);
-    let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
-    // println!("level_sizes={:?}, target_sizes={:?}", level_sizes, target_sizes);
-
-    // todo: only select one source sst
-    let Some(source) = select_level_source(
-        &level_sizes,
-        &target_sizes,
-        compact_options.max_bytes_for_level_base(),
-    ) else {
-        return Ok(());
-    };
-    let destination = select_level_destination(compact_options, source, &target_sizes);
-
-    force_compact_level(
-        sstables,
-        next_sst_id,
-        options,
-        persistent,
-        source,
-        destination,
-    )
-    .await
-}
-
-async fn force_compact_level<P: Persistent>(
-    sstables: &mut Sstables<<P as Persistent>::SstHandle>,
-    next_sst_id: impl Fn() -> usize + Send + Sync,
-    options: &SstOptions,
-    persistent: &P,
-    source: usize,
-    destination: usize,
-) -> anyhow::Result<()> {
-    // select the oldest sst
-    let source_index_and_id = sstables
-        .table_ids(source)
-        .iter()
-        .copied()
-        .enumerate()
-        .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id));
-    let Some((source_index, _)) = source_index_and_id else {
-        return Ok(());
-    };
-
-    // todo: persistent manifest
-    // todo: flush manifest in drop
-    let task = CompactionTask::new(source, source_index, destination);
-
-    compact_with_task(sstables, next_sst_id, options, persistent, task).await?;
-
-    Ok(())
-}
-
-async fn compact_with_task<P: Persistent>(
-    sstables: &mut Sstables<P::SstHandle>,
-    next_sst_id: impl Fn() -> usize + Send + Sync,
-    options: &SstOptions,
-    persistent: &P,
-    task: CompactionTask
+    task: CompactionTask,
 ) -> anyhow::Result<()> {
     let source = task.source();
     let source_index = task.source_index();
@@ -126,7 +64,7 @@ async fn compact_with_task<P: Persistent>(
         options,
         persistent,
     )
-        .await?;
+    .await?;
 
     apply_compaction(
         sstables,
@@ -217,6 +155,38 @@ fn compute_target_sizes(last_level_size: u64, options: &LeveledCompactionOptions
     target_sizes
 }
 
+pub fn generate_task<File: SstHandle>(
+    sstables: &Sstables<File>,
+    options: &SstOptions,
+) -> Option<CompactionTask> {
+    let Leveled(compact_options) = options.compaction_option() else {
+        trace!("skip force compaction");
+        return None;
+    };
+
+    let level_sizes = compute_level_sizes(sstables);
+    let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
+
+    // todo: only select one source sst
+    let source = select_level_source(
+        &level_sizes,
+        &target_sizes,
+        compact_options.max_bytes_for_level_base(),
+    )?;
+    let destination = select_level_destination(compact_options, source, &target_sizes);
+
+    let (source_index, _) = sstables
+        .table_ids(source)
+        .iter()
+        .copied()
+        .enumerate()
+        .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id))?;
+
+    let task = CompactionTask::new(source, source_index, destination);
+
+    Some(task)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
@@ -228,7 +198,7 @@ mod tests {
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
     use crate::sst::compact::leveled::{
-        force_compact_level, force_compaction, select_level_destination, select_level_source,
+        select_level_destination, select_level_source,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
@@ -375,7 +345,7 @@ mod tests {
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
             .build();
-        let mut state = LsmStorageState::new(options, persistent);
+        let mut state = LsmStorageState::new(options, persistent).await?;
         let next_sst_id = AtomicUsize::default();
         let state_lock = Mutex::default();
 

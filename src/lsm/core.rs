@@ -28,17 +28,18 @@ pub struct Lsm<P: Persistent> {
 }
 
 impl<P: Persistent> Lsm<P> {
-    pub fn new(options: SstOptions, persistent: P) -> Self {
-        let state = Arc::new(LsmStorageState::new(options, persistent));
+    pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
+        let state = Arc::new(LsmStorageState::new(options, persistent).await?);
         let cancel_token = CancellationToken::new();
         let flush_handle = Self::spawn_flush(state.clone(), cancel_token.clone());
         let compaction_handle = Self::spawn_compaction(state.clone(), cancel_token.clone());
-        Self {
+        let this = Self {
             state,
             cancel_token,
             flush_handle: Some(flush_handle),
             compaction_handle: Some(compaction_handle),
-        }
+        };
+        Ok(this)
     }
 
     pub async fn sync(&self) -> anyhow::Result<()> {
@@ -161,7 +162,7 @@ mod tests {
     #[tokio::test]
     async fn test_task2_auto_flush() {
         let dir = tempdir().unwrap();
-        let storage = build_lsm(&dir);
+        let storage = build_lsm(&dir).await.unwrap();
 
         let value = "1".repeat(1024); // 1KB
 
@@ -182,7 +183,7 @@ mod tests {
             .is_empty());
     }
 
-    fn build_lsm(dir: &TempDir) -> Lsm<impl Persistent> {
+    async fn build_lsm(dir: &TempDir) -> anyhow::Result<Lsm<impl Persistent>> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
             .target_sst_size(1024)
@@ -191,7 +192,7 @@ mod tests {
             .compaction_option(Default::default())
             .enable_wal(false)
             .build();
-        Lsm::new(options, persistent)
+        Lsm::new(options, persistent).await
     }
 
     #[tokio::test]
@@ -210,7 +211,7 @@ mod tests {
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
             .build();
-        let lsm = Lsm::new(options, persistent);
+        let lsm = Lsm::new(options, persistent).await.unwrap();
         for i in 0..10 {
             let begin = i * 100;
             insert_sst(&lsm, begin..begin + 100).await.unwrap();
@@ -246,7 +247,7 @@ mod tests {
             .build();
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
-        let lsm = Lsm::new(options.clone(), persistent);
+        let lsm = Lsm::new(options.clone(), persistent).await.unwrap();
         add_data(&lsm).await.unwrap();
         sleep(Duration::from_secs(2)).await;
 

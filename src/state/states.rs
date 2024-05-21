@@ -19,7 +19,7 @@ use crate::iterators::LockedLsmIter;
 use crate::manifest::Manifest;
 use crate::memtable::MemTable;
 use crate::persistent::Persistent;
-use crate::sst::compact::leveled::force_compaction;
+use crate::sst::compact::leveled::{compact_with_task, generate_task};
 use crate::sst::{SsTableBuilder, SstOptions, Sstables};
 use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
@@ -29,6 +29,7 @@ use crate::utils::vec::pop;
 pub struct LsmStorageState<P: Persistent> {
     pub(crate) inner: ArcSwap<LsmStorageStateInner<P>>,
     block_cache: Arc<BlockCache>,
+    manifest: Manifest<P::ManifestHandle>,
     pub(crate) state_lock: Mutex<()>,
     pub(crate) persistent: P,
     pub(crate) options: SstOptions,
@@ -53,23 +54,7 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    pub fn new(options: SstOptions, persistent: P) -> Self {
-        let snapshot = LsmStorageStateInner::builder()
-            .memtable(Arc::new(MemTable::create(0)))
-            .imm_memtables(Vec::new())
-            .sstables_state(Arc::new(Sstables::new(&options)))
-            .build();
-        Self {
-            inner: ArcSwap::new(Arc::new(snapshot)),
-            block_cache: Arc::new(BlockCache::new(1024)),
-            state_lock: Mutex::default(),
-            persistent,
-            options,
-            sst_id: AtomicUsize::new(1),
-        }
-    }
-
-    pub async fn recover(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
+    pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
         let (manifest, manifest_records) = Manifest::recover(&persistent).await?;
         let block_cache = Arc::new(BlockCache::new(1024));
         let (inner, next_sst_id) = LsmStorageStateInner::recover(
@@ -78,12 +63,14 @@ where
             &persistent,
             Some(block_cache.clone()),
         )
-        .await?;
+            .await?;
         let sst_id = AtomicUsize::new(next_sst_id);
+        
         let this = Self {
             inner: ArcSwap::new(Arc::new(inner)),
-            block_cache,
-            state_lock: Default::default(),
+            block_cache: Arc::new(BlockCache::new(1024)),
+            manifest,
+            state_lock: Mutex::default(),
             persistent,
             options,
             sst_id,
@@ -201,16 +188,22 @@ where
         Ok(())
     }
 
-    pub async fn force_compact(&self, _guard: &MutexGuard<'_, ()>) -> anyhow::Result<()> {
+    pub async fn force_compact(&self, guard: &MutexGuard<'_, ()>) -> anyhow::Result<()> {
+        let cur = self.inner.load();
+        let Some(task) = generate_task(cur.sstables_state.as_ref(), self.options()) else {
+            return Ok(());
+        };
+
         let new = {
-            let cur = self.inner.load();
             let mut new = Clone::clone(cur.as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
-            force_compaction(
+
+            compact_with_task(
                 &mut new_sstables,
                 || self.next_sst_id(),
                 self.options(),
                 self.persistent(),
+                task,
             )
             .await?;
             new.sstables_state = Arc::new(new_sstables);
@@ -320,7 +313,7 @@ mod test {
     #[tokio::test]
     async fn test_task2_storage_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
 
         assert_eq!(None, storage.get_for_test(b"0").await.unwrap());
 
@@ -350,7 +343,7 @@ mod test {
     #[tokio::test]
     async fn test_task3_storage_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
 
         assert_eq!(storage.inner.load().imm_memtables().len(), 0);
 
@@ -389,7 +382,7 @@ mod test {
     #[tokio::test]
     async fn test_task3_freeze_on_capacity() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         for _ in 0..1000 {
             storage.put_for_test(b"1", b"2333").await.unwrap();
         }
@@ -408,7 +401,7 @@ mod test {
     #[tokio::test]
     async fn test_task4_storage_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
 
         assert_eq!(&storage.get_for_test(b"0").await.unwrap(), &None);
         storage.put_for_test(b"1", b"233").await.unwrap();
@@ -451,7 +444,7 @@ mod test {
     #[tokio::test]
     async fn test_task4_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         storage.put_for_test(b"1", b"233").await.unwrap();
         storage.put_for_test(b"2", b"2333").await.unwrap();
         storage.put_for_test(b"3", b"23333").await.unwrap();
@@ -506,7 +499,7 @@ mod test {
         //     .with_level(false)
         //     .init();
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         storage.put_for_test(b"0", b"2333333").await.unwrap();
         storage.put_for_test(b"00", b"2333333").await.unwrap();
         storage.put_for_test(b"4", b"23").await.unwrap();
@@ -598,7 +591,7 @@ mod test {
     #[tokio::test]
     async fn test_task1_storage_get() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         storage.put_for_test(b"0", b"2333333").await.unwrap();
         storage.put_for_test(b"00", b"2333333").await.unwrap();
         storage.put_for_test(b"4", b"23").await.unwrap();
@@ -723,7 +716,7 @@ mod test {
         assert_eq!(storage.get_for_test(b"555").await.unwrap(), None);
     }
 
-    fn build_storage(dir: &TempDir) -> LsmStorageState<impl Persistent> {
+    async fn build_storage(dir: &TempDir) -> anyhow::Result<LsmStorageState<impl Persistent>> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
             .target_sst_size(1024)
@@ -732,6 +725,6 @@ mod test {
             .compaction_option(Default::default())
             .enable_wal(false)
             .build();
-        LsmStorageState::new(options, persistent)
+        LsmStorageState::new(options, persistent).await
     }
 }
