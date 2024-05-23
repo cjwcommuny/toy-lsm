@@ -86,7 +86,7 @@ impl Persistent for LocalFs {
         let path = self.build_manifest_path();
         let file = tokio::fs::OpenOptions::new()
             .create(true)
-            .truncate(true)
+            .truncate(false)
             .write(true)
             .read(true)
             .open(path)
