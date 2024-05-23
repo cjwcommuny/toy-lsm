@@ -19,7 +19,7 @@ use crate::iterators::LockedLsmIter;
 use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::persistent::Persistent;
-use crate::sst::compact::leveled::{compact_with_task, generate_task};
+use crate::sst::compact::leveled::{compact_with_task, force_compact, generate_task};
 use crate::sst::{SsTableBuilder, SstOptions, Sstables};
 use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
@@ -63,9 +63,9 @@ where
             &persistent,
             Some(block_cache.clone()),
         )
-            .await?;
+        .await?;
         let sst_id = AtomicUsize::new(next_sst_id);
-        
+
         let this = Self {
             inner: ArcSwap::new(Arc::new(inner)),
             block_cache: Arc::new(BlockCache::new(1024)),
@@ -188,30 +188,20 @@ where
         Ok(())
     }
 
-    pub async fn force_compact(&self, guard: &MutexGuard<'_, ()>) -> anyhow::Result<()> {
-        let cur = self.inner.load();
-        let Some(task) = generate_task(cur.sstables_state.as_ref(), self.options()) else {
-            return Ok(());
-        };
-
+    pub async fn force_compact(&self, _guard: &MutexGuard<'_, ()>) -> anyhow::Result<()> {
         let new = {
-            let mut new = Clone::clone(cur.as_ref());
+            let mut new = Clone::clone(self.inner.load().as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
 
-            let new_sst_ids = compact_with_task(
+            force_compact(
                 &mut new_sstables,
                 || self.next_sst_id(),
                 self.options(),
                 self.persistent(),
-                &task,
+                Some(&self.manifest),
             )
             .await?;
 
-            {
-                let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
-                self.manifest.add_record(guard, record).await?;
-            }
-            
             new.sstables_state = Arc::new(new_sstables);
             new
         };

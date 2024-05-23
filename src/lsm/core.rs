@@ -261,7 +261,7 @@ mod tests {
 
         {
             let persistent = LocalFs::new(dir.path().to_path_buf());
-            let lsm = Lsm::new(options, persistent);
+            let lsm = Lsm::new(options, persistent).await.unwrap();
             assert_eq!(
                 &lsm.get(b"key-0").await.unwrap().unwrap()[..],
                 b"value-1024".as_slice()

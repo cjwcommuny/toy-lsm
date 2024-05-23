@@ -61,8 +61,10 @@ fn ycsb_bench(c: &mut Criterion) {
         .compaction_option(Default::default())
         .enable_wal(false)
         .build();
-    let database = LsmStorageStateBench(Arc::new(LsmStorageState::new(options, persistent)));
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let state =
+        runtime.block_on(async { LsmStorageState::new(options, persistent).await.unwrap() });
+    let database = LsmStorageStateBench(Arc::new(state));
     let props = Properties {
         operation_count: 1000,
         record_count: 1000,

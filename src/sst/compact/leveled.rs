@@ -3,7 +3,7 @@ use std::future::{ready, Future};
 use std::iter;
 use std::sync::Arc;
 
-use crate::manifest::Manifest;
+use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use derive_new::new;
 use getset::CopyGetters;
 use ordered_float::NotNan;
@@ -42,6 +42,27 @@ impl LeveledCompactionOptions {
         last_level_size
             / (power_of_2(self.level_size_multiplier_2_exponent * (last_level - current_level)))
     }
+}
+
+pub async fn force_compact<P: Persistent>(
+    sstables: &mut Sstables<P::SstHandle>,
+    next_sst_id: impl Fn() -> usize + Send + Sync,
+    options: &SstOptions,
+    persistent: &P,
+    manifest: Option<&Manifest<P::ManifestHandle>>,
+) -> anyhow::Result<()> {
+    let Some(task) = generate_task(sstables, options) else {
+        return Ok(());
+    };
+
+    let new_sst_ids = compact_with_task(sstables, next_sst_id, options, persistent, &task).await?;
+
+    if let Some(manifest) = manifest {
+        let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
+        manifest.add_record(record).await?;
+    }
+
+    Ok(())
 }
 
 pub async fn compact_with_task<P: Persistent>(
@@ -199,8 +220,9 @@ mod tests {
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
+    use crate::sst::compact::common::CompactionTask;
     use crate::sst::compact::leveled::{
-        select_level_destination, select_level_source,
+        compact_with_task, force_compact, select_level_destination, select_level_source,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
@@ -251,13 +273,12 @@ mod tests {
             assert_eq!(sstables.sstables.len(), 5);
         }
 
-        force_compact_level(
+        compact_with_task(
             &mut sstables,
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            0,
-            1,
+            &CompactionTask::new(0, 4, 1),
         )
         .await
         .unwrap();
@@ -268,13 +289,12 @@ mod tests {
             assert_eq!(sstables.sstables.len(), 6);
         }
 
-        force_compact_level(
+        compact_with_task(
             &mut sstables,
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            0,
-            1,
+            &CompactionTask::new(0, 3, 1),
         )
         .await
         .unwrap();
@@ -285,13 +305,12 @@ mod tests {
             assert_eq!(sstables.sstables.len(), 6);
         }
 
-        force_compact_level(
+        compact_with_task(
             &mut sstables,
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            1,
-            2,
+            &CompactionTask::new(1, 0, 2),
         )
         .await
         .unwrap();
@@ -307,11 +326,12 @@ mod tests {
     async fn test_force_compaction() {
         let dir = tempdir().unwrap();
         let (state, mut sstables) = prepare_sstables(&dir).await;
-        force_compaction(
+        force_compact(
             &mut sstables,
             || state.next_sst_id(),
             &state.options,
             &state.persistent,
+            None,
         )
         .await
         .unwrap();
@@ -347,7 +367,7 @@ mod tests {
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
             .build();
-        let mut state = LsmStorageState::new(options, persistent).await?;
+        let mut state = LsmStorageState::new(options, persistent).await.unwrap();
         let next_sst_id = AtomicUsize::default();
         let state_lock = Mutex::default();
 

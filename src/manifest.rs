@@ -54,11 +54,7 @@ impl<File: ManifestHandle> Manifest<File> {
         Ok((manifest, records))
     }
 
-    pub fn add_record(
-        &self,
-        _state_lock_observer: &MutexGuard<()>,
-        record: ManifestRecord,
-    ) -> impl Future<Output = Result<()>> + Send {
+    pub fn add_record(&self, record: ManifestRecord) -> impl Future<Output = Result<()>> + Send {
         self.add_record_when_init(record)
     }
 
