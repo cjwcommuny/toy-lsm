@@ -3,13 +3,15 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use derive_getters::Getters;
+use futures::stream;
+use futures::stream::TryStreamExt;
 use typed_builder::TypedBuilder;
 
 use crate::block::BlockCache;
-use crate::manifest::ManifestRecord;
+use crate::manifest::{ManifestRecord, NewMemtable};
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
-use crate::sst::{SsTable, SstOptions, Sstables};
+use crate::sst::{SsTable, Sstables, SstOptions};
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {
@@ -26,19 +28,23 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         block_cache: Option<Arc<BlockCache>>,
     ) -> anyhow::Result<(Self, usize)> {
         let mut sstables_state =
-            manifest
-                .into_iter()
-                .fold(
-                    Sstables::new(options),
-                    |mut sstables, manifest| match manifest {
-                        ManifestRecord::Flush(record) => {
-                            sstables.fold_flush_manifest(record);
-                            sstables
-                        }
-                        ManifestRecord::NewMemtable(_) => unreachable!(),
-                        ManifestRecord::Compaction(record) => {
-                            sstables.fold_compaction_manifest(record);
-                            sstables
+            stream::iter(manifest)
+                .try_fold(
+                    (Vec::new(), Sstables::new(options)),
+                    |(mut imm_memtables, mut sstables), manifest| async {
+                        match manifest {
+                            ManifestRecord::Flush(record) => {
+                                sstables.fold_flush_manifest(record);
+                                Ok((imm_memtables, sstables))
+                            }
+                            ManifestRecord::NewMemtable(record) => {
+                                fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
+                                Ok((imm_memtables, sstables))
+                            }
+                            ManifestRecord::Compaction(record) => {
+                                sstables.fold_compaction_manifest(record);
+                                Ok((imm_memtables, sstables))
+                            }
                         }
                     },
                 );
@@ -80,4 +86,12 @@ impl<P: Persistent> Debug for LsmStorageStateInner<P> {
             .field("sstables_state", &self.sstables_state)
             .finish()
     }
+}
+
+async fn fold_new_imm_memtable<P: Persistent>(imm_memtables: &mut Vec<Arc<ImmutableMemTable<P::WalHandle>>>, persistent: &P, record: NewMemtable) -> anyhow::Result<()> {
+    let id = record.0;
+    let memtable = MemTable::recover_from_wal(id, persistent).await?;
+    let imm_memtable = Arc::new(memtable).into_imm();
+    imm_memtables.insert(0, imm_memtable);
+    Ok(())
 }

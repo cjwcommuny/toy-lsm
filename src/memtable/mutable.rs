@@ -2,28 +2,24 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use anyhow::Result;
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
-use crossbeam_skiplist::map::Range;
-use crossbeam_skiplist::{map, SkipMap};
+use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
 use nom::AsBytes;
-
-use crate::bound::{map_bound_own, BytesBound};
-use crate::entry::Entry;
-use crate::iterators::NonEmptyStream;
 use ref_cast::RefCast;
 
+use crate::bound::BytesBound;
+use crate::iterators::NonEmptyStream;
+use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
-use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
-use crate::memtable::mutable;
-use crate::persistent::interface::WalHandle;
+use crate::memtable::iterator::{MaybeEmptyMemTableIterRef, new_memtable_iter};
+use crate::persistent::interface::{ManifestHandle, WalHandle};
+use crate::persistent::Persistent;
 use crate::state::Map;
-
 use crate::wal::Wal;
 
 /// A basic mem-table based on crossbeam-skiplist.
@@ -59,8 +55,23 @@ impl<W> Debug for MemTable<W> {
 
 impl<W> MemTable<W> {
     /// Create a new mem-table.
+    #[cfg(test)]
     pub fn create(id: usize) -> Self {
         Self::new(id, SkipMap::new(), None)
+    }
+
+    pub async fn create_with_wal<ManifestFile: ManifestHandle>(
+        id: usize,
+        map: SkipMap<Bytes, Bytes>,
+        wal: impl Into<Option<Wal<W>>>,
+        manifest: impl Into<Option<&Manifest<ManifestFile>>>,
+    ) -> anyhow::Result<Self> {
+        if let Some(manifest) = manifest.into() {
+            let manifest_record = ManifestRecord::NewMemtable(NewMemtable(id));
+            manifest.add_record(manifest_record).await?;
+        }
+        let this = Self::new(id, map, wal);
+        Ok(this)
     }
 
     pub fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
@@ -82,22 +93,11 @@ impl<W> MemTable<W> {
 }
 
 impl<W: WalHandle> MemTable<W> {
-    /// Create a new mem-table with WAL
-    pub async fn create_with_wal(id: usize, path: impl AsRef<Path>) -> Result<Self> {
-        // let path = build_path(path, id);
-        // let wal = Wal::create(path).await?;
-        // let this = Self::new(id, SkipMap::new(), wal);
-        // Ok(this)
-        todo!()
-    }
-
     /// Create a memtable from WAL
-    pub async fn recover_from_wal(id: usize, path: impl AsRef<Path>) -> Result<Self> {
-        // let path = build_path(path, id);
-        // let (wal, map) = Wal::recover(path).await?;
-        // let this = Self::new(id, map, wal);
-        // Ok(this)
-        todo!()
+    pub async fn recover_from_wal<P: Persistent<WalHandle = W>>(id: usize, persistent: &P) -> anyhow::Result<Self> {
+        let (wal, map) = Wal::recover(id, persistent).await?;
+        let this = Self::create_with_wal(id, map, wal, None::<&Manifest<P::ManifestHandle>>).await?;
+        Ok(this)
     }
 
     /// Get a value by key.
@@ -109,7 +109,7 @@ impl<W: WalHandle> MemTable<W> {
     ///
     /// In week 1, day 1, simply put the key-value pair into the skipmap.
     /// In week 2, day 6, also flush the data to WAL.
-    pub async fn put(&self, key: Bytes, value: Bytes) -> Result<()> {
+    pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
         let size = key.len() + value.len();
         if let Some(wal) = self.wal.as_ref() {
             wal.put(key.as_bytes(), value.as_bytes()).await?
@@ -120,7 +120,7 @@ impl<W: WalHandle> MemTable<W> {
         Ok(())
     }
 
-    pub async fn sync_wal(&self) -> Result<()> {
+    pub async fn sync_wal(&self) -> anyhow::Result<()> {
         if let Some(ref wal) = self.wal {
             wal.sync().await?;
         }
@@ -132,7 +132,7 @@ impl<W: WalHandle> MemTable<W> {
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
         let iter = self.map.range(BytesBound {
             start: lower,
             end: upper,
@@ -148,7 +148,7 @@ fn build_path(dir: impl AsRef<Path>, id: usize) -> PathBuf {
 
 #[cfg(test)]
 impl<W: WalHandle> MemTable<W> {
-    pub async fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> Result<()> {
+    pub async fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
             .await
     }
@@ -161,7 +161,7 @@ impl<W: WalHandle> MemTable<W> {
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
         self.scan(lower, upper).await
     }
 }
