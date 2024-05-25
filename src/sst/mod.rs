@@ -4,7 +4,7 @@ pub mod builder;
 pub mod compact;
 pub mod iterator;
 mod option;
-mod sstables;
+pub mod sstables;
 mod tables;
 
 pub use block_meta::BlockMeta;

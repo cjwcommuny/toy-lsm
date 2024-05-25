@@ -2,8 +2,8 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
@@ -16,7 +16,7 @@ use crate::bound::BytesBound;
 use crate::iterators::NonEmptyStream;
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
-use crate::memtable::iterator::{MaybeEmptyMemTableIterRef, new_memtable_iter};
+use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
 use crate::persistent::interface::{ManifestHandle, WalHandle};
 use crate::persistent::Persistent;
 use crate::state::Map;
@@ -60,21 +60,7 @@ impl<W> MemTable<W> {
         Self::new(id, SkipMap::new(), None)
     }
 
-    pub async fn create_with_wal<ManifestFile: ManifestHandle>(
-        id: usize,
-        map: SkipMap<Bytes, Bytes>,
-        wal: impl Into<Option<Wal<W>>>,
-        manifest: impl Into<Option<&Manifest<ManifestFile>>>,
-    ) -> anyhow::Result<Self> {
-        if let Some(manifest) = manifest.into() {
-            let manifest_record = ManifestRecord::NewMemtable(NewMemtable(id));
-            manifest.add_record(manifest_record).await?;
-        }
-        let this = Self::new(id, map, wal);
-        Ok(this)
-    }
-
-    pub fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
+    fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
         Self {
             map,
             wal: wal.into(),
@@ -93,10 +79,29 @@ impl<W> MemTable<W> {
 }
 
 impl<W: WalHandle> MemTable<W> {
+    pub async fn create_with_wal<P: Persistent<WalHandle = W>>(
+        id: usize,
+        persistent: &P,
+        manifest: &Manifest<P::ManifestHandle>,
+    ) -> anyhow::Result<Self> {
+        let wal = Wal::create(id, persistent).await?;
+        let this = Self::new(id, SkipMap::new(), wal);
+
+        {
+            let manifest_record = ManifestRecord::NewMemtable(NewMemtable(id));
+            manifest.add_record(manifest_record).await?;
+        }
+
+        Ok(this)
+    }
+
     /// Create a memtable from WAL
-    pub async fn recover_from_wal<P: Persistent<WalHandle = W>>(id: usize, persistent: &P) -> anyhow::Result<Self> {
+    pub async fn recover_from_wal<P: Persistent<WalHandle = W>>(
+        id: usize,
+        persistent: &P,
+    ) -> anyhow::Result<Self> {
         let (wal, map) = Wal::recover(id, persistent).await?;
-        let this = Self::create_with_wal(id, map, wal, None::<&Manifest<P::ManifestHandle>>).await?;
+        let this = Self::new(id, map, wal);
         Ok(this)
     }
 

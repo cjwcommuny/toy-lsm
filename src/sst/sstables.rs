@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use deref_ext::DerefExt;
 use std::cmp::max;
 use std::collections::{Bound, HashMap};
@@ -24,6 +25,7 @@ use crate::iterators::{
 };
 use crate::key::KeySlice;
 use crate::manifest::{Compaction, Flush, ManifestRecord};
+use crate::memtable::ImmutableMemTable;
 use crate::persistent::{Persistent, SstHandle};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
@@ -235,10 +237,6 @@ where
         }
     }
 
-    pub fn fold_flush_manifest(&mut self, Flush(id): Flush) {
-        self.l0_sstables.insert(0, id);
-    }
-
     pub fn fold_compaction_manifest(&mut self, Compaction(task, result_ids): Compaction) {
         let source = self.table_ids_mut(task.source());
         source.remove(task.source_index());
@@ -263,6 +261,21 @@ fn filter_sst_by_bloom<File>(
 
 pub fn build_next_sst_id(a: &AtomicUsize) -> impl Fn() -> usize + Sized + '_ {
     || a.fetch_add(1, Relaxed)
+}
+
+pub fn fold_flush_manifest<W, File>(
+    imm_memtables: &mut Vec<Arc<ImmutableMemTable<W>>>,
+    sstables: &mut Sstables<File>,
+    Flush(id): Flush,
+) -> anyhow::Result<()> {
+    let table = imm_memtables
+        .pop()
+        .ok_or(anyhow!("expect memtable with id {}", id))?;
+    if table.id() != id {
+        return Err(anyhow!("expect memtable with id {}", id));
+    }
+    sstables.l0_sstables.insert(0, id);
+    Ok(())
 }
 
 struct DebugLevel {

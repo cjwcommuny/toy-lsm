@@ -59,6 +59,7 @@ where
         let block_cache = Arc::new(BlockCache::new(1024));
         let (inner, next_sst_id) = LsmStorageStateInner::recover(
             &options,
+            &manifest,
             manifest_records,
             &persistent,
             Some(block_cache.clone()),
@@ -105,14 +106,14 @@ where
     ) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
         snapshot.memtable().put(key.into(), value.into()).await?;
-        self.try_freeze_memtable(&snapshot).await;
+        self.try_freeze_memtable(&snapshot).await?;
         Ok(())
     }
 
     async fn delete(&self, key: impl Into<Bytes> + Send) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
         snapshot.memtable().put(key.into(), Bytes::new()).await?;
-        self.try_freeze_memtable(&snapshot).await;
+        self.try_freeze_memtable(&snapshot).await?;
         Ok(())
     }
 }
@@ -137,23 +138,34 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    async fn try_freeze_memtable(&self, snapshot: &LsmStorageStateInner<P>) {
+    async fn try_freeze_memtable(&self, snapshot: &LsmStorageStateInner<P>) -> anyhow::Result<()> {
         if self.exceed_memtable_size_limit(snapshot.memtable()) {
             let guard = self.state_lock.lock().await;
             if self.exceed_memtable_size_limit(snapshot.memtable()) {
-                self.force_freeze_memtable(&guard);
+                self.force_freeze_memtable(&guard).await?;
             }
         }
+        Ok(())
     }
 
     fn exceed_memtable_size_limit<W>(&self, memtable: &impl Deref<Target = MemTable<W>>) -> bool {
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
-    pub(crate) fn force_freeze_memtable(&self, _guard: &MutexGuard<()>) {
+    pub(crate) async fn force_freeze_memtable(
+        &self,
+        _guard: &MutexGuard<'_, ()>,
+    ) -> anyhow::Result<()> {
         let snapshot = self.inner.load_full();
-        let new = freeze_memtable(snapshot, self.next_sst_id());
+        let new = freeze_memtable(
+            snapshot,
+            self.next_sst_id(),
+            &self.persistent,
+            &self.manifest,
+        )
+        .await?;
         self.inner.store(new);
+        Ok(())
     }
 
     pub async fn may_flush_imm_memtable(&self) -> anyhow::Result<()> {
@@ -210,11 +222,16 @@ where
     }
 }
 
-fn freeze_memtable<P: Persistent>(
+async fn freeze_memtable<P: Persistent>(
     old: Arc<LsmStorageStateInner<P>>,
     next_sst_id: usize,
-) -> Arc<LsmStorageStateInner<P>> {
-    let new_memtable = Arc::new(MemTable::create(next_sst_id));
+    persistent: &P,
+    manifest: &Manifest<P::ManifestHandle>,
+) -> anyhow::Result<Arc<LsmStorageStateInner<P>>> {
+    let new_memtable = {
+        let table = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
+        Arc::new(table)
+    };
     let new_imm_memtables = {
         let old_memtable = old.memtable().clone().into_imm();
         let mut new = Vec::with_capacity(old.imm_memtables().len() + 1);
@@ -227,7 +244,7 @@ fn freeze_memtable<P: Persistent>(
         .imm_memtables(new_imm_memtables)
         .sstables_state(old.sstables_state().clone())
         .build();
-    Arc::new(new_state)
+    Ok(Arc::new(new_state))
 }
 
 async fn flush_imm_memtable<P: Persistent>(
