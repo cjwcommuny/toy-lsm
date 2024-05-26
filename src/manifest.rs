@@ -55,6 +55,7 @@ impl<File: ManifestHandle> Manifest<File> {
     }
 
     pub fn add_record(&self, record: ManifestRecord) -> impl Future<Output = Result<()>> + Send {
+        dbg!(&record);
         self.add_record_when_init(record)
     }
 

@@ -2,25 +2,23 @@ use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::Deref;
-use std::path::Path;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use arc_swap::{ArcSwap, Guard};
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use deref_ext::DerefExt;
 use derive_getters::Getters;
 use futures::StreamExt;
-use nom::sequence::pair;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
-use crate::manifest::{Compaction, Manifest, ManifestRecord};
+use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::persistent::Persistent;
-use crate::sst::compact::leveled::{compact_with_task, force_compact, generate_task};
-use crate::sst::{SsTableBuilder, SstOptions, Sstables};
+use crate::sst::compact::leveled::force_compact;
+use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
 use crate::utils::vec::pop;
@@ -233,12 +231,18 @@ async fn freeze_memtable<P: Persistent>(
         Arc::new(table)
     };
     let new_imm_memtables = {
-        let old_memtable = old.memtable().clone().into_imm();
+        let old_memtable = old.memtable().clone().into_imm().await?;
+
+        manifest
+            .add_record(ManifestRecord::Flush(Flush(old_memtable.id())))
+            .await?;
+
         let mut new = Vec::with_capacity(old.imm_memtables().len() + 1);
         new.push(old_memtable);
         new.extend_from_slice(old.imm_memtables());
         new
     };
+
     let new_state = LsmStorageStateInner::builder()
         .memtable(new_memtable)
         .imm_memtables(new_imm_memtables)
@@ -302,18 +306,14 @@ where
 
 #[cfg(test)]
 mod test {
-    use bytes::Bytes;
     use std::collections::Bound;
     use std::ops::Bound::{Included, Unbounded};
-    use std::time::Duration;
+
+    use bytes::Bytes;
+    use futures::StreamExt;
+    use tempfile::{tempdir, TempDir};
 
     use crate::entry::Entry;
-    use futures::{stream, Stream, StreamExt};
-    use tempfile::{tempdir, TempDir};
-    use tokio::time::timeout;
-    use tracing::{info, Instrument};
-    use tracing_subscriber::fmt::format::FmtSpan;
-
     use crate::iterators::no_deleted::new_no_deleted_iter;
     use crate::iterators::two_merge::create_inner;
     use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};

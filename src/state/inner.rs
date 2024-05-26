@@ -31,21 +31,29 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         persistent: &P,
         block_cache: Option<Arc<BlockCache>>,
     ) -> anyhow::Result<(Self, usize)> {
-        let (imm_memtables, mut sstables_state) = stream::iter(manifest_records.into_iter().rev())
+        let (imm_memtables, mut sstables_state) = stream::iter(manifest_records.into_iter())
             .map(Ok::<_, anyhow::Error>)
             .try_fold(
                 (Vec::new(), Sstables::new(options)),
                 |(mut imm_memtables, mut sstables), manifest| async {
                     match manifest {
                         ManifestRecord::Flush(record) => {
+                            let flush = &record;
+                            dbg!(flush);
                             fold_flush_manifest(&mut imm_memtables, &mut sstables, record)?;
                             Ok((imm_memtables, sstables))
                         }
                         ManifestRecord::NewMemtable(record) => {
+                            let new_mem = &record;
+                            dbg!(new_mem);
                             fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                             Ok((imm_memtables, sstables))
                         }
                         ManifestRecord::Compaction(record) => {
+                            dbg!(&imm_memtables);
+                            dbg!(&sstables);
+                            let compact = &record;
+                            dbg!(compact);
                             sstables.fold_compaction_manifest(record);
                             Ok((imm_memtables, sstables))
                         }
@@ -77,12 +85,12 @@ impl<P: Persistent> LsmStorageStateInner<P> {
             )
             .await?;
 
-        let max_mem_table_id = imm_memtables
-            .iter()
-            .map(|table| table.id())
-            .max();
+        let max_mem_table_id = imm_memtables.iter().map(|table| table.id()).max();
 
-        let next_sst_id = max(max_sst_id.map(|id| id + 1).unwrap_or(0), max_mem_table_id.map(|id| id + 1).unwrap_or(0));
+        let next_sst_id = max(
+            max_sst_id.map(|id| id + 1).unwrap_or(0),
+            max_mem_table_id.map(|id| id + 1).unwrap_or(0),
+        );
 
         let memtable = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
 
@@ -121,7 +129,7 @@ async fn fold_new_imm_memtable<P: Persistent>(
     NewMemtable(id): NewMemtable,
 ) -> anyhow::Result<()> {
     let memtable = MemTable::recover_from_wal(id, persistent).await?;
-    let imm_memtable = Arc::new(memtable).into_imm();
+    let imm_memtable = Arc::new(memtable).into_imm().await?;
     imm_memtables.insert(0, imm_memtable);
     Ok(())
 }

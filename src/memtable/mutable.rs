@@ -2,8 +2,8 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
@@ -16,7 +16,7 @@ use crate::bound::BytesBound;
 use crate::iterators::NonEmptyStream;
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
-use crate::memtable::iterator::{MaybeEmptyMemTableIterRef, new_memtable_iter};
+use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
 use crate::persistent::interface::{ManifestHandle, WalHandle};
 use crate::persistent::Persistent;
 use crate::state::Map;
@@ -67,10 +67,6 @@ impl<W> MemTable<W> {
             id,
             approximate_size: Arc::default(),
         }
-    }
-
-    pub fn into_imm(self: Arc<Self>) -> Arc<ImmutableMemTable<W>> {
-        TransparentWrapperAlloc::wrap_arc(self)
     }
 
     pub fn as_immutable_ref(&self) -> &ImmutableMemTable<W> {
@@ -130,6 +126,11 @@ impl<W: WalHandle> MemTable<W> {
             wal.sync().await?;
         }
         Ok(())
+    }
+
+    pub async fn into_imm(self: Arc<Self>) -> anyhow::Result<Arc<ImmutableMemTable<W>>> {
+        self.sync_wal().await?;
+        Ok(TransparentWrapperAlloc::wrap_arc(self))
     }
 
     /// Get an iterator over a range of keys.
@@ -192,7 +193,6 @@ mod test {
     use crate::manifest::Manifest;
     use crate::memtable::mutable::MemTable;
     use crate::persistent::LocalFs;
-    use crate::persistent::wal_handle::WalFile;
 
     #[tokio::test]
     async fn test_task1_memtable_get_wal() {
@@ -202,7 +202,9 @@ mod test {
         let id = 123;
 
         {
-            let memtable = MemTable::create_with_wal(id, &persistent, &manifest).await.unwrap();
+            let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
+                .await
+                .unwrap();
             memtable
                 .for_testing_put_slice(b"key1", b"value1")
                 .await
@@ -244,7 +246,9 @@ mod test {
         let id = 123;
 
         {
-            let memtable = MemTable::create_with_wal(id, &persistent, &manifest).await.unwrap();
+            let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
+                .await
+                .unwrap();
             memtable
                 .for_testing_put_slice(b"key1", b"value1")
                 .await

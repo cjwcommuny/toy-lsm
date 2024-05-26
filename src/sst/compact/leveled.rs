@@ -129,7 +129,6 @@ fn select_level_source(
             // todo: make it looking better...
         })?
         .0;
-    println!("source={}", source);
     if source == level_sizes.len() - 1 {
         None
     } else {
