@@ -2,8 +2,8 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
@@ -16,7 +16,7 @@ use crate::bound::BytesBound;
 use crate::iterators::NonEmptyStream;
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
-use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
+use crate::memtable::iterator::{MaybeEmptyMemTableIterRef, new_memtable_iter};
 use crate::persistent::interface::{ManifestHandle, WalHandle};
 use crate::persistent::Persistent;
 use crate::state::Map;
@@ -187,76 +187,106 @@ impl<W> MemTable<W> {
 
 #[cfg(test)]
 mod test {
+    use tempfile::tempdir;
+
+    use crate::manifest::Manifest;
     use crate::memtable::mutable::MemTable;
+    use crate::persistent::LocalFs;
     use crate::persistent::wal_handle::WalFile;
 
     #[tokio::test]
-    async fn test_task1_memtable_get() {
-        let memtable: MemTable<WalFile> = MemTable::create(0);
-        memtable
-            .for_testing_put_slice(b"key1", b"value1")
-            .await
-            .unwrap();
-        memtable
-            .for_testing_put_slice(b"key2", b"value2")
-            .await
-            .unwrap();
-        memtable
-            .for_testing_put_slice(b"key3", b"value3")
-            .await
-            .unwrap();
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key1").unwrap()[..],
-            b"value1"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key2").unwrap()[..],
-            b"value2"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key3").unwrap()[..],
-            b"value3"
-        );
+    async fn test_task1_memtable_get_wal() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let manifest = Manifest::create(&persistent).await.unwrap();
+        let id = 123;
+
+        {
+            let memtable = MemTable::create_with_wal(id, &persistent, &manifest).await.unwrap();
+            memtable
+                .for_testing_put_slice(b"key1", b"value1")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key2", b"value2")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key3", b"value3")
+                .await
+                .unwrap();
+
+            memtable.sync_wal().await.unwrap();
+        }
+
+        {
+            let memtable = MemTable::recover_from_wal(id, &persistent).await.unwrap();
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key1").unwrap()[..],
+                b"value1"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key2").unwrap()[..],
+                b"value2"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key3").unwrap()[..],
+                b"value3"
+            );
+        }
     }
 
     #[tokio::test]
     async fn test_task1_memtable_overwrite() {
-        let memtable: MemTable<WalFile> = MemTable::create(0);
-        memtable
-            .for_testing_put_slice(b"key1", b"value1")
-            .await
-            .unwrap();
-        memtable
-            .for_testing_put_slice(b"key2", b"value2")
-            .await
-            .unwrap();
-        memtable
-            .for_testing_put_slice(b"key3", b"value3")
-            .await
-            .unwrap();
-        memtable
-            .for_testing_put_slice(b"key1", b"value11")
-            .await
-            .unwrap();
-        memtable
-            .for_testing_put_slice(b"key2", b"value22")
-            .await
-            .unwrap();
-        memtable
-            .for_testing_put_slice(b"key3", b"value33")
-            .await
-            .unwrap();
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key1").unwrap()[..],
-            b"value11"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key2").unwrap()[..],
-            b"value22"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key3").unwrap()[..],
-            b"value33"
-        );
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let manifest = Manifest::create(&persistent).await.unwrap();
+        let id = 123;
+
+        {
+            let memtable = MemTable::create_with_wal(id, &persistent, &manifest).await.unwrap();
+            memtable
+                .for_testing_put_slice(b"key1", b"value1")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key2", b"value2")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key3", b"value3")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key1", b"value11")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key2", b"value22")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key3", b"value33")
+                .await
+                .unwrap();
+
+            memtable.sync_wal().await.unwrap();
+        }
+
+        {
+            let memtable = MemTable::recover_from_wal(id, &persistent).await.unwrap();
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key1").unwrap()[..],
+                b"value11"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key2").unwrap()[..],
+                b"value22"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key3").unwrap()[..],
+                b"value33"
+            );
+        }
     }
 }

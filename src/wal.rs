@@ -61,7 +61,7 @@ impl<File: WalHandle> Wal<File> {
         guard.write_u32(value.len() as u32).await?;
         guard.write_all(value).await?;
         guard.flush().await?;
-        guard.sync_all().await?;
+        guard.sync_all().await?; // todo: remove sync_all
         Ok(())
     }
 
