@@ -59,13 +59,19 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         let (_, max_sst_id) = stream::iter(sst_ids)
             .map(Ok::<_, anyhow::Error>)
             .try_fold(
-                (sstables_state.sstables_mut(), 0),
+                (sstables_state.sstables_mut(), None),
                 |(ssts, max_sst_id), sst_id| {
                     let block_cache = block_cache.clone();
                     async move {
                         let sst = SsTable::open(sst_id, block_cache, persistent).await?;
                         ssts.insert(sst_id, Arc::new(sst));
-                        Ok((ssts, max(max_sst_id, sst_id)))
+
+                        let next_max_sst_id = match max_sst_id {
+                            Some(prev) => max(prev, sst_id),
+                            None => sst_id,
+                        };
+
+                        Ok((ssts, Some(next_max_sst_id)))
                     }
                 },
             )
@@ -74,18 +80,18 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         let max_mem_table_id = imm_memtables
             .iter()
             .map(|table| table.id())
-            .max()
-            .unwrap_or(0);
-        let next_sst_id = max(max_sst_id, max_mem_table_id);
+            .max();
 
-        let memtable = MemTable::create_with_wal(next_sst_id + 1, persistent, manifest).await?;
+        let next_sst_id = max(max_sst_id.map(|id| id + 1).unwrap_or(0), max_mem_table_id.map(|id| id + 1).unwrap_or(0));
+
+        let memtable = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
 
         let this = Self {
             memtable: Arc::new(memtable),
             imm_memtables,
             sstables_state: Arc::new(sstables_state),
         };
-        Ok((this, next_sst_id + 2))
+        Ok((this, next_sst_id + 1))
     }
 }
 
