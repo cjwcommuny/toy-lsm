@@ -99,7 +99,7 @@ homepage = "https://github.com/rust-cli/anstyle"
 
 [[dependencies]]
 name = "anyhow"
-version = "1.0.83"
+version = "1.0.86"
 description = "Flexible concrete Error type built on std::error::Error"
 license = "MIT OR Apache-2.0"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
@@ -224,7 +224,7 @@ repository = "https://github.com/fitzgen/bumpalo"
 
 [[dependencies]]
 name = "bytemuck"
-version = "1.15.0"
+version = "1.16.0"
 description = "A crate for mucking around with piles of bytes."
 license = "Zlib OR Apache-2.0 OR MIT"
 notices = [
@@ -278,7 +278,7 @@ repository = "https://github.com/japaric/cast.rs"
 
 [[dependencies]]
 name = "cc"
-version = "1.0.97"
+version = "1.0.98"
 description = """
 A build-time dependency for Cargo build scripts to assist in invoking the native
 C compiler to compile native C code into a static archive to be linked into Rust
@@ -417,7 +417,7 @@ repository = "https://github.com/bheisler/criterion.rs"
 
 [[dependencies]]
 name = "crossbeam-channel"
-version = "0.5.12"
+version = "0.5.13"
 description = "Multi-producer multi-consumer channels for message passing"
 license = "MIT OR Apache-2.0"
 notices = [
@@ -458,7 +458,7 @@ homepage = "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-skip
 
 [[dependencies]]
 name = "crossbeam-utils"
-version = "0.8.19"
+version = "0.8.20"
 description = "Utilities for concurrent programming"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2019 The Crossbeam Project Developers"]
@@ -508,7 +508,7 @@ repository = "https://github.com/nrc/derive-new"
 
 [[dependencies]]
 name = "either"
-version = "1.11.0"
+version = "1.12.0"
 description = """
 The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
 """
@@ -855,8 +855,8 @@ repository = "https://github.com/indexmap-rs/indexmap"
 
 [[dependencies]]
 name = "instant"
-version = "0.1.12"
-description = "A partial replacement for std::time::Instant that works on WASM too."
+version = "0.1.13"
+description = "Unmaintained, consider using web-time instead - A partial replacement for std::time::Instant that works on WASM to."
 license = "BSD-3-Clause"
 notices = ["Copyright (c) 2019, Sébastien Crozet"]
 authors = ["sebcrozet <developer@crozet.re>"]
@@ -901,6 +901,15 @@ authors = ["bluss"]
 repository = "https://github.com/rust-itertools/itertools"
 
 [[dependencies]]
+name = "itertools"
+version = "0.13.0"
+description = "Extra iterator adaptors, iterator methods, free functions, and macros."
+license = "MIT OR Apache-2.0"
+notices = ["Copyright (c) 2015"]
+authors = ["bluss"]
+repository = "https://github.com/rust-itertools/itertools"
+
+[[dependencies]]
 name = "itoa"
 version = "1.0.11"
 description = "Fast integer primitive to string conversion"
@@ -932,7 +941,7 @@ repository = "https://github.com/rust-lang-nursery/lazy-static.rs"
 
 [[dependencies]]
 name = "libc"
-version = "0.2.154"
+version = "0.2.155"
 description = """
 Raw FFI bindings to platform libraries like libc.
 """
@@ -952,7 +961,7 @@ repository = "https://github.com/rust-lang/libm"
 
 [[dependencies]]
 name = "linux-raw-sys"
-version = "0.4.13"
+version = "0.4.14"
 description = "Generated bindings for Linux's userspace API"
 license = "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
 authors = ["Dan Gohman <dev@sunfishcode.online>"]
@@ -1010,7 +1019,7 @@ repository = "https://github.com/Alexhuszagh/minimal-lexical"
 
 [[dependencies]]
 name = "miniz_oxide"
-version = "0.7.2"
+version = "0.7.3"
 description = "DEFLATE compression and decompression library rewritten in Rust based on miniz"
 license = "MIT OR Zlib OR Apache-2.0"
 notices = ["Copyright (c) 2017 Frommi", "Copyright (c) 2020 Frommi"]
@@ -1284,7 +1293,7 @@ repository = "https://gitlab.com/CreepySkeleton/proc-macro-error"
 
 [[dependencies]]
 name = "proc-macro2"
-version = "1.0.82"
+version = "1.0.83"
 description = "A substitute implementation of the compiler's `proc_macro` API to decouple token-based libraries from the procedural macro use case."
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1608,7 +1617,7 @@ repository = "https://github.com/dtolnay/semver"
 
 [[dependencies]]
 name = "serde"
-version = "1.0.201"
+version = "1.0.202"
 description = "A generic serialization/deserialization framework"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1620,7 +1629,7 @@ homepage = "https://serde.rs"
 
 [[dependencies]]
 name = "serde_derive"
-version = "1.0.201"
+version = "1.0.202"
 description = "Macros 1.1 implementation of #[derive(Serialize, Deserialize)]"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1643,7 +1652,7 @@ repository = "https://github.com/serde-rs/json"
 
 [[dependencies]]
 name = "serde_spanned"
-version = "0.6.5"
+version = "0.6.6"
 description = "Serde-compatible spanned Value"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -1871,7 +1880,7 @@ repository = "https://github.com/mgeisler/textwrap"
 
 [[dependencies]]
 name = "thiserror"
-version = "1.0.60"
+version = "1.0.61"
 description = "derive(Error)"
 license = "MIT OR Apache-2.0"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
@@ -1879,7 +1888,7 @@ repository = "https://github.com/dtolnay/thiserror"
 
 [[dependencies]]
 name = "thiserror-impl"
-version = "1.0.60"
+version = "1.0.61"
 description = "Implementation detail of the `thiserror` crate"
 license = "MIT OR Apache-2.0"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
@@ -1957,7 +1966,7 @@ homepage = "https://tokio.rs"
 
 [[dependencies]]
 name = "toml"
-version = "0.8.12"
+version = "0.8.13"
 description = """
 A native Rust encoder and decoder of TOML-formatted files and streams. Provides
 implementations of the standard Serialize/Deserialize traits for TOML data to
@@ -1970,7 +1979,7 @@ repository = "https://github.com/toml-rs/toml"
 
 [[dependencies]]
 name = "toml_datetime"
-version = "0.6.5"
+version = "0.6.6"
 description = "A TOML-compatible datetime type"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -1979,7 +1988,7 @@ repository = "https://github.com/toml-rs/toml"
 
 [[dependencies]]
 name = "toml_edit"
-version = "0.22.12"
+version = "0.22.13"
 description = "Yet another format-preserving TOML parser."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
