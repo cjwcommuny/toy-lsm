@@ -366,7 +366,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
         assert_eq!(storage.inner.load().imm_memtables().len(), 1);
 
@@ -379,7 +379,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
         assert_eq!(storage.inner.load().imm_memtables().len(), 2);
         assert_eq!(
@@ -423,7 +423,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.delete_for_test(b"1").await.unwrap();
@@ -433,7 +433,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"1", b"233333").await.unwrap();
@@ -464,7 +464,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.delete_for_test(b"1").await.unwrap();
@@ -474,7 +474,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"1", b"233333").await.unwrap();
@@ -519,7 +519,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -527,7 +527,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -536,14 +536,14 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"00", b"2333").await.unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"3", b"23333").await.unwrap();
@@ -611,7 +611,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -619,7 +619,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -628,14 +628,14 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"00", b"2333").await.unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"3", b"23333").await.unwrap();
