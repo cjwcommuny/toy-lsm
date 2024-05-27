@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bytes::Bytes;
 use std::fs::{File, OpenOptions};
 use std::future::Future;
@@ -59,8 +60,12 @@ impl Persistent for LocalFs {
 
     async fn open_sst(&self, id: usize) -> anyhow::Result<Self::SstHandle> {
         let path = self.build_sst_path(id);
-        let handle = spawn_blocking(|| {
-            let file = File::options().read(true).write(false).open(path)?;
+        let handle = spawn_blocking(move || {
+            let file = File::options()
+                .read(true)
+                .write(false)
+                .open(&path)
+                .with_context(|| format!("id: {}, path: {:?}", id, &path))?;
             let file = Arc::new(file);
             let size = file.metadata()?.len();
             let handle = FileObject { file, size };

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::persistent::interface::ManifestHandle;
 use anyhow::Result;
+use derive_more::From;
 use serde::{Deserialize, Serialize};
 use serde_json::Deserializer;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -16,7 +17,7 @@ pub struct Manifest<File> {
     file: Arc<Mutex<File>>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, From)]
 pub enum ManifestRecord {
     Flush(Flush),
     NewMemtable(NewMemtable),
@@ -55,7 +56,6 @@ impl<File: ManifestHandle> Manifest<File> {
     }
 
     pub fn add_record(&self, record: ManifestRecord) -> impl Future<Output = Result<()>> + Send {
-        dbg!(&record);
         self.add_record_when_init(record)
     }
 
