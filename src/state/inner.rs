@@ -152,9 +152,10 @@ async fn build_state<P: Persistent>(
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
-    use crate::manifest::{Flush, NewMemtable};
+    use crate::manifest::{Compaction, Flush, NewMemtable};
     use crate::persistent::LocalFs;
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
+    use crate::sst::compact::common::CompactionTask;
     use crate::sst::SstOptions;
     use crate::state::inner::build_state;
 
@@ -179,10 +180,25 @@ mod tests {
             NewMemtable(0).into(),
             NewMemtable(1).into(),
             Flush(0).into(),
+            NewMemtable(2).into(),
+            NewMemtable(3).into(),
+            NewMemtable(4).into(),
+            Flush(1).into(),
+            NewMemtable(5).into(),
+            Flush(2).into(),
+            Compaction(CompactionTask::new(0, 2, 1), vec![6]).into(),
+            NewMemtable(7).into(),
+            NewMemtable(8).into(),
+            Flush(3).into(),
+            Compaction(CompactionTask::new(0, 2, 1), vec![9, 10]).into(),
         ];
 
         let (imm, ssts) = build_state(&options, manifest_records, &persistent).await.unwrap();
-        dbg!(imm);
-        dbg!(ssts);
+        let imm_ids: Vec<_> = imm.iter().map(|table| table.id()).collect();
+        let l0: Vec<_> = ssts.l0_sstables().iter().copied().collect();
+        let other_level: Vec<_> = ssts.levels().iter().map(Clone::clone).collect();
+        assert_eq!(imm_ids, vec![8, 7, 5, 4]);
+        assert_eq!(l0, vec![3, 2]);
+        assert_eq!(other_level, vec![vec![9, 10], vec![]]);
     }
 }

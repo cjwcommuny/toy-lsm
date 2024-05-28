@@ -86,6 +86,10 @@ impl<File> Sstables<File> {
         &self.l0_sstables
     }
 
+    pub fn levels(&self) -> &[Vec<usize>] {
+        &self.levels
+    }
+
     pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
         &self.sstables
     }
