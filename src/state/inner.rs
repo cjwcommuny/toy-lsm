@@ -31,13 +31,10 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         persistent: &P,
         block_cache: Option<Arc<BlockCache>>,
     ) -> anyhow::Result<(Self, usize)> {
-        dbg!(&manifest_records);
         let (imm_memtables, mut sstables_state) =
             build_state(options, manifest_records, persistent).await?;
         // todo: split sst_ids & sst hashmap
         let sst_ids: Vec<_> = sstables_state.sst_ids().collect();
-        dbg!(&sstables_state);
-        dbg!(&imm_memtables);
 
         let (_, max_sst_id) = stream::iter(sst_ids)
             .map(Ok::<_, anyhow::Error>)
@@ -125,21 +122,16 @@ async fn build_state<P: Persistent>(
                 match manifest {
                     ManifestRecord::Flush(record) => {
                         let flush = &record;
-                        // dbg!(flush);
                         fold_flush_manifest(&mut imm_memtables, &mut sstables, record)?;
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::NewMemtable(record) => {
                         let new_mem = &record;
-                        // dbg!(new_mem);
                         fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::Compaction(record) => {
-                        // dbg!(&imm_memtables);
-                        // dbg!(&sstables);
                         let compact = &record;
-                        // dbg!(compact);
                         sstables.fold_compaction_manifest(record);
                         Ok((imm_memtables, sstables))
                     }
@@ -151,13 +143,13 @@ async fn build_state<P: Persistent>(
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
     use crate::manifest::{Compaction, Flush, NewMemtable};
     use crate::persistent::LocalFs;
-    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::compact::common::CompactionTask;
+    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
     use crate::state::inner::build_state;
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_recover_state() {
@@ -193,9 +185,11 @@ mod tests {
             Compaction(CompactionTask::new(0, 2, 1), vec![9, 10]).into(),
         ];
 
-        let (imm, ssts) = build_state(&options, manifest_records, &persistent).await.unwrap();
+        let (imm, ssts) = build_state(&options, manifest_records, &persistent)
+            .await
+            .unwrap();
         let imm_ids: Vec<_> = imm.iter().map(|table| table.id()).collect();
-        let l0: Vec<_> = ssts.l0_sstables().iter().copied().collect();
+        let l0: Vec<_> = ssts.l0_sstables().to_vec();
         let other_level: Vec<_> = ssts.levels().iter().map(Clone::clone).collect();
         assert_eq!(imm_ids, vec![8, 7, 5, 4]);
         assert_eq!(l0, vec![3, 2]);

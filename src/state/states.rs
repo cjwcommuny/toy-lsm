@@ -187,6 +187,7 @@ where
                 cur,
                 &self.block_cache,
                 self.persistent(),
+                &self.manifest,
                 *self.options.block_size(),
             )
             .await?
@@ -233,10 +234,6 @@ async fn freeze_memtable<P: Persistent>(
     let new_imm_memtables = {
         let old_memtable = old.memtable().clone().into_imm().await?;
 
-        manifest
-            .add_record(ManifestRecord::Flush(Flush(old_memtable.id())))
-            .await?;
-
         let mut new = Vec::with_capacity(old.imm_memtables().len() + 1);
         new.push(old_memtable);
         new.extend_from_slice(old.imm_memtables());
@@ -255,12 +252,17 @@ async fn flush_imm_memtable<P: Persistent>(
     old: Arc<LsmStorageStateInner<P>>,
     block_cache: &Arc<BlockCache>,
     persistent: &P,
+    manifest: &Manifest<P::ManifestHandle>,
     block_size: usize,
 ) -> anyhow::Result<Option<Arc<LsmStorageStateInner<P>>>> {
     let (imm, last_memtable) = pop(old.imm_memtables().clone());
     let Some(last_memtable) = last_memtable else {
         return Ok(None);
     };
+
+    manifest
+        .add_record(ManifestRecord::Flush(Flush(last_memtable.id())))
+        .await?;
 
     let sst = {
         let mut builder = SsTableBuilder::new(block_size);

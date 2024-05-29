@@ -254,7 +254,6 @@ mod tests {
         lsm.sync().await.unwrap();
         // ensure some SSTs are not flushed
         let inner = lsm.state.inner.load();
-        println!("{:?}", &inner);
 
         assert!(!inner.memtable.is_empty() || !inner.imm_memtables.is_empty());
         drop(lsm);
