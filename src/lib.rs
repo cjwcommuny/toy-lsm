@@ -13,7 +13,6 @@ mod wal;
 
 mod lsm;
 mod manifest;
+pub mod mvcc;
 mod test_utils;
 mod utils;
-pub mod mvcc;
-

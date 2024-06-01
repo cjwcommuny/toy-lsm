@@ -17,6 +17,7 @@ use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
+use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
@@ -76,6 +77,10 @@ where
             sst_id,
         };
         Ok(this)
+    }
+
+    pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
+        todo!()
     }
 }
 
@@ -748,5 +753,217 @@ mod test {
             .enable_wal(false)
             .build();
         LsmStorageState::new(options, persistent).await
+    }
+
+    #[tokio::test]
+    async fn test_task2_memtable_mvcc() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .enable_wal(true)
+            .build();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+
+        storage.put_for_test(b"a", b"1").await.unwrap();
+        storage.put_for_test(b"b", b"1").await.unwrap();
+        let snapshot1 = storage.new_txn().unwrap();
+        storage.put_for_test(b"a", b"2").await.unwrap();
+        let snapshot2 = storage.new_txn().unwrap();
+        storage.delete_for_test(b"b").await.unwrap();
+        storage.put_for_test(b"c", b"1").await.unwrap();
+        let snapshot3 = storage.new_txn().unwrap();
+        assert_eq!(
+            snapshot1.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(
+            snapshot1.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot1.get_for_test(b"c").await.unwrap(), None);
+
+        {
+            let iter = snapshot1.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "1"), ("b", "1")]),
+            )
+            .await;
+        }
+
+        assert_eq!(
+            snapshot2.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(
+            snapshot2.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot2.get_for_test(b"c").await.unwrap(), None);
+
+        {
+            let iter = snapshot2.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "2"), ("b", "1")]),
+            )
+            .await;
+        }
+
+        assert_eq!(
+            snapshot3.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(snapshot3.get_for_test(b"b").await.unwrap(), None);
+        assert_eq!(
+            snapshot3.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        {
+            let iter = snapshot3.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "2"), ("c", "1")]),
+            )
+            .await;
+        }
+
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_freeze_memtable(&guard).await.unwrap();
+        }
+
+        storage.put_for_test(b"a", b"3").await.unwrap();
+        storage.put_for_test(b"b", b"3").await.unwrap();
+        let snapshot4 = storage.new_txn().unwrap();
+        storage.put_for_test(b"a", b"4").await.unwrap();
+        let snapshot5 = storage.new_txn().unwrap();
+        storage.delete_for_test(b"b").await.unwrap();
+        storage.put_for_test(b"c", b"5").await.unwrap();
+        let snapshot6 = storage.new_txn().unwrap();
+        assert_eq!(
+            snapshot1.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(
+            snapshot1.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot1.get_for_test(b"c").await.unwrap(), None);
+
+        {
+            let iter = snapshot1.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "1"), ("b", "1")]),
+            )
+            .await;
+        }
+
+        assert_eq!(
+            snapshot2.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(
+            snapshot2.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot2.get_for_test(b"c").await.unwrap(), None);
+
+        {
+            let iter = snapshot2.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "2"), ("b", "1")]),
+            )
+            .await;
+        }
+
+        assert_eq!(
+            snapshot3.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(snapshot3.get_for_test(b"b").await.unwrap(), None);
+        assert_eq!(
+            snapshot3.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        {
+            let iter = snapshot3.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "2"), ("c", "1")]),
+            )
+            .await;
+        }
+
+        assert_eq!(
+            snapshot4.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"3"))
+        );
+        assert_eq!(
+            snapshot4.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"3"))
+        );
+        assert_eq!(
+            snapshot4.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        {
+            let iter = snapshot4.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "3"), ("b", "3"), ("c", "1")]),
+            )
+            .await;
+        }
+
+        assert_eq!(
+            snapshot5.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"4"))
+        );
+        assert_eq!(
+            snapshot5.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"3"))
+        );
+        assert_eq!(
+            snapshot5.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        {
+            let iter = snapshot4.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "4"), ("b", "3"), ("c", "1")]),
+            )
+            .await;
+        }
+
+        assert_eq!(
+            snapshot6.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"4"))
+        );
+        assert_eq!(snapshot6.get_for_test(b"b").await.unwrap(), None);
+        assert_eq!(
+            snapshot6.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"5"))
+        );
+
+        {
+            let iter = snapshot6.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("a", "4"), ("c", "5")]),
+            )
+            .await;
+        }
     }
 }

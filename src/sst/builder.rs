@@ -188,12 +188,17 @@ pub async fn generate_sst(dir: &TempDir) -> SsTable<FileObject> {
 
 #[cfg(test)]
 mod tests {
+    use crate::block::BlockCache;
+    use bytes::Bytes;
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     use crate::key::KeySlice;
-    use crate::persistent::LocalFs;
+    use crate::persistent::{LocalFs, Persistent};
     use crate::sst::builder::{key_of, num_of_keys, value_of};
+    use crate::sst::iterator::SsTableIterator;
     use crate::sst::{SsTable, SsTableBuilder};
+    use futures::stream::StreamExt;
 
     #[tokio::test]
     async fn test_sst_build_single_key() {
@@ -241,6 +246,65 @@ mod tests {
             "you have {} blocks, expect 25",
             sst.block_meta.len()
         );
+    }
+
+    #[tokio::test]
+    async fn test_sst_build_multi_version_simple() {
+        let mut builder = SsTableBuilder::new(16);
+        builder.add(
+            KeySlice::for_testing_from_slice_with_ts(b"233", 233),
+            b"233333",
+        );
+        builder.add(
+            KeySlice::for_testing_from_slice_with_ts(b"233", 0),
+            b"2333333",
+        );
+        let dir = tempdir().unwrap();
+        builder.build_for_test(&dir, 1).await.unwrap();
+    }
+
+    // todo: add test
+    // #[tokio::test]
+    // async fn test_sst_build_multi_version_hard() {
+    //     let dir = tempdir().unwrap();
+    //     let persistent = LocalFs::new(dir.path().to_path_buf());
+    //     let data = generate_test_data();
+    //     let _ = generate_sst_with_ts(1, &persistent, data.clone(), None).await;
+    //     let sst = SsTable::open(1, None, &persistent).await.unwrap();
+    //     let sst_iter = SsTableIterator::create_and_seek_to_first(&sst)
+    //         .map(|entry| {
+    //             let entry = entry.unwrap();
+    //             let key = entry.key;
+    //             todo!()
+    //         });
+    //
+    // }
+
+    pub async fn generate_sst_with_ts<P: Persistent>(
+        id: usize,
+        persistent: &P,
+        data: Vec<((Bytes, u64), Bytes)>,
+        block_cache: Option<Arc<BlockCache>>,
+    ) -> SsTable<P::SstHandle> {
+        let mut builder = SsTableBuilder::new(128);
+        for ((key, ts), value) in data {
+            builder.add(
+                KeySlice::for_testing_from_slice_with_ts(&key[..], ts),
+                &value[..],
+            );
+        }
+        builder.build(id, block_cache, persistent).await.unwrap()
+    }
+
+    fn generate_test_data() -> Vec<((Bytes, u64), Bytes)> {
+        (0..100)
+            .map(|id| {
+                (
+                    (Bytes::from(format!("key{:05}", id / 5)), 5 - (id % 5)),
+                    Bytes::from(format!("value{:05}", id)),
+                )
+            })
+            .collect()
     }
 
     fn get_builder() -> SsTableBuilder {
