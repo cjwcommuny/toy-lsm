@@ -45,6 +45,7 @@ impl Persistent for LocalFs {
 
     /// Create a new file object (day 2) and write the file to the disk (day 4).
     async fn create_sst(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::SstHandle> {
+        println!("create sst {}", id);
         let size = data.len().try_into()?;
         let path = self.build_sst_path(id);
         let file = spawn_blocking(move || {
@@ -76,6 +77,7 @@ impl Persistent for LocalFs {
     }
 
     async fn open_wal_handle(&self, id: usize) -> anyhow::Result<Self::WalHandle> {
+        println!("open wal {}", id);
         let path = self.build_wal_path(id);
         let file = tokio::fs::OpenOptions::new()
             .create(true)
@@ -85,6 +87,12 @@ impl Persistent for LocalFs {
             .await?;
         let wal = WalFile::new(BufWriter::new(file));
         Ok(wal)
+    }
+
+    async fn delete_wal(&self, id: usize) -> anyhow::Result<()> {
+        let path = self.build_wal_path(id);
+        tokio::fs::remove_file(path).await?;
+        Ok(())
     }
 
     async fn open_manifest(&self) -> anyhow::Result<Self::ManifestHandle> {

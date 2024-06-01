@@ -9,6 +9,7 @@ use crossbeam_skiplist::SkipMap;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+use tracing_futures::Instrument;
 
 use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
@@ -56,11 +57,26 @@ impl<File: WalHandle> Wal<File> {
 
     pub async fn put<'a>(&'a self, key: &'a [u8], value: &'a [u8]) -> anyhow::Result<()> {
         let mut guard = self.file.lock().await;
-        guard.write_u32(key.len() as u32).await?;
-        guard.write_all(key).await?;
-        guard.write_u32(value.len() as u32).await?;
-        guard.write_all(value).await?;
-        guard.flush().await?;
+        guard
+            .write_u32(key.len() as u32)
+            .instrument(tracing::info_span!("wal_put_write_key_len"))
+            .await?;
+        guard
+            .write_all(key)
+            .instrument(tracing::info_span!("wal_put_write_all_key"))
+            .await?;
+        guard
+            .write_u32(value.len() as u32)
+            .instrument(tracing::info_span!("wal_put_write_value_len"))
+            .await?;
+        guard
+            .write_all(value)
+            .instrument(tracing::info_span!("wal_put_write_all_value"))
+            .await?;
+        guard
+            .flush()
+            .instrument(tracing::info_span!("wal_put_flush"))
+            .await?;
         Ok(())
     }
 

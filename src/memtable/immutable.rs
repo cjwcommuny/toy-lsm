@@ -51,11 +51,6 @@ impl<W: WalHandle> ImmutableMemTable<W> {
     pub fn iter(&self) -> impl Iterator<Item = map::Entry<Bytes, Bytes>> {
         self.0.map().iter()
     }
-
-    pub async fn delete_wal(&self) -> anyhow::Result<()> {
-        // todo: drop wal when creating sst
-        Ok(())
-    }
 }
 
 impl<W> From<MemTable<W>> for ImmutableMemTable<W> {

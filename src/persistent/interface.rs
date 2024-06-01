@@ -20,6 +20,8 @@ pub trait Persistent: Send + Sync + 'static {
         id: usize,
     ) -> impl Future<Output = anyhow::Result<Self::WalHandle>> + Send;
 
+    fn delete_wal(&self, id: usize) -> impl Future<Output = anyhow::Result<()>> + Send;
+
     fn open_manifest(&self) -> impl Future<Output = anyhow::Result<Self::ManifestHandle>> + Send;
 }
 

@@ -11,6 +11,7 @@ use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
 use nom::AsBytes;
 use ref_cast::RefCast;
+use tracing_futures::Instrument;
 
 use crate::bound::BytesBound;
 use crate::iterators::NonEmptyStream;
@@ -72,6 +73,10 @@ impl<W> MemTable<W> {
     pub fn as_immutable_ref(&self) -> &ImmutableMemTable<W> {
         ImmutableMemTable::ref_cast(self)
     }
+
+    pub fn reset_wal(&mut self) {
+        self.wal = None;
+    }
 }
 
 impl<W: WalHandle> MemTable<W> {
@@ -113,7 +118,9 @@ impl<W: WalHandle> MemTable<W> {
     pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
         let size = key.len() + value.len();
         if let Some(wal) = self.wal.as_ref() {
-            wal.put(key.as_bytes(), value.as_bytes()).await?
+            wal.put(key.as_bytes(), value.as_bytes())
+                .instrument(tracing::info_span!("wal_put"))
+                .await?
         }
         self.map.insert(key, value);
         self.approximate_size.fetch_add(size, Ordering::Release);

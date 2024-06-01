@@ -47,6 +47,7 @@ futures-concurrency = "7.6.0"
 ordered-float = "4.2.0"
 getset = "0.1.2"
 derive_more = "0.99.17"
+tracing-futures = { version = "0.2.5", features = ["futures-03"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -61,3 +62,10 @@ unsafe_code = "forbid"
 [[bench]]
 name = "ycsb"
 harness = false
+
+[profile.test]
+opt-level = 3
+debug = true
+
+[profile.release]
+debug = true

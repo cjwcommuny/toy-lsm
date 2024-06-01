@@ -2,7 +2,7 @@ use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::Deref;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -11,6 +11,7 @@ use deref_ext::DerefExt;
 use derive_getters::Getters;
 use futures::StreamExt;
 use tokio::sync::{Mutex, MutexGuard};
+use tracing_futures::Instrument;
 
 use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
@@ -103,8 +104,14 @@ where
         value: impl Into<Bytes> + Send,
     ) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
-        snapshot.memtable().put(key.into(), value.into()).await?;
-        self.try_freeze_memtable(&snapshot).await?;
+        snapshot
+            .memtable()
+            .put(key.into(), value.into())
+            .instrument(tracing::info_span!("memtable_put"))
+            .await?;
+        self.try_freeze_memtable(&snapshot)
+            .instrument(tracing::info_span!("try_freeze_memtable"))
+            .await?;
         Ok(())
     }
 
@@ -121,8 +128,7 @@ where
     P: Persistent,
 {
     pub(crate) fn next_sst_id(&self) -> usize {
-        self.sst_id()
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        self.sst_id().fetch_add(1, Ordering::Relaxed)
     }
 
     fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
@@ -271,6 +277,8 @@ async fn flush_imm_memtable<P: Persistent>(
             .build(last_memtable.id(), Some(block_cache.clone()), persistent)
             .await
     }?;
+
+    persistent.delete_wal(last_memtable.id()).await?;
 
     let state = {
         let mut state = (**old.sstables_state()).clone();
