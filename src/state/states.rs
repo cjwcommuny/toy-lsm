@@ -322,7 +322,7 @@ where
 #[cfg(test)]
 mod test {
     use std::collections::Bound;
-    use std::ops::Bound::{Included, Unbounded};
+    use std::ops::Bound::{Excluded, Included, Unbounded};
 
     use bytes::Bytes;
     use futures::StreamExt;
@@ -757,6 +757,15 @@ mod test {
 
     #[tokio::test]
     async fn test_task2_memtable_mvcc() {
+        test_task2_memtable_mvcc_helper(false).await;
+    }
+
+    #[tokio::test]
+    async fn test_task2_lsm_iterator_mvcc() {
+        test_task2_memtable_mvcc_helper(true).await;
+    }
+
+    async fn test_task2_memtable_mvcc_helper(flush: bool) {
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
@@ -833,7 +842,7 @@ mod test {
             .await;
         }
 
-        {
+        if !flush {
             let guard = storage.state_lock.lock().await;
             storage.force_freeze_memtable(&guard).await.unwrap();
         }
@@ -846,6 +855,12 @@ mod test {
         storage.delete_for_test(b"b").await.unwrap();
         storage.put_for_test(b"c", b"5").await.unwrap();
         let snapshot6 = storage.new_txn().unwrap();
+
+        if flush {
+            let guard = storage.state_lock.lock().await;
+            storage.force_flush_imm_memtable(&guard).await.unwrap();
+        }
+
         assert_eq!(
             snapshot1.get_for_test(b"a").await.unwrap(),
             Some(Bytes::from_static(b"1"))
@@ -964,6 +979,26 @@ mod test {
                 build_tuple_stream([("a", "4"), ("c", "5")]),
             )
             .await;
+        }
+
+        if flush {
+            {
+                let iter = snapshot6.scan(Included(b"a"), Included(b"a")).unwrap();
+                assert_stream_eq(
+                    iter.map(Result::unwrap).map(Entry::into_tuple),
+                    build_tuple_stream([("a", "4")]),
+                )
+                .await;
+            }
+
+            {
+                let iter = snapshot6.scan(Excluded(b"a"), Excluded(b"c")).unwrap();
+                assert_stream_eq(
+                    iter.map(Result::unwrap).map(Entry::into_tuple),
+                    build_tuple_stream([]),
+                )
+                .await;
+            }
         }
     }
 }
