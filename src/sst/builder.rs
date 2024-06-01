@@ -280,6 +280,20 @@ mod tests {
     //
     // }
 
+    #[tokio::test]
+    async fn test_task3_sst_ts() {
+        let mut builder = SsTableBuilder::new(16);
+        builder.add(KeySlice::for_testing_from_slice_with_ts(b"11", 1), b"11");
+        builder.add(KeySlice::for_testing_from_slice_with_ts(b"22", 2), b"22");
+        builder.add(KeySlice::for_testing_from_slice_with_ts(b"33", 3), b"11");
+        builder.add(KeySlice::for_testing_from_slice_with_ts(b"44", 4), b"22");
+        builder.add(KeySlice::for_testing_from_slice_with_ts(b"55", 5), b"11");
+        builder.add(KeySlice::for_testing_from_slice_with_ts(b"66", 6), b"22");
+        let dir = tempdir().unwrap();
+        let sst = builder.build_for_test(&dir, 1).await.unwrap();
+        assert_eq!(*sst.max_ts(), 6);
+    }
+
     pub async fn generate_sst_with_ts<P: Persistent>(
         id: usize,
         persistent: &P,
