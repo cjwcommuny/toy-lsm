@@ -1166,4 +1166,132 @@ mod test {
     //         ],
     //     );
     // }
+
+    #[tokio::test]
+    async fn test_txn_integration() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .enable_wal(true)
+            .build();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+
+        let txn1 = storage.new_txn().unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        txn1.put_for_test(b"test1", b"233").await.unwrap();
+        txn2.put_for_test(b"test2", b"233").await.unwrap();
+
+        {
+            let iter = txn1.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("test1", "233")]),
+            )
+            .await;
+        }
+
+        {
+            let iter = txn2.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("test2", "233")]),
+            )
+            .await;
+        }
+
+        let txn3 = storage.new_txn().unwrap();
+
+        {
+            let iter = txn3.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([]),
+            )
+            .await;
+        }
+
+        txn1.commit().await.unwrap();
+        txn2.commit().await.unwrap();
+
+        {
+            let iter = txn3.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([]),
+            )
+            .await;
+        }
+
+        drop(txn3);
+
+        // todo: add this test
+        // {
+        //     let iter = storage.scan(Unbounded, Unbounded);
+        //     assert_stream_eq(
+        //         iter.iter().await.unwrap().map(Result::unwrap).map(Entry::into_tuple),
+        //         build_tuple_stream([("test1", "233"), ("test2", "233")]),
+        //     )
+        //         .await;
+        // }
+
+        let txn4 = storage.new_txn().unwrap();
+
+        assert_eq!(
+            txn4.get_for_test(b"test1").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+        assert_eq!(
+            txn4.get_for_test(b"test2").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+
+        {
+            let iter = txn4.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("test1", "233"), ("test2", "233")]),
+            )
+            .await;
+        }
+
+        txn4.put_for_test(b"test2", b"2333").await.unwrap();
+        assert_eq!(
+            txn4.get_for_test(b"test1").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+        assert_eq!(
+            txn4.get_for_test(b"test2").await.unwrap(),
+            Some(Bytes::from("2333"))
+        );
+
+        {
+            let iter = txn4.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("test1", "233"), ("test2", "2333")]),
+            )
+            .await;
+        }
+
+        txn4.delete_for_test(b"test2").await.unwrap();
+
+        assert_eq!(
+            txn4.get_for_test(b"test1").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+        assert_eq!(txn4.get_for_test(b"test2").await.unwrap(), None);
+
+        {
+            let iter = txn4.scan(Unbounded, Unbounded).unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("test1", "233")]),
+            )
+            .await;
+        }
+    }
 }

@@ -40,13 +40,6 @@ impl<P: Persistent> Map for Transaction<P> {
     }
 }
 
-impl<P: Persistent> Drop for Transaction<P> {
-    fn drop(&mut self) {
-        // commit
-        todo!()
-    }
-}
-
 impl<P: Persistent> Transaction<P> {
     pub fn scan<'a>(
         &self,
@@ -55,6 +48,10 @@ impl<P: Persistent> Transaction<P> {
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Entry>>> {
         todo!();
         Ok(stream::empty())
+    }
+
+    pub fn commit(self) -> impl Future<Output = anyhow::Result<()>> + Send {
+        async { todo!() }
     }
 }
 
