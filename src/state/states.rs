@@ -23,6 +23,7 @@ use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::LsmStorageStateInner;
+use crate::state::mut_op::Op;
 use crate::state::Map;
 use crate::utils::vec::pop;
 
@@ -320,6 +321,13 @@ where
     async fn delete_for_test(&self, key: &[u8]) -> anyhow::Result<()> {
         self.delete(Bytes::copy_from_slice(key)).await
     }
+
+    async fn write_batch_for_test(
+        &self,
+        records: impl IntoIterator<Item = Op<&[u8]>>,
+    ) -> anyhow::Result<()> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -339,6 +347,7 @@ mod test {
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
     use crate::sst::SstOptions;
+    use crate::state::mut_op::Op;
     use crate::state::states::LsmStorageState;
 
     #[tokio::test]
@@ -1033,4 +1042,128 @@ mod test {
             storage.mvcc().as_ref().unwrap().latest_commit_ts()
         );
     }
+
+    // todo: add test
+    // #[tokio::test]
+    // async fn test_task3_mvcc_compaction() {
+    //     use Op::{Put, Del};
+    //     let dir = tempdir().unwrap();
+    //     let persistent = LocalFs::new(dir.path().to_path_buf());
+    //     let options = SstOptions::builder()
+    //         .target_sst_size(1024)
+    //         .block_size(4096)
+    //         .num_memtable_limit(1000)
+    //         .compaction_option(Default::default())
+    //         .enable_wal(true)
+    //         .build();
+    //     let storage = LsmStorageState::new(options, persistent).await.unwrap();
+    //
+    //     let snapshot0 = storage.new_txn().unwrap();
+    //     storage
+    //         .write_batch_for_test(&[
+    //             Put {key: b"a", value: b"1"},
+    //             Put{key: b"b", value: b"1"},
+    //         ]).await
+    //         .unwrap();
+    //     let snapshot1 = storage.new_txn().unwrap();
+    //     storage
+    //         .write_batch_for_test(&[
+    //             Put{key: b"a", value: b"2"},
+    //             Put{key: b"d", value: b"2"},
+    //         ]).await
+    //         .unwrap();
+    //     let snapshot2 = storage.new_txn().unwrap();
+    //     storage
+    //         .write_batch_for_test(&[
+    //             Put{key: b"a", value: b"3"},
+    //             Del(b"d"),
+    //         ]).await
+    //         .unwrap();
+    //     let snapshot3 = storage.new_txn().unwrap();
+    //     storage
+    //         .write_batch_for_test(&[
+    //             Put{key: b"c", value: b"4"},
+    //             Del(b"a"),
+    //         ]).await
+    //         .unwrap();
+    //
+    //     storage.force_flush().unwrap();
+    //     storage.force_full_compaction().unwrap();
+    //
+    //     let mut iter = construct_merge_iterator_over_storage(&storage.inner.state.read());
+    //     check_iter_result_by_key(
+    //         &mut iter,
+    //         vec![
+    //             (Bytes::from("a"), Bytes::new()),
+    //             (Bytes::from("a"), Bytes::from("3")),
+    //             (Bytes::from("a"), Bytes::from("2")),
+    //             (Bytes::from("a"), Bytes::from("1")),
+    //             (Bytes::from("b"), Bytes::from("1")),
+    //             (Bytes::from("c"), Bytes::from("4")),
+    //             (Bytes::from("d"), Bytes::new()),
+    //             (Bytes::from("d"), Bytes::from("2")),
+    //         ],
+    //     );
+    //
+    //     drop(snapshot0);
+    //     storage.force_full_compaction().unwrap();
+    //
+    //     let mut iter = construct_merge_iterator_over_storage(&storage.inner.state.read());
+    //     check_iter_result_by_key(
+    //         &mut iter,
+    //         vec![
+    //             (Bytes::from("a"), Bytes::new()),
+    //             (Bytes::from("a"), Bytes::from("3")),
+    //             (Bytes::from("a"), Bytes::from("2")),
+    //             (Bytes::from("a"), Bytes::from("1")),
+    //             (Bytes::from("b"), Bytes::from("1")),
+    //             (Bytes::from("c"), Bytes::from("4")),
+    //             (Bytes::from("d"), Bytes::new()),
+    //             (Bytes::from("d"), Bytes::from("2")),
+    //         ],
+    //     );
+    //
+    //     drop(snapshot1);
+    //     storage.force_full_compaction().unwrap();
+    //
+    //     let mut iter = construct_merge_iterator_over_storage(&storage.inner.state.read());
+    //     check_iter_result_by_key(
+    //         &mut iter,
+    //         vec![
+    //             (Bytes::from("a"), Bytes::new()),
+    //             (Bytes::from("a"), Bytes::from("3")),
+    //             (Bytes::from("a"), Bytes::from("2")),
+    //             (Bytes::from("b"), Bytes::from("1")),
+    //             (Bytes::from("c"), Bytes::from("4")),
+    //             (Bytes::from("d"), Bytes::new()),
+    //             (Bytes::from("d"), Bytes::from("2")),
+    //         ],
+    //     );
+    //
+    //     drop(snapshot2);
+    //     storage.force_full_compaction().unwrap();
+    //
+    //     let mut iter = construct_merge_iterator_over_storage(&storage.inner.state.read());
+    //     check_iter_result_by_key(
+    //         &mut iter,
+    //         vec![
+    //             (Bytes::from("a"), Bytes::new()),
+    //             (Bytes::from("a"), Bytes::from("3")),
+    //             (Bytes::from("b"), Bytes::from("1")),
+    //             (Bytes::from("c"), Bytes::from("4")),
+    //         ],
+    //     );
+    //
+    //     drop(snapshot3);
+    //     storage.force_full_compaction().unwrap();
+    //
+    //     let mut iter = construct_merge_iterator_over_storage(&storage.inner.state.read());
+    //     check_iter_result_by_key(
+    //         &mut iter,
+    //         vec![
+    //             (Bytes::from("b"), Bytes::from("1")),
+    //             (Bytes::from("c"), Bytes::from("4")),
+    //         ],
+    //     );
+    // }
 }

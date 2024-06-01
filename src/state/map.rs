@@ -1,5 +1,6 @@
-use bytes::Bytes;
 use std::future::Future;
+
+use bytes::Bytes;
 
 pub trait Map {
     type Error;
