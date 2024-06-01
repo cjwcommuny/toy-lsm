@@ -17,6 +17,7 @@ use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
+use crate::mvcc::core::LsmMvccInner;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
@@ -34,6 +35,7 @@ pub struct LsmStorageState<P: Persistent> {
     pub(crate) persistent: P,
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
+    mvcc: Option<LsmMvccInner>,
 }
 
 impl<P> Debug for LsmStorageState<P>
@@ -75,6 +77,7 @@ where
             persistent,
             options,
             sst_id,
+            mvcc: None, // todo
         };
         Ok(this)
     }
@@ -1000,5 +1003,34 @@ mod test {
                 .await;
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_task2_snapshot_watermark() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .enable_wal(true)
+            .build();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+
+        let txn1 = storage.new_txn().unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        storage.put_for_test(b"233", b"23333").await.unwrap();
+        let txn3 = storage.new_txn().unwrap();
+        assert_eq!(storage.mvcc().as_ref().unwrap().watermark(), txn1.read_ts);
+        drop(txn1);
+        assert_eq!(storage.mvcc().as_ref().unwrap().watermark(), txn2.read_ts);
+        drop(txn2);
+        assert_eq!(storage.mvcc().as_ref().unwrap().watermark(), txn3.read_ts);
+        drop(txn3);
+        assert_eq!(
+            storage.mvcc().as_ref().unwrap().watermark(),
+            storage.mvcc().as_ref().unwrap().latest_commit_ts()
+        );
     }
 }
