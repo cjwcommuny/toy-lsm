@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::ops::Bound;
 
 #[derive(PartialEq)]
-pub struct Key<T: AsRef<[u8]>>(T);
+pub struct Key<T>(T);
 
 pub type KeySlice<'a> = Key<&'a [u8]>;
 pub type KeyVec = Key<Vec<u8>>;

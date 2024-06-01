@@ -410,7 +410,6 @@ mod test {
             storage.put_for_test(b"1", b"2333").await.unwrap();
         }
         let num_imm_memtables = storage.inner.load().imm_memtables().len();
-        println!("num_imm_memtables: {}", num_imm_memtables);
         assert!(num_imm_memtables >= 1, "no memtable frozen?");
         for _ in 0..1000 {
             storage.delete_for_test(b"1").await.unwrap();

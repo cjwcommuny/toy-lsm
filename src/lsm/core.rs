@@ -82,7 +82,6 @@ impl<P: Persistent> Lsm<P> {
                 .take_while(|signal| ready(matches!(signal, Trigger)))
                 .for_each(|_| async {
                     let lock = state.state_lock().lock().await;
-                    // println!("trigger compaction");
                     state
                         .force_compact(&lock)
                         .await

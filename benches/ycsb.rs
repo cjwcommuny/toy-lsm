@@ -1,16 +1,17 @@
-use better_mini_lsm::fibonacci;
-use better_mini_lsm::persistent::LocalFs;
-use better_mini_lsm::sst::SstOptions;
-use better_mini_lsm::state::{LsmStorageState, Map};
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use itertools::Itertools;
-use maplit::hashmap;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use criterion::{Criterion, criterion_group, criterion_main};
+use itertools::Itertools;
+use maplit::hashmap;
 use tempfile::tempdir;
 use ycsb::db::DB;
 use ycsb::properties::Properties;
 use ycsb::workload::CoreWorkload;
+
+use better_mini_lsm::persistent::LocalFs;
+use better_mini_lsm::sst::SstOptions;
+use better_mini_lsm::state::{LsmStorageState, Map};
 
 #[derive(Clone)]
 struct LsmStorageStateBench(Arc<LsmStorageState<LocalFs>>);

@@ -15,20 +15,5 @@ mod lsm;
 mod manifest;
 mod test_utils;
 mod utils;
+pub mod mvcc;
 
-pub async fn fibonacci(n: u64) -> u64 {
-    let mut a = 0;
-    let mut b = 1;
-
-    match n {
-        0 => b,
-        _ => {
-            for _ in 0..n {
-                let c = a + b;
-                a = b;
-                b = c;
-            }
-            b
-        }
-    }
-}
