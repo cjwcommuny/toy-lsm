@@ -5,17 +5,28 @@ use crate::iterators::{
     MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
+use derive_new::new;
 use futures::{stream, Stream, StreamExt};
+use getset::CopyGetters;
+use serde::{Deserialize, Serialize};
 use std::future::{ready, Future};
 use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
 use tracing::error;
 
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::persistent::{Persistent, SstHandle};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 
-pub fn apply_compaction<File: PersistentHandle>(
+#[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
+#[getset(get_copy = "pub")]
+pub struct CompactionTask {
+    source: usize,
+    source_index: usize,
+    destination: usize,
+}
+
+pub fn apply_compaction<File: SstHandle>(
     sstables: &mut Sstables<File>,
     source: Range<usize>,
     source_level: usize,
@@ -58,11 +69,11 @@ pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
     next_sst_id: impl Fn() -> usize + Send + 'a + Sync,
     options: &'a SstOptions,
     persistent: &'a P,
-) -> anyhow::Result<Vec<Arc<SsTable<P::Handle>>>>
+) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>
 where
-    U: IntoIterator<Item = &'a SsTable<P::Handle>> + Send + 'a,
+    U: IntoIterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
     U::IntoIter: Send,
-    L: IntoIterator<Item = &'a SsTable<P::Handle>> + Send + 'a,
+    L: IntoIterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
     L::IntoIter: Send,
 {
     // todo: non-zero level should use concat iterator
@@ -108,7 +119,7 @@ async fn batch<I, P>(
     block_size: usize,
     target_sst_size: usize,
     persistent: &P,
-) -> Option<Arc<SsTable<P::Handle>>>
+) -> Option<Arc<SsTable<P::SstHandle>>>
 where
     P: Persistent,
     I: Stream<Item = anyhow::Result<Entry>> + Unpin,

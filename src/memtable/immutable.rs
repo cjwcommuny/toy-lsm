@@ -1,30 +1,28 @@
-use bytemuck::TransparentWrapper;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 
-use crate::entry::Entry;
-use crate::key::KeySlice;
-use crate::memtable::iterator::MaybeEmptyMemTableIterRef;
-use crate::memtable::mutable::MemTable;
-use crate::sst::SsTableBuilder;
+use bytemuck::TransparentWrapper;
 use bytes::Bytes;
 use crossbeam_skiplist::map;
 use deref_ext::DerefExt;
 use derive_new::new;
-use nom::AsBytes;
 use ref_cast::RefCast;
+
+use crate::memtable::iterator::MaybeEmptyMemTableIterRef;
+use crate::memtable::mutable::MemTable;
+use crate::persistent::interface::WalHandle;
 
 #[derive(RefCast, TransparentWrapper, new)]
 #[repr(transparent)]
-pub struct ImmutableMemTable(MemTable);
+pub struct ImmutableMemTable<W>(MemTable<W>);
 
-impl Debug for ImmutableMemTable {
+impl<W> Debug for ImmutableMemTable<W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl ImmutableMemTable {
+impl<W> ImmutableMemTable<W> {
     pub fn approximate_size(&self) -> usize {
         self.0.approximate_size()
     }
@@ -35,7 +33,9 @@ impl ImmutableMemTable {
     pub fn id(&self) -> usize {
         *self.0.id()
     }
+}
 
+impl<W: WalHandle> ImmutableMemTable<W> {
     pub async fn scan<'a>(
         &'a self,
         lower: Bound<&'a [u8]>,
@@ -53,8 +53,8 @@ impl ImmutableMemTable {
     }
 }
 
-impl From<MemTable> for ImmutableMemTable {
-    fn from(table: MemTable) -> Self {
+impl<W> From<MemTable<W>> for ImmutableMemTable<W> {
+    fn from(table: MemTable<W>) -> Self {
         Self::new(table)
     }
 }

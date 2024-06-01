@@ -2,22 +2,24 @@ use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::ops::Deref;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use arc_swap::{ArcSwap, Guard};
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use deref_ext::DerefExt;
 use derive_getters::Getters;
 use futures::StreamExt;
 use tokio::sync::{Mutex, MutexGuard};
+use tracing_futures::Instrument;
 
 use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
+use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::persistent::Persistent;
-use crate::sst::compact::leveled::force_compaction;
-use crate::sst::{SsTableBuilder, SstOptions, Sstables};
+use crate::sst::compact::leveled::force_compact;
+use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
 use crate::utils::vec::pop;
@@ -26,7 +28,8 @@ use crate::utils::vec::pop;
 pub struct LsmStorageState<P: Persistent> {
     pub(crate) inner: ArcSwap<LsmStorageStateInner<P>>,
     block_cache: Arc<BlockCache>,
-    state_lock: Mutex<()>,
+    manifest: Manifest<P::ManifestHandle>,
+    pub(crate) state_lock: Mutex<()>,
     pub(crate) persistent: P,
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
@@ -50,20 +53,29 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    pub fn new(options: SstOptions, persistent: P) -> Self {
-        let snapshot = LsmStorageStateInner::builder()
-            .memtable(Arc::new(MemTable::create(0)))
-            .imm_memtables(Vec::new())
-            .sstables_state(Arc::new(Sstables::new(&options)))
-            .build();
-        Self {
-            inner: ArcSwap::new(Arc::new(snapshot)),
+    pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
+        let (manifest, manifest_records) = Manifest::recover(&persistent).await?;
+        let block_cache = Arc::new(BlockCache::new(1024));
+        let (inner, next_sst_id) = LsmStorageStateInner::recover(
+            &options,
+            &manifest,
+            manifest_records,
+            &persistent,
+            Some(block_cache.clone()),
+        )
+        .await?;
+        let sst_id = AtomicUsize::new(next_sst_id);
+
+        let this = Self {
+            inner: ArcSwap::new(Arc::new(inner)),
             block_cache: Arc::new(BlockCache::new(1024)),
+            manifest,
             state_lock: Mutex::default(),
             persistent,
             options,
-            sst_id: AtomicUsize::new(1),
-        }
+            sst_id,
+        };
+        Ok(this)
     }
 }
 
@@ -92,15 +104,21 @@ where
         value: impl Into<Bytes> + Send,
     ) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
-        snapshot.memtable().put(key.into(), value.into())?;
-        self.try_freeze_memtable(&snapshot).await;
+        snapshot
+            .memtable()
+            .put(key.into(), value.into())
+            .instrument(tracing::info_span!("memtable_put"))
+            .await?;
+        self.try_freeze_memtable(&snapshot)
+            .instrument(tracing::info_span!("try_freeze_memtable"))
+            .await?;
         Ok(())
     }
 
     async fn delete(&self, key: impl Into<Bytes> + Send) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
-        snapshot.memtable().put(key.into(), Bytes::new())?;
-        self.try_freeze_memtable(&snapshot).await;
+        snapshot.memtable().put(key.into(), Bytes::new()).await?;
+        self.try_freeze_memtable(&snapshot).await?;
         Ok(())
     }
 }
@@ -110,8 +128,7 @@ where
     P: Persistent,
 {
     pub(crate) fn next_sst_id(&self) -> usize {
-        self.sst_id()
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        self.sst_id().fetch_add(1, Ordering::Relaxed)
     }
 
     fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
@@ -125,23 +142,45 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    async fn try_freeze_memtable(&self, snapshot: &LsmStorageStateInner<P>) {
+    async fn try_freeze_memtable(&self, snapshot: &LsmStorageStateInner<P>) -> anyhow::Result<()> {
         if self.exceed_memtable_size_limit(snapshot.memtable()) {
             let guard = self.state_lock.lock().await;
             if self.exceed_memtable_size_limit(snapshot.memtable()) {
-                self.force_freeze_memtable(&guard);
+                self.force_freeze_memtable(&guard).await?;
             }
         }
+        Ok(())
     }
 
-    fn exceed_memtable_size_limit(&self, memtable: &impl Deref<Target = MemTable>) -> bool {
+    fn exceed_memtable_size_limit<W>(&self, memtable: &impl Deref<Target = MemTable<W>>) -> bool {
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
-    fn force_freeze_memtable(&self, _guard: &MutexGuard<()>) {
+    pub(crate) async fn force_freeze_memtable(
+        &self,
+        _guard: &MutexGuard<'_, ()>,
+    ) -> anyhow::Result<()> {
         let snapshot = self.inner.load_full();
-        let new = freeze_memtable(snapshot, self.next_sst_id());
+        let new = freeze_memtable(
+            snapshot,
+            self.next_sst_id(),
+            &self.persistent,
+            &self.manifest,
+        )
+        .await?;
         self.inner.store(new);
+        Ok(())
+    }
+
+    pub async fn may_flush_imm_memtable(&self) -> anyhow::Result<()> {
+        let num_memtable_limit = *self.options.num_memtable_limit();
+        if self.inner.load().imm_memtables.len() + 1 >= num_memtable_limit {
+            let guard = self.state_lock.lock().await;
+            if self.inner.load().imm_memtables.len() + 1 >= num_memtable_limit {
+                self.force_flush_imm_memtable(&guard).await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn force_flush_imm_memtable(
@@ -154,6 +193,7 @@ where
                 cur,
                 &self.block_cache,
                 self.persistent(),
+                &self.manifest,
                 *self.options.block_size(),
             )
             .await?
@@ -167,16 +207,18 @@ where
 
     pub async fn force_compact(&self, _guard: &MutexGuard<'_, ()>) -> anyhow::Result<()> {
         let new = {
-            let cur = self.inner.load();
-            let mut new = Clone::clone(cur.as_ref());
+            let mut new = Clone::clone(self.inner.load().as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
-            force_compaction(
+
+            force_compact(
                 &mut new_sstables,
                 || self.next_sst_id(),
                 self.options(),
                 self.persistent(),
+                Some(&self.manifest),
             )
             .await?;
+
             new.sstables_state = Arc::new(new_sstables);
             new
         };
@@ -185,36 +227,48 @@ where
     }
 }
 
-fn freeze_memtable<P: Persistent>(
+async fn freeze_memtable<P: Persistent>(
     old: Arc<LsmStorageStateInner<P>>,
     next_sst_id: usize,
-) -> Arc<LsmStorageStateInner<P>> {
-    let new_memtable = Arc::new(MemTable::create(next_sst_id));
+    persistent: &P,
+    manifest: &Manifest<P::ManifestHandle>,
+) -> anyhow::Result<Arc<LsmStorageStateInner<P>>> {
+    let new_memtable = {
+        let table = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
+        Arc::new(table)
+    };
     let new_imm_memtables = {
-        let old_memtable = old.memtable().clone().into_imm();
+        let old_memtable = old.memtable().clone().into_imm().await?;
+
         let mut new = Vec::with_capacity(old.imm_memtables().len() + 1);
         new.push(old_memtable);
         new.extend_from_slice(old.imm_memtables());
         new
     };
+
     let new_state = LsmStorageStateInner::builder()
         .memtable(new_memtable)
         .imm_memtables(new_imm_memtables)
         .sstables_state(old.sstables_state().clone())
         .build();
-    Arc::new(new_state)
+    Ok(Arc::new(new_state))
 }
 
 async fn flush_imm_memtable<P: Persistent>(
     old: Arc<LsmStorageStateInner<P>>,
     block_cache: &Arc<BlockCache>,
     persistent: &P,
+    manifest: &Manifest<P::ManifestHandle>,
     block_size: usize,
 ) -> anyhow::Result<Option<Arc<LsmStorageStateInner<P>>>> {
     let (imm, last_memtable) = pop(old.imm_memtables().clone());
     let Some(last_memtable) = last_memtable else {
         return Ok(None);
     };
+
+    manifest
+        .add_record(ManifestRecord::Flush(Flush(last_memtable.id())))
+        .await?;
 
     let sst = {
         let mut builder = SsTableBuilder::new(block_size);
@@ -223,6 +277,8 @@ async fn flush_imm_memtable<P: Persistent>(
             .build(last_memtable.id(), Some(block_cache.clone()), persistent)
             .await
     }?;
+
+    persistent.delete_wal(last_memtable.id()).await?;
 
     let state = {
         let mut state = (**old.sstables_state()).clone();
@@ -260,18 +316,14 @@ where
 
 #[cfg(test)]
 mod test {
-    use bytes::Bytes;
     use std::collections::Bound;
     use std::ops::Bound::{Included, Unbounded};
-    use std::time::Duration;
+
+    use bytes::Bytes;
+    use futures::StreamExt;
+    use tempfile::{tempdir, TempDir};
 
     use crate::entry::Entry;
-    use futures::{stream, Stream, StreamExt};
-    use tempfile::{tempdir, TempDir};
-    use tokio::time::timeout;
-    use tracing::{info, Instrument};
-    use tracing_subscriber::fmt::format::FmtSpan;
-
     use crate::iterators::no_deleted::new_no_deleted_iter;
     use crate::iterators::two_merge::create_inner;
     use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
@@ -284,7 +336,7 @@ mod test {
     #[tokio::test]
     async fn test_task2_storage_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
 
         assert_eq!(None, storage.get_for_test(b"0").await.unwrap());
 
@@ -314,7 +366,7 @@ mod test {
     #[tokio::test]
     async fn test_task3_storage_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
 
         assert_eq!(storage.inner.load().imm_memtables().len(), 0);
 
@@ -324,7 +376,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
         assert_eq!(storage.inner.load().imm_memtables().len(), 1);
 
@@ -337,7 +389,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
         assert_eq!(storage.inner.load().imm_memtables().len(), 2);
         assert_eq!(
@@ -353,7 +405,7 @@ mod test {
     #[tokio::test]
     async fn test_task3_freeze_on_capacity() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         for _ in 0..1000 {
             storage.put_for_test(b"1", b"2333").await.unwrap();
         }
@@ -372,7 +424,7 @@ mod test {
     #[tokio::test]
     async fn test_task4_storage_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
 
         assert_eq!(&storage.get_for_test(b"0").await.unwrap(), &None);
         storage.put_for_test(b"1", b"233").await.unwrap();
@@ -381,7 +433,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.delete_for_test(b"1").await.unwrap();
@@ -391,7 +443,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"1", b"233333").await.unwrap();
@@ -415,14 +467,14 @@ mod test {
     #[tokio::test]
     async fn test_task4_integration() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         storage.put_for_test(b"1", b"233").await.unwrap();
         storage.put_for_test(b"2", b"2333").await.unwrap();
         storage.put_for_test(b"3", b"23333").await.unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.delete_for_test(b"1").await.unwrap();
@@ -432,7 +484,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"1", b"233333").await.unwrap();
@@ -470,14 +522,14 @@ mod test {
         //     .with_level(false)
         //     .init();
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         storage.put_for_test(b"0", b"2333333").await.unwrap();
         storage.put_for_test(b"00", b"2333333").await.unwrap();
         storage.put_for_test(b"4", b"23").await.unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -485,7 +537,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -494,14 +546,14 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"00", b"2333").await.unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"3", b"23333").await.unwrap();
@@ -562,14 +614,14 @@ mod test {
     #[tokio::test]
     async fn test_task1_storage_get() {
         let dir = tempdir().unwrap();
-        let storage = build_storage(&dir);
+        let storage = build_storage(&dir).await.unwrap();
         storage.put_for_test(b"0", b"2333333").await.unwrap();
         storage.put_for_test(b"00", b"2333333").await.unwrap();
         storage.put_for_test(b"4", b"23").await.unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -577,7 +629,7 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
         }
 
@@ -586,14 +638,14 @@ mod test {
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"00", b"2333").await.unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
-            storage.force_freeze_memtable(&guard);
+            storage.force_freeze_memtable(&guard).await.unwrap();
         }
 
         storage.put_for_test(b"3", b"23333").await.unwrap();
@@ -687,14 +739,15 @@ mod test {
         assert_eq!(storage.get_for_test(b"555").await.unwrap(), None);
     }
 
-    fn build_storage(dir: &TempDir) -> LsmStorageState<impl Persistent> {
+    async fn build_storage(dir: &TempDir) -> anyhow::Result<LsmStorageState<impl Persistent>> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
             .target_sst_size(1024)
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
+            .enable_wal(false)
             .build();
-        LsmStorageState::new(options, persistent)
+        LsmStorageState::new(options, persistent).await
     }
 }

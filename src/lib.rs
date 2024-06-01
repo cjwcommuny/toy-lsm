@@ -12,6 +12,7 @@ pub mod state;
 mod wal;
 
 mod lsm;
+mod manifest;
 mod test_utils;
 mod utils;
 

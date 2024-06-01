@@ -37,7 +37,7 @@ impl<'a, P> LockedLsmIter<'a, P>
 where
     P: Persistent,
 {
-    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a, P::Handle>> {
+    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a, P::SstHandle>> {
         let a = self.build_memtable_iter().await;
         let b = self.build_sst_iter().await?;
         let merge = create_two_merge_iter(a, b).await?;
@@ -61,7 +61,7 @@ where
         create_merge_iter_from_non_empty_iters(iters).await
     }
 
-    pub async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::Handle>> {
+    pub async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::SstHandle>> {
         self.state
             .sstables_state()
             .scan_sst(self.lower, self.upper)

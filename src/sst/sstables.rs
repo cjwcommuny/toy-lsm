@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use deref_ext::DerefExt;
 use std::cmp::max;
 use std::collections::{Bound, HashMap};
@@ -23,7 +24,9 @@ use crate::iterators::{
     iter_fut_to_stream, MergeIterator, NonEmptyStream,
 };
 use crate::key::KeySlice;
-use crate::persistent::{Persistent, PersistentHandle};
+use crate::manifest::{Compaction, Flush, ManifestRecord};
+use crate::memtable::ImmutableMemTable;
+use crate::persistent::{Persistent, SstHandle};
 use crate::sst::compact::{
     CompactionOptions, LeveledCompactionOptions, SimpleLeveledCompactionOptions,
 };
@@ -33,6 +36,7 @@ use crate::sst::iterator::{
 };
 use crate::sst::option::SstOptions;
 use crate::sst::{bloom, SsTable, SsTableBuilder};
+use crate::state::LsmStorageStateInner;
 
 #[derive(Default)]
 pub struct Sstables<File> {
@@ -57,7 +61,7 @@ impl<File> Clone for Sstables<File> {
     }
 }
 
-impl<File: PersistentHandle> Debug for Sstables<File> {
+impl<File: SstHandle> Debug for Sstables<File> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sstables")
             .field("l0_sstables", &self.l0_sstables)
@@ -67,10 +71,23 @@ impl<File: PersistentHandle> Debug for Sstables<File> {
     }
 }
 
+impl<File> Sstables<File> {
+    pub fn sst_ids(&self) -> impl Iterator<Item = usize> + '_ {
+        self.l0_sstables
+            .iter()
+            .chain(self.levels.iter().flatten())
+            .copied()
+    }
+}
+
 #[cfg(test)]
 impl<File> Sstables<File> {
     pub fn l0_sstables(&self) -> &[usize] {
         &self.l0_sstables
+    }
+
+    pub fn levels(&self) -> &[Vec<usize>] {
+        &self.levels
     }
 
     pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
@@ -102,7 +119,7 @@ impl<File> Sstables<File> {
 
 impl<File> Sstables<File>
 where
-    File: PersistentHandle,
+    File: SstHandle,
 {
     pub fn insert_sst(&mut self, table: Arc<SsTable<File>>) {
         self.l0_sstables.insert(0, *table.id());
@@ -192,7 +209,7 @@ where
         }
     }
 
-    pub(super) fn table_ids(&self, level: usize) -> &Vec<usize> {
+    pub(crate) fn table_ids(&self, level: usize) -> &Vec<usize> {
         if level == 0 {
             &self.l0_sstables
         } else {
@@ -223,6 +240,13 @@ where
             count,
         }
     }
+
+    pub fn fold_compaction_manifest(&mut self, Compaction(task, result_ids): Compaction) {
+        let source = self.table_ids_mut(task.source());
+        source.remove(task.source_index());
+        let destination = self.table_ids_mut(task.destination());
+        let _ = mem::replace(destination, result_ids);
+    }
 }
 
 fn filter_sst_by_bloom<File>(
@@ -241,6 +265,21 @@ fn filter_sst_by_bloom<File>(
 
 pub fn build_next_sst_id(a: &AtomicUsize) -> impl Fn() -> usize + Sized + '_ {
     || a.fetch_add(1, Relaxed)
+}
+
+pub fn fold_flush_manifest<W, File>(
+    imm_memtables: &mut Vec<Arc<ImmutableMemTable<W>>>,
+    sstables: &mut Sstables<File>,
+    Flush(id): Flush,
+) -> anyhow::Result<()> {
+    let table = imm_memtables
+        .pop()
+        .ok_or(anyhow!("expect memtable with id {}", id))?;
+    if table.id() != id {
+        return Err(anyhow!("expect memtable with id {}", id));
+    }
+    sstables.l0_sstables.insert(0, id);
+    Ok(())
 }
 
 struct DebugLevel {
@@ -281,6 +320,7 @@ mod tests {
             .block_size(4096)
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
+            .enable_wal(false)
             .build();
         let dir = TempDir::new().unwrap();
         let path = dir.as_ref();

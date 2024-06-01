@@ -1,26 +1,26 @@
 use std::fmt::{Debug, Formatter};
+use std::future::Future;
 use std::ops::{Bound, RangeBounds};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use anyhow::Result;
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
-use crossbeam_skiplist::map::Range;
-use crossbeam_skiplist::{map, SkipMap};
+use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
-
-use crate::bound::{map_bound_own, BytesBound};
-use crate::entry::Entry;
-use crate::iterators::NonEmptyStream;
+use nom::AsBytes;
 use ref_cast::RefCast;
+use tracing_futures::Instrument;
 
+use crate::bound::BytesBound;
+use crate::iterators::NonEmptyStream;
+use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
-use crate::memtable::mutable;
+use crate::persistent::interface::{ManifestHandle, WalHandle};
+use crate::persistent::Persistent;
 use crate::state::Map;
-
 use crate::wal::Wal;
 
 /// A basic mem-table based on crossbeam-skiplist.
@@ -29,16 +29,16 @@ use crate::wal::Wal;
 /// chapters of week 1 and week 2.
 /// todo: MemTable 本质是 Map，可以抽象为 trait
 #[derive(Getters)]
-pub struct MemTable {
+pub struct MemTable<W> {
     pub(self) map: SkipMap<Bytes, Bytes>,
-    wal: Option<Wal>,
+    wal: Option<Wal<W>>,
     id: usize,
 
     #[getter(skip)]
     approximate_size: Arc<AtomicUsize>,
 }
 
-impl Debug for MemTable {
+impl<W> Debug for MemTable<W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let first = self.map.iter().next();
         let first = first.as_ref().map(|entry| entry.key());
@@ -54,33 +54,56 @@ impl Debug for MemTable {
     }
 }
 
-impl MemTable {
+impl<W> MemTable<W> {
     /// Create a new mem-table.
+    #[cfg(test)]
     pub fn create(id: usize) -> Self {
+        Self::new(id, SkipMap::new(), None)
+    }
+
+    fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
         Self {
-            map: SkipMap::new(),
-            wal: None,
+            map,
+            wal: wal.into(),
             id,
             approximate_size: Arc::default(),
         }
     }
 
-    pub fn into_imm(self: Arc<Self>) -> Arc<ImmutableMemTable> {
-        TransparentWrapperAlloc::wrap_arc(self)
-    }
-
-    pub fn as_immutable_ref(&self) -> &ImmutableMemTable {
+    pub fn as_immutable_ref(&self) -> &ImmutableMemTable<W> {
         ImmutableMemTable::ref_cast(self)
     }
 
-    /// Create a new mem-table with WAL
-    pub fn create_with_wal(_id: usize, _path: impl AsRef<Path>) -> Result<Self> {
-        unimplemented!()
+    pub fn reset_wal(&mut self) {
+        self.wal = None;
+    }
+}
+
+impl<W: WalHandle> MemTable<W> {
+    pub async fn create_with_wal<P: Persistent<WalHandle = W>>(
+        id: usize,
+        persistent: &P,
+        manifest: &Manifest<P::ManifestHandle>,
+    ) -> anyhow::Result<Self> {
+        let wal = Wal::create(id, persistent).await?;
+        let this = Self::new(id, SkipMap::new(), wal);
+
+        {
+            let manifest_record = ManifestRecord::NewMemtable(NewMemtable(id));
+            manifest.add_record(manifest_record).await?;
+        }
+
+        Ok(this)
     }
 
     /// Create a memtable from WAL
-    pub fn recover_from_wal(_id: usize, _path: impl AsRef<Path>) -> Result<Self> {
-        unimplemented!()
+    pub async fn recover_from_wal<P: Persistent<WalHandle = W>>(
+        id: usize,
+        persistent: &P,
+    ) -> anyhow::Result<Self> {
+        let (wal, map) = Wal::recover(id, persistent).await?;
+        let this = Self::new(id, map, wal);
+        Ok(this)
     }
 
     /// Get a value by key.
@@ -92,20 +115,29 @@ impl MemTable {
     ///
     /// In week 1, day 1, simply put the key-value pair into the skipmap.
     /// In week 2, day 6, also flush the data to WAL.
-    pub fn put(&self, key: Bytes, value: Bytes) -> Result<()> {
+    pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
         let size = key.len() + value.len();
+        if let Some(wal) = self.wal.as_ref() {
+            wal.put(key.as_bytes(), value.as_bytes())
+                .instrument(tracing::info_span!("wal_put"))
+                .await?
+        }
         self.map.insert(key, value);
-
         self.approximate_size.fetch_add(size, Ordering::Release);
 
         Ok(())
     }
 
-    pub fn sync_wal(&self) -> Result<()> {
+    pub async fn sync_wal(&self) -> anyhow::Result<()> {
         if let Some(ref wal) = self.wal {
-            wal.sync()?;
+            wal.sync().await?;
         }
         Ok(())
+    }
+
+    pub async fn into_imm(self: Arc<Self>) -> anyhow::Result<Arc<ImmutableMemTable<W>>> {
+        self.sync_wal().await?;
+        Ok(TransparentWrapperAlloc::wrap_arc(self))
     }
 
     /// Get an iterator over a range of keys.
@@ -113,7 +145,7 @@ impl MemTable {
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
         let iter = self.map.range(BytesBound {
             start: lower,
             end: upper,
@@ -123,10 +155,15 @@ impl MemTable {
     }
 }
 
+fn build_path(dir: impl AsRef<Path>, id: usize) -> PathBuf {
+    dir.as_ref().join(format!("{}.wal", id))
+}
+
 #[cfg(test)]
-impl MemTable {
-    pub fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> Result<()> {
+impl<W: WalHandle> MemTable<W> {
+    pub async fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
+            .await
     }
 
     pub fn for_testing_get_slice(&self, key: &[u8]) -> Option<Bytes> {
@@ -137,12 +174,12 @@ impl MemTable {
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> Result<MaybeEmptyMemTableIterRef<'a>> {
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
         self.scan(lower, upper).await
     }
 }
 
-impl MemTable {
+impl<W> MemTable<W> {
     pub fn approximate_size(&self) -> usize {
         self.approximate_size.load(Ordering::Relaxed)
     }
@@ -158,48 +195,109 @@ impl MemTable {
 
 #[cfg(test)]
 mod test {
-    use crate::memtable::mutable::MemTable;
+    use tempfile::tempdir;
 
-    #[test]
-    fn test_task1_memtable_get() {
-        let memtable = MemTable::create(0);
-        memtable.for_testing_put_slice(b"key1", b"value1").unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value2").unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value3").unwrap();
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key1").unwrap()[..],
-            b"value1"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key2").unwrap()[..],
-            b"value2"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key3").unwrap()[..],
-            b"value3"
-        );
+    use crate::manifest::Manifest;
+    use crate::memtable::mutable::MemTable;
+    use crate::persistent::LocalFs;
+
+    #[tokio::test]
+    async fn test_task1_memtable_get_wal() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let manifest = Manifest::create(&persistent).await.unwrap();
+        let id = 123;
+
+        {
+            let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key1", b"value1")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key2", b"value2")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key3", b"value3")
+                .await
+                .unwrap();
+
+            memtable.sync_wal().await.unwrap();
+        }
+
+        {
+            let memtable = MemTable::recover_from_wal(id, &persistent).await.unwrap();
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key1").unwrap()[..],
+                b"value1"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key2").unwrap()[..],
+                b"value2"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key3").unwrap()[..],
+                b"value3"
+            );
+        }
     }
 
-    #[test]
-    fn test_task1_memtable_overwrite() {
-        let memtable = MemTable::create(0);
-        memtable.for_testing_put_slice(b"key1", b"value1").unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value2").unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value3").unwrap();
-        memtable.for_testing_put_slice(b"key1", b"value11").unwrap();
-        memtable.for_testing_put_slice(b"key2", b"value22").unwrap();
-        memtable.for_testing_put_slice(b"key3", b"value33").unwrap();
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key1").unwrap()[..],
-            b"value11"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key2").unwrap()[..],
-            b"value22"
-        );
-        assert_eq!(
-            &memtable.for_testing_get_slice(b"key3").unwrap()[..],
-            b"value33"
-        );
+    #[tokio::test]
+    async fn test_task1_memtable_overwrite() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let manifest = Manifest::create(&persistent).await.unwrap();
+        let id = 123;
+
+        {
+            let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key1", b"value1")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key2", b"value2")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key3", b"value3")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key1", b"value11")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key2", b"value22")
+                .await
+                .unwrap();
+            memtable
+                .for_testing_put_slice(b"key3", b"value33")
+                .await
+                .unwrap();
+
+            memtable.sync_wal().await.unwrap();
+        }
+
+        {
+            let memtable = MemTable::recover_from_wal(id, &persistent).await.unwrap();
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key1").unwrap()[..],
+                b"value11"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key2").unwrap()[..],
+                b"value22"
+            );
+            assert_eq!(
+                &memtable.for_testing_get_slice(b"key3").unwrap()[..],
+                b"value33"
+            );
+        }
     }
 }
