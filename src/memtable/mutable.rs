@@ -15,6 +15,7 @@ use tracing_futures::Instrument;
 
 use crate::bound::BytesBound;
 use crate::iterators::NonEmptyStream;
+use crate::key::KeyBytes;
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
