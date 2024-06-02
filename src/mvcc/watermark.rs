@@ -11,16 +11,28 @@ impl Watermark {
         }
     }
 
-    pub fn add_reader(&mut self, ts: u64) {}
+    pub fn add_reader(&mut self, ts: u64) {
+        self.readers
+            .entry(ts)
+            .and_modify(|count| *count = *count + 1)
+            .or_insert(1);
+    }
 
-    pub fn remove_reader(&mut self, ts: u64) {}
+    pub fn remove_reader(&mut self, ts: u64) {
+        let count = self.readers.get_mut(&ts).unwrap();
+        if *count == 1 {
+            self.readers.remove(&ts);
+        } else {
+            *count = *count - 1;
+        }
+    }
 
     pub fn watermark(&self) -> Option<u64> {
-        todo!()
+        self.readers.keys().copied().next()
     }
 
     fn num_retained_snapshots(&self) -> usize {
-        todo!()
+        self.readers.len()
     }
 }
 
