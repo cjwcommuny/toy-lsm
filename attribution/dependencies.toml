@@ -236,7 +236,7 @@ repository = "https://github.com/Lokathor/bytemuck"
 
 [[dependencies]]
 name = "bytemuck_derive"
-version = "1.6.0"
+version = "1.6.1"
 description = "derive proc-macros for `bytemuck`"
 license = "Zlib OR Apache-2.0 OR MIT"
 notices = [
@@ -391,6 +391,14 @@ authors = [
 repository = "https://github.com/smol-rs/concurrent-queue"
 
 [[dependencies]]
+name = "convert_case"
+version = "0.4.0"
+description = "Convert strings into any case"
+license = "MIT"
+authors = ["David Purdum <purdum41@gmail.com>"]
+repository = "https://github.com/rutrum/convert-case"
+
+[[dependencies]]
 name = "criterion"
 version = "0.5.1"
 description = "Statistics-driven micro-benchmarking library"
@@ -505,6 +513,15 @@ notices = [
 ]
 authors = ["Nick Cameron <nrc@ncameron.org>"]
 repository = "https://github.com/nrc/derive-new"
+
+[[dependencies]]
+name = "derive_more"
+version = "0.99.17"
+description = "Adds #[derive(x)] macros for more traits"
+license = "MIT"
+notices = ["Copyright (c) 2016 Jelte Fennema"]
+authors = ["Jelte Fennema <github-tech@jeltef.nl>"]
+repository = "https://github.com/JelteF/derive_more"
 
 [[dependencies]]
 name = "either"
@@ -1132,7 +1149,7 @@ repository = "https://github.com/reem/rust-ordered-float"
 
 [[dependencies]]
 name = "ouroboros"
-version = "0.18.3"
+version = "0.18.4"
 description = "Easy, safe self-referential struct generation."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2021 Josh", "Copyright 2021 Josh"]
@@ -1141,7 +1158,7 @@ repository = "https://github.com/someguynamedjosh/ouroboros"
 
 [[dependencies]]
 name = "ouroboros_macro"
-version = "0.18.3"
+version = "0.18.4"
 description = "Proc macro for ouroboros crate."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2021 Josh", "Copyright 2021 Josh"]
@@ -1171,7 +1188,7 @@ repository = "https://github.com/smol-rs/parking"
 
 [[dependencies]]
 name = "parking_lot"
-version = "0.12.2"
+version = "0.12.3"
 description = "More compact and efficient implementations of the standard synchronization primitives."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2016 The Rust Project Developers"]
@@ -1230,7 +1247,7 @@ repository = "https://github.com/rust-lang-nursery/pin-utils"
 
 [[dependencies]]
 name = "plotters"
-version = "0.3.5"
+version = "0.3.6"
 description = "A Rust drawing library focus on data plotting for both WASM and native applications"
 license = "MIT"
 authors = ["Hao Hou <haohou302@gmail.com>"]
@@ -1239,7 +1256,7 @@ homepage = "https://plotters-rs.github.io/"
 
 [[dependencies]]
 name = "plotters-backend"
-version = "0.3.5"
+version = "0.3.6"
 description = "Plotters Backend API"
 license = "MIT"
 authors = ["Hao Hou <haohou302@gmail.com>"]
@@ -1248,7 +1265,7 @@ homepage = "https://plotters-rs.github.io"
 
 [[dependencies]]
 name = "plotters-svg"
-version = "0.3.5"
+version = "0.3.6"
 description = "Plotters SVG backend"
 license = "MIT"
 authors = ["Hao Hou <haohou302@gmail.com>"]
@@ -1293,7 +1310,7 @@ repository = "https://gitlab.com/CreepySkeleton/proc-macro-error"
 
 [[dependencies]]
 name = "proc-macro2"
-version = "1.0.83"
+version = "1.0.84"
 description = "A substitute implementation of the compiler's `proc_macro` API to decouple token-based libraries from the procedural macro use case."
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1617,7 +1634,7 @@ repository = "https://github.com/dtolnay/semver"
 
 [[dependencies]]
 name = "serde"
-version = "1.0.202"
+version = "1.0.203"
 description = "A generic serialization/deserialization framework"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1629,7 +1646,7 @@ homepage = "https://serde.rs"
 
 [[dependencies]]
 name = "serde_derive"
-version = "1.0.202"
+version = "1.0.203"
 description = "Macros 1.1 implementation of #[derive(Serialize, Deserialize)]"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -2038,6 +2055,21 @@ Core primitives for application-level tracing.
 license = "MIT"
 notices = ["Copyright (c) 2019 Tokio Contributors"]
 authors = ["Tokio Contributors <team@tokio.rs>"]
+repository = "https://github.com/tokio-rs/tracing"
+homepage = "https://tokio.rs"
+
+[[dependencies]]
+name = "tracing-futures"
+version = "0.2.5"
+description = """
+Utilities for instrumenting `futures` with `tracing`.
+"""
+license = "MIT"
+notices = ["Copyright (c) 2019 Tokio Contributors"]
+authors = [
+  "Eliza Weisman <eliza@buoyant.io>",
+  "Tokio Contributors <team@tokio.rs>",
+]
 repository = "https://github.com/tokio-rs/tracing"
 homepage = "https://tokio.rs"
 
