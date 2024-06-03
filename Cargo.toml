@@ -32,7 +32,7 @@ deref_ext = { git = "https://github.com/cjwcommuny/deref_ext", rev = "2b14702" }
 async-iter-ext = { git = "https://github.com/cjwcommuny/async-iter-ext", rev = "38cf62b" }
 typed-builder = "0.18.2"
 derive-getters = "0.4.0"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
 dashmap = "5.5.3"
 futures = "0.3.30"
 pin-project = "1.1.5"
