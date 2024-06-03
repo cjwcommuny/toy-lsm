@@ -7,6 +7,7 @@ use crossbeam_skiplist::map;
 use deref_ext::DerefExt;
 use derive_new::new;
 use ref_cast::RefCast;
+use crate::key::KeyBytes;
 
 use crate::memtable::iterator::MaybeEmptyMemTableIterRef;
 use crate::memtable::mutable::MemTable;
@@ -48,7 +49,7 @@ impl<W: WalHandle> ImmutableMemTable<W> {
         self.0.get(key)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = map::Entry<Bytes, Bytes>> {
+    pub fn iter(&self) -> impl Iterator<Item = map::Entry<KeyBytes, Bytes>> {
         self.0.map().iter()
     }
 }

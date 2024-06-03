@@ -17,7 +17,7 @@ use ordered_float::NotNan;
 use tokio::sync::RwLock;
 use tracing::error;
 
-use crate::entry::Entry;
+use crate::entry::{Entry, InnerEntry};
 use crate::iterators::merge::MergeIteratorInner;
 use crate::iterators::{
     create_merge_iter, create_merge_iter_from_non_empty_iters, create_two_merge_iter,
@@ -128,8 +128,8 @@ where
 
     pub async fn scan_sst<'a>(
         &'a self,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'a [u8]>,
+        lower: Bound<KeySlice<'a>>,
+        upper: Bound<KeySlice<'a>>,
     ) -> anyhow::Result<MergedSstIterator<'a, File>> {
         let l0 = self.scan_l0(lower, upper).await;
         let levels = self.scan_levels(lower, upper).await;
@@ -139,28 +139,18 @@ where
 
     pub async fn scan_l0<'a>(
         &'a self,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'a [u8]>,
-    ) -> MergeIterator<Entry, SsTableIterator<'a, File>> {
+        lower: Bound<KeySlice<'a>>,
+        upper: Bound<KeySlice<'a>>,
+    ) -> MergeIterator<InnerEntry, SsTableIterator<'a, File>> {
         let iters = self.build_l0_iter(lower, upper);
         let iters = stream::iter(iters);
         create_merge_iter(iters).await
     }
 
-    async fn scan_l02<'a>(
-        &'a self,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'a [u8]>,
-    ) -> MergeIteratorInner<Entry, SsTableIterator<'a, File>> {
-        let iters = self.build_l0_iter(lower, upper);
-        let iters = stream::iter(iters);
-        MergeIteratorInner::create(iters).await
-    }
-
     fn build_l0_iter<'a>(
         &'a self,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'a [u8]>,
+        lower: Bound<KeySlice<'a>>,
+        upper: Bound<KeySlice<'a>>,
     ) -> impl Iterator<Item = SsTableIterator<'a, File>> + 'a {
         let iters = self
             .l0_sstables
@@ -178,8 +168,8 @@ where
 
     async fn scan_levels<'a>(
         &'a self,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'a [u8]>,
+        lower: Bound<KeySlice<'a>>,
+        upper: Bound<KeySlice<'a>>,
     ) -> MergeIterator<Entry, SstConcatIterator<'a>> {
         let iters = self.levels.iter().filter_map(move |ids| {
             let tables = ids.iter().map(|id| self.sstables.get(id).unwrap().as_ref());
@@ -251,13 +241,14 @@ where
 
 fn filter_sst_by_bloom<File>(
     table: &SsTable<File>,
-    lower: Bound<&[u8]>,
-    upper: Bound<&[u8]>,
+    lower: Bound<KeySlice>,
+    upper: Bound<KeySlice>,
 ) -> bool {
     use Bound::Included;
     if let (Included(lower), Included(upper)) = (lower, upper) {
         if lower == upper {
-            return bloom::may_contain(table.bloom.as_ref(), lower);
+            return true
+            // return bloom::may_contain(table.bloom.as_ref(), lower);
         }
     }
     true

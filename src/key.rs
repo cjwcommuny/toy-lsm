@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use bytes::Bytes;
 use derive_new::new;
 use nom::AsBytes;
@@ -22,6 +23,17 @@ impl<T> Key<T> {
 
     pub fn as_ref(&self) -> Key<&T> {
         Key::new(&self.key, self.timestamp)
+    }
+
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+}
+
+#[cfg(test)]
+impl Key<Bytes> {
+    pub fn new_no_ts(key: &[u8]) -> Self {
+        Self::new(Bytes::copy_from_slice(key), 0)
     }
 }
 

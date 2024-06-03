@@ -1,4 +1,3 @@
-use std::collections::Bound;
 use std::iter;
 
 use bytes::Bytes;
@@ -6,46 +5,45 @@ use crossbeam_skiplist::map;
 use futures::stream;
 
 use crate::bound::BytesBound;
-use crate::entry::Entry;
+use crate::entry::InnerEntry;
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream, OkIter};
+use crate::key::KeyBytes;
 
 pub type MemTableIterator<'a> = stream::Iter<OkIter<ClonedSkipMapRangeIter<'a>>>;
 type ClonedSkipMapRangeIter<'a> =
-    iter::Map<SkipMapRangeIter<'a>, for<'b> fn(SkipMapRangeEntry<'b>) -> Entry>;
+    iter::Map<SkipMapRangeIter<'a>, for<'b> fn(SkipMapRangeEntry<'b>) -> InnerEntry>;
 
 pub fn new_memtable_iter(iter: SkipMapRangeIter) -> MemTableIterator {
-    let iter = iter.map(convert_entry as for<'a> fn(map::Entry<'a, Bytes, Bytes>) -> _);
+    let iter = iter.map(convert_entry as for<'a> fn(map::Entry<'a, KeyBytes, Bytes>) -> _);
     stream::iter(OkIter::new(iter))
 }
 
-fn convert_entry(x: map::Entry<'_, Bytes, Bytes>) -> Entry {
-    Entry {
+fn convert_entry(x: map::Entry<'_, KeyBytes, Bytes>) -> InnerEntry {
+    InnerEntry {
         key: x.key().clone(),
         value: x.value().clone(),
     }
 }
 
-type SkipMapRangeIter<'a> = map::Range<'a, [u8], BytesBound<'a>, Bytes, Bytes>;
+type SkipMapRangeIter<'a> = map::Range<'a, KeyBytes, BytesBound<'a>, KeyBytes, Bytes>;
 
 type SkipMapRangeEntry<'a> = map::Entry<'a, Bytes, Bytes>;
 
-pub type NonEmptyMemTableIterRef<'a> = NonEmptyStream<Entry, MemTableIterator<'a>>;
-pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<Entry, MemTableIterator<'a>>;
+pub type NonEmptyMemTableIterRef<'a> = NonEmptyStream<InnerEntry, MemTableIterator<'a>>;
+pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<InnerEntry, MemTableIterator<'a>>;
 
 #[cfg(test)]
 mod test {
+    use std::collections::Bound;
+
+    use futures::{stream, Stream, StreamExt};
+    use nom::AsBytes;
+
     use crate::entry::Entry;
-    use crate::iterators::{
-        create_merge_iter, create_merge_iter_from_non_empty_iters, eq, MergeIterator,
-    };
+    use crate::iterators::create_merge_iter_from_non_empty_iters;
     use crate::memtable::MemTable;
     use crate::persistent::interface::WalHandle;
     use crate::persistent::wal_handle::WalFile;
-    use bytes::Bytes;
-    use futures::{stream, Stream, StreamExt};
-    use nom::AsBytes;
-    use std::collections::Bound;
-    use std::vec;
 
     #[tokio::test]
     async fn test_task1_memtable_iter() {

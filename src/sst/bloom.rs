@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use crate::key::KeySlice;
 
 /// Implements a bloom filter
 pub struct Bloom {

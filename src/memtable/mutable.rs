@@ -15,7 +15,7 @@ use tracing_futures::Instrument;
 
 use crate::bound::BytesBound;
 use crate::iterators::NonEmptyStream;
-use crate::key::KeyBytes;
+use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
@@ -31,7 +31,7 @@ use crate::wal::Wal;
 /// todo: MemTable 本质是 Map，可以抽象为 trait
 #[derive(Getters)]
 pub struct MemTable<W> {
-    pub(self) map: SkipMap<Bytes, Bytes>,
+    pub(self) map: SkipMap<KeyBytes, Bytes>,
     wal: Option<Wal<W>>,
     id: usize,
 
@@ -62,7 +62,7 @@ impl<W> MemTable<W> {
         Self::new(id, SkipMap::new(), None)
     }
 
-    fn new(id: usize, map: SkipMap<Bytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
+    fn new(id: usize, map: SkipMap<KeyBytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
         Self {
             map,
             wal: wal.into(),
@@ -108,25 +108,18 @@ impl<W: WalHandle> MemTable<W> {
     }
 
     /// Get a value by key.
+    /// todo: remote this method
     pub fn get(&self, key: &[u8]) -> Option<Bytes> {
-        self.map.get(key).map(|x| x.value().clone())
+        self.get_with_ts(KeySlice::new(key, 0))
     }
 
     /// Put a key-value pair into the mem-table.
     ///
     /// In week 1, day 1, simply put the key-value pair into the skipmap.
     /// In week 2, day 6, also flush the data to WAL.
+    /// todo: remote this method
     pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
-        let size = key.len() + value.len();
-        if let Some(wal) = self.wal.as_ref() {
-            wal.put(key.as_bytes(), value.as_bytes())
-                .instrument(tracing::info_span!("wal_put"))
-                .await?
-        }
-        self.map.insert(key, value);
-        self.approximate_size.fetch_add(size, Ordering::Release);
-
-        Ok(())
+        self.put_with_ts(KeyBytes::new(key, 0), value)
     }
 
     pub async fn sync_wal(&self) -> anyhow::Result<()> {
@@ -142,14 +135,49 @@ impl<W: WalHandle> MemTable<W> {
     }
 
     /// Get an iterator over a range of keys.
+    /// todo: remote this method
     pub async fn scan<'a>(
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
+        self.scan_with_ts(lower.map(|k| KeySlice::new(k, 0)), upper.map(|k| KeySlice::new(k, 0)))
+    }
+}
+
+// with transaction
+impl<W: WalHandle> MemTable<W> {
+    pub fn get_with_ts(&self, key: KeySlice) -> Option<Bytes> {
+        // todo: 因为 rust 的 Borrow trait 不够 general，这里需要复制，如何避免？
+        let key = key.map(Bytes::copy_from_slice);
+        self.map.get(&key).map(|x| x.value().clone())
+    }
+
+    pub async fn put_with_ts(&self, key: KeyBytes, value: Bytes) -> anyhow::Result<()> {
+        let size = key.len() + value.len();
+        if let Some(wal) = self.wal.as_ref() {
+            wal.put(key.as_key_slice(), value.as_bytes())
+                .instrument(tracing::info_span!("wal_put"))
+                .await?
+        }
+        self.map.insert(key, value);
+        self.approximate_size.fetch_add(size, Ordering::Release);
+
+        Ok(())
+    }
+
+    pub async fn scan_with_ts<'a>(
+        &'a self,
+        lower: Bound<KeySlice<'a>>,
+        upper: Bound<KeySlice<'a>>,
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
+        // todo: 由于 rust 的 Borrow trait 的限制，这里只能 copy
+        let lower = lower.map(|ks| ks.map(Bytes::copy_from_slice));
+        let upper = upper.map(|ks| ks.map(Bytes::copy_from_slice));
+
         let iter = self.map.range(BytesBound {
-            start: lower,
-            end: upper,
+            start: lower.as_ref(),
+            end: upper.as_ref(),
         });
         let iter = new_memtable_iter(iter);
         NonEmptyStream::try_new(iter).await

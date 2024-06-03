@@ -10,6 +10,7 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tracing_futures::Instrument;
+use crate::key::{KeyBytes, KeySlice};
 
 use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
@@ -33,7 +34,7 @@ impl<File: WalHandle> Wal<File> {
     pub async fn recover<P: Persistent<WalHandle = File>>(
         id: usize,
         persistent: &P,
-    ) -> anyhow::Result<(Self, SkipMap<Bytes, Bytes>)> {
+    ) -> anyhow::Result<(Self, SkipMap<KeyBytes, Bytes>)> {
         let mut file = persistent.open_wal_handle(id).await?;
         let data = {
             let mut data = Vec::new();
@@ -45,8 +46,12 @@ impl<File: WalHandle> Wal<File> {
         while data.has_remaining() {
             let key_len = data.get_u32();
             let key = data.copy_to_bytes(key_len as usize);
+            let timestamp = data.get_u64();
+            let key = KeyBytes::new(key, timestamp);
+
             let value_len = data.get_u32();
             let value = data.copy_to_bytes(value_len as usize);
+
             map.insert(key, value);
         }
         let wal = Wal {
@@ -55,16 +60,19 @@ impl<File: WalHandle> Wal<File> {
         Ok((wal, map))
     }
 
-    pub async fn put<'a>(&'a self, key: &'a [u8], value: &'a [u8]) -> anyhow::Result<()> {
+    pub async fn put<'a>(&'a self, key: KeySlice<'a>, value: &'a [u8]) -> anyhow::Result<()> {
         let mut guard = self.file.lock().await;
         guard
             .write_u32(key.len() as u32)
             .instrument(tracing::info_span!("wal_put_write_key_len"))
             .await?;
         guard
-            .write_all(key)
+            .write_all(key.raw_ref())
             .instrument(tracing::info_span!("wal_put_write_all_key"))
             .await?;
+        guard.write_u64(key.timestamp())
+            .await?;
+
         guard
             .write_u32(value.len() as u32)
             .instrument(tracing::info_span!("wal_put_write_value_len"))
@@ -100,6 +108,7 @@ async fn get_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
 mod tests {
     use bytes::Bytes;
     use tempfile::tempdir;
+    use crate::key::KeyBytes;
 
     use crate::persistent::LocalFs;
     use crate::wal::Wal;
@@ -122,11 +131,11 @@ mod tests {
         {
             let (wal, map) = Wal::recover(id, &persistent).await.unwrap();
 
-            assert_eq!(map.get(&Bytes::from("111")).unwrap().value(), "a");
-            assert_eq!(map.get(&Bytes::from("222")).unwrap().value(), "bb");
-            assert_eq!(map.get(&Bytes::from("333")).unwrap().value(), "ccc");
-            assert_eq!(map.get(&Bytes::from("4")).unwrap().value(), "");
-            assert!(map.get(&Bytes::from("555")).is_none());
+            assert_eq!(map.get(&KeyBytes::new_no_ts(b"111")).unwrap().value(), "a");
+            assert_eq!(map.get(&KeyBytes::new_no_ts(b"222")).unwrap().value(), "bb");
+            assert_eq!(map.get(&KeyBytes::new_no_ts(b"333")).unwrap().value(), "ccc");
+            assert_eq!(map.get(&KeyBytes::new_no_ts(b"4")).unwrap().value(), "");
+            assert!(map.get(&KeyBytes::new_no_ts(b"555")).is_none());
         }
     }
 }

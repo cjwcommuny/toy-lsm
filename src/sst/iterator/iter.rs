@@ -10,7 +10,7 @@ use pin_project::pin_project;
 use tracing::info;
 
 use crate::block::BlockIterator;
-use crate::entry::Entry;
+use crate::entry::{Entry, InnerEntry};
 use crate::iterators::{iter_fut_iter_to_stream, split_first, MergeIterator, TwoMergeIterator};
 use crate::key::{KeyBytes, KeySlice};
 use crate::persistent::SstHandle;
@@ -19,13 +19,13 @@ use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::{bloom, BlockMeta, SsTable};
 
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
-type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + Send + 'a>>;
+type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<InnerEntry>> + Send + 'a>>;
 
 fn build_iter<'a, File>(
     table: &'a SsTable<File>,
-    lower: Bound<&'a [u8]>,
-    upper: Bound<&'a [u8]>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a
+    lower: Bound<KeySlice<'a>>,
+    upper: Bound<KeySlice<'a>>,
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + Send + 'a
 where
     File: SstHandle,
 {
@@ -134,7 +134,9 @@ pub struct SsTableIterator<'a, File> {
 
 impl<'a, File> SsTableIterator<'a, File> {
     pub fn may_contain(&self, key: &[u8]) -> bool {
-        bloom::may_contain(self.bloom, key)
+        true
+        // todo
+        // bloom::may_contain(self.bloom, key)
     }
 }
 
@@ -145,18 +147,13 @@ where
     pub fn create_and_seek_to_first(table: &'a SsTable<File>) -> Self {
         Self::scan(table, Bound::Unbounded, Bound::Unbounded)
     }
-
-    // todo: 能不能删除
-    pub fn create_and_seek_to_key(table: &'a SsTable<File>, key: &'a [u8]) -> Self {
-        Self::scan(table, Bound::Included(key), Bound::Unbounded)
-    }
 }
 
 impl<'a, File> SsTableIterator<'a, File>
 where
     File: SstHandle,
 {
-    pub fn scan(table: &'a SsTable<File>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
+    pub fn scan(table: &'a SsTable<File>, lower: Bound<KeySlice<'a>>, upper: Bound<KeySlice<'a>>) -> Self {
         let iter = build_iter(table, lower, upper);
         let this = Self {
             table,
@@ -169,7 +166,7 @@ where
 
 // todo: 感觉没必要 impl Stream，使用 (Bloom, InnerIter) 比较好？
 impl<'a, File> Stream for SsTableIterator<'a, File> {
-    type Item = anyhow::Result<Entry>;
+    type Item = anyhow::Result<InnerEntry>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
@@ -179,7 +176,7 @@ impl<'a, File> Stream for SsTableIterator<'a, File> {
     }
 }
 
-pub type BlockFallibleIter = either::Either<BlockIterator, Once<anyhow::Result<Entry>>>;
+pub type BlockFallibleIter = either::Either<BlockIterator, Once<anyhow::Result<InnerEntry>>>;
 
 pub type MergedSstIterator<'a, File> = TwoMergeIterator<
     Entry,

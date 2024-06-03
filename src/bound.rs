@@ -1,17 +1,19 @@
 use std::collections::Bound;
 use std::ops::RangeBounds;
 
+use crate::key::KeyBytes;
+
 pub struct BytesBound<'a> {
-    pub start: Bound<&'a [u8]>,
-    pub end: Bound<&'a [u8]>,
+    pub start: Bound<&'a KeyBytes>,
+    pub end: Bound<&'a KeyBytes>,
 }
 
-impl<'a> RangeBounds<[u8]> for BytesBound<'a> {
-    fn start_bound(&self) -> Bound<&[u8]> {
+impl<'a> RangeBounds<KeyBytes> for BytesBound<'a> {
+    fn start_bound(&self) -> Bound<&KeyBytes> {
         self.start
     }
 
-    fn end_bound(&self) -> Bound<&[u8]> {
+    fn end_bound(&self) -> Bound<&KeyBytes> {
         self.end
     }
 }
