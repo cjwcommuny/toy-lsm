@@ -1,7 +1,7 @@
-use std::borrow::Borrow;
 use bytes::Bytes;
 use derive_new::new;
 use nom::AsBytes;
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Bound;
@@ -27,6 +27,15 @@ impl<T> Key<T> {
 
     pub fn timestamp(&self) -> u64 {
         self.timestamp
+    }
+}
+
+impl<T> From<(T, u64)> for Key<T> {
+    fn from(pair: (T, u64)) -> Self {
+        Self {
+            key: pair.0,
+            timestamp: pair.1,
+        }
     }
 }
 

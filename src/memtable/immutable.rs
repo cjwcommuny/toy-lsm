@@ -2,6 +2,9 @@ use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::Ordering;
 
+use crate::bound::BytesBound;
+use crate::iterators::NonEmptyStream;
+use crate::key::{KeyBytes, KeySlice};
 use bytemuck::TransparentWrapper;
 use bytes::Bytes;
 use crossbeam_skiplist::map;
@@ -9,11 +12,8 @@ use deref_ext::DerefExt;
 use derive_new::new;
 use nom::AsBytes;
 use ref_cast::RefCast;
-use crate::bound::BytesBound;
-use crate::iterators::NonEmptyStream;
-use crate::key::{KeyBytes, KeySlice};
 
-use crate::memtable::iterator::{MaybeEmptyMemTableIterRef, new_memtable_iter};
+use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
 use crate::memtable::mutable::MemTable;
 use crate::persistent::interface::WalHandle;
 

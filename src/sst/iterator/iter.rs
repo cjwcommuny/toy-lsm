@@ -153,7 +153,11 @@ impl<'a, File> SsTableIterator<'a, File>
 where
     File: SstHandle,
 {
-    pub fn scan(table: &'a SsTable<File>, lower: Bound<KeySlice<'a>>, upper: Bound<KeySlice<'a>>) -> Self {
+    pub fn scan(
+        table: &'a SsTable<File>,
+        lower: Bound<KeySlice<'a>>,
+        upper: Bound<KeySlice<'a>>,
+    ) -> Self {
         let iter = build_iter(table, lower, upper);
         let this = Self {
             table,

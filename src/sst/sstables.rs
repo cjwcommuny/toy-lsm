@@ -247,7 +247,7 @@ fn filter_sst_by_bloom<File>(
     use Bound::Included;
     if let (Included(lower), Included(upper)) = (lower, upper) {
         if lower == upper {
-            return true
+            return true;
             // return bloom::may_contain(table.bloom.as_ref(), lower);
         }
     }

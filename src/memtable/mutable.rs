@@ -141,7 +141,10 @@ impl<W: WalHandle> MemTable<W> {
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
-        self.scan_with_ts(lower.map(|k| KeySlice::new(k, 0)), upper.map(|k| KeySlice::new(k, 0)))
+        self.scan_with_ts(
+            lower.map(|k| KeySlice::new(k, 0)),
+            upper.map(|k| KeySlice::new(k, 0)),
+        )
     }
 }
 

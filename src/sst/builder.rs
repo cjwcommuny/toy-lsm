@@ -144,10 +144,7 @@ impl SsTableBuilder {
 
     pub fn flush<W: WalHandle>(&mut self, memtable: &ImmutableMemTable<W>) {
         for entry in memtable.iter() {
-            self.add(
-                entry.key().as_key_slice(),
-                entry.value().as_bytes(),
-            );
+            self.add(entry.key().as_key_slice(), entry.value().as_bytes());
         }
     }
 }

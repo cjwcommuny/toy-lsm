@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
-use bytes::Bytes;
 use crate::key::KeyBytes;
+use bytes::Bytes;
 
 pub type Entry = Keyed<Bytes, Bytes>;
 pub type InnerEntry = Keyed<KeyBytes, Bytes>;
@@ -38,8 +38,6 @@ impl<K, V> Keyed<K, V> {
         let Self { key, value } = self;
         (key, value)
     }
-
-
 }
 
 #[cfg(test)]

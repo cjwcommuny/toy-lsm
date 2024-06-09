@@ -48,6 +48,7 @@ ordered-float = "4.2.2"
 getset = "0.1.2"
 derive_more = "1.0.0"
 tracing-futures = { version = "0.2.5", features = ["futures-03"] }
+num-traits = "0.2.19"
 
 [dev-dependencies]
 tempfile = "3"

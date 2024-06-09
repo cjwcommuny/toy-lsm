@@ -200,6 +200,7 @@ dependencies = [
  "maplit",
  "moka",
  "nom",
+ "num-traits",
  "ordered-float",
  "ouroboros",
  "parking_lot",

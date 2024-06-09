@@ -4,13 +4,13 @@ use std::ops::DerefMut;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::key::{KeyBytes, KeySlice};
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tracing_futures::Instrument;
-use crate::key::{KeyBytes, KeySlice};
 
 use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
@@ -70,8 +70,7 @@ impl<File: WalHandle> Wal<File> {
             .write_all(key.raw_ref())
             .instrument(tracing::info_span!("wal_put_write_all_key"))
             .await?;
-        guard.write_u64(key.timestamp())
-            .await?;
+        guard.write_u64(key.timestamp()).await?;
 
         guard
             .write_u32(value.len() as u32)
@@ -106,9 +105,9 @@ async fn get_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
 
 #[cfg(test)]
 mod tests {
+    use crate::key::KeyBytes;
     use bytes::Bytes;
     use tempfile::tempdir;
-    use crate::key::KeyBytes;
 
     use crate::persistent::LocalFs;
     use crate::wal::Wal;
@@ -133,7 +132,10 @@ mod tests {
 
             assert_eq!(map.get(&KeyBytes::new_no_ts(b"111")).unwrap().value(), "a");
             assert_eq!(map.get(&KeyBytes::new_no_ts(b"222")).unwrap().value(), "bb");
-            assert_eq!(map.get(&KeyBytes::new_no_ts(b"333")).unwrap().value(), "ccc");
+            assert_eq!(
+                map.get(&KeyBytes::new_no_ts(b"333")).unwrap().value(),
+                "ccc"
+            );
             assert_eq!(map.get(&KeyBytes::new_no_ts(b"4")).unwrap().value(), "");
             assert!(map.get(&KeyBytes::new_no_ts(b"555")).is_none());
         }
