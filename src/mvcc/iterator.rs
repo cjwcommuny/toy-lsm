@@ -1,3 +1,4 @@
+use std::future::ready;
 use std::ops::Bound;
 
 use async_iter_ext::StreamTools;
@@ -10,11 +11,15 @@ pub fn build_time_dedup_iter<S, A, T, E>(
 ) -> impl Stream<Item = Result<A, E>> + Unpin + Send
 where
     S: Stream<Item = Result<(A, T), E>> + Unpin + Send,
-    A: PartialEq,
-    T: PartialOrd + Copy,
+    A: PartialEq + Send,
+    E: Send,
+    T: PartialOrd + Copy + Send + Sync,
 {
     let s = s
-        .try_filter(|(_, timestamp)| async { timestamp.le(&timestamp_upper) })
+        .try_filter(move |(_, timestamp)| {
+            let condition = timestamp.le(&timestamp_upper);
+            ready(condition)
+        })
         .dedup_by(|left, right| match (left, right) {
             (Ok((left, _)), Ok((right, _))) => left.eq(right),
             _ => false,

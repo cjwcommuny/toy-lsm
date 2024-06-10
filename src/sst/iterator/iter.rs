@@ -62,11 +62,12 @@ fn transform_stop_iter<'a>(
     upper: KeySlice<'a>,
     f: for<'b> fn(KeySlice<'b>, KeySlice<'b>) -> bool,
 ) -> impl Stream<Item = anyhow::Result<InnerEntry>> + 'a {
-    iter.take_while(move |entry| async {
-        entry
+    iter.take_while(move |entry| {
+        let x = entry
             .as_ref()
             .map(|entry| f(entry.key.as_key_slice(), upper))
             .unwrap_or(true);
+        ready(x)
     })
 }
 

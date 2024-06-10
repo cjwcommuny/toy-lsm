@@ -1,4 +1,4 @@
-use crate::entry::Entry;
+use crate::entry::{Entry, InnerEntry};
 use crate::iterators::merge::MergeIteratorInner;
 use crate::iterators::{
     create_merge_iter_from_non_empty_iters, create_two_merge_iter, iter_fut_to_stream,
@@ -122,7 +122,7 @@ async fn batch<I, P>(
 ) -> Option<Arc<SsTable<P::SstHandle>>>
 where
     P: Persistent,
-    I: Stream<Item = anyhow::Result<Entry>> + Unpin,
+    I: Stream<Item = anyhow::Result<InnerEntry>> + Unpin,
 {
     let mut builder = SsTableBuilder::new(block_size);
 
@@ -137,7 +137,7 @@ where
             continue;
         }
 
-        let key = KeySlice::from_slice(entry.key.as_ref());
+        let key = entry.key.as_key_slice();
         let value = entry.value.as_ref();
         builder.add(key, value);
     }

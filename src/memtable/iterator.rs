@@ -11,7 +11,7 @@ use crate::key::KeyBytes;
 
 pub type MemTableIterator<'a> = stream::Iter<OkIter<ClonedSkipMapRangeIter<'a>>>;
 type ClonedSkipMapRangeIter<'a> =
-    iter::Map<SkipMapRangeIter<'a>, for<'b> fn(SkipMapRangeEntry<'b>) -> InnerEntry>;
+    iter::Map<SkipMapRangeIter<'a>, for<'b> fn(map::Entry<'b, KeyBytes, Bytes>) -> InnerEntry>;
 
 pub fn new_memtable_iter(iter: SkipMapRangeIter) -> MemTableIterator {
     let iter = iter.map(convert_entry as for<'a> fn(map::Entry<'a, KeyBytes, Bytes>) -> _);
@@ -25,9 +25,7 @@ fn convert_entry(x: map::Entry<'_, KeyBytes, Bytes>) -> InnerEntry {
     }
 }
 
-type SkipMapRangeIter<'a> = map::Range<'a, KeyBytes, BytesBound<'a>, KeyBytes, Bytes>;
-
-type SkipMapRangeEntry<'a> = map::Entry<'a, Bytes, Bytes>;
+type SkipMapRangeIter<'a> = map::Range<'a, KeyBytes, BytesBound, KeyBytes, Bytes>;
 
 pub type NonEmptyMemTableIterRef<'a> = NonEmptyStream<InnerEntry, MemTableIterator<'a>>;
 pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<InnerEntry, MemTableIterator<'a>>;

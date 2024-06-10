@@ -79,13 +79,18 @@ where
             let imm_memtables = self.state.imm_memtables().as_slice();
             let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
             let tables = iter::once(memtable).chain(imm_memtables);
-            let iters = stream::iter(tables).filter_map(move |table| async {
-                table
-                    .scan_with_ts(lower, upper)
-                    .await
-                    .inspect_err(|e| error!(error = ?e))
-                    .ok()
-                    .flatten()
+            let iters = stream::iter(tables).filter_map(move |table| {
+                let lower = lower.map(|ks| ks.map(Bytes::copy_from_slice));
+                let upper = upper.map(|ks| ks.map(Bytes::copy_from_slice));
+
+                async {
+                    table
+                        .scan_with_ts(lower, upper)
+                        .await
+                        .inspect_err(|e| error!(error = ?e))
+                        .ok()
+                        .flatten()
+                }
             });
             create_merge_iter_from_non_empty_iters(iters).await
         }

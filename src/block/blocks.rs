@@ -104,7 +104,8 @@ impl Block {
         let (key, value) = self.get_entry_ref(index);
         let key = Bytes::copy_from_slice(key);
         let value = Bytes::copy_from_slice(value);
-        Entry { key, value }
+        // Entry { key, value }
+        todo!()
     }
 
     pub fn first_key(&self) -> KeyBytes {

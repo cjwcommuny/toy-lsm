@@ -142,8 +142,8 @@ impl<W: WalHandle> MemTable<W> {
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
         self.scan_with_ts(
-            lower.map(|k| KeySlice::new(k, 0)),
-            upper.map(|k| KeySlice::new(k, 0)),
+            lower.map(|k| KeyBytes::new(Bytes::copy_from_slice(k), 0)),
+            upper.map(|k| KeyBytes::new(Bytes::copy_from_slice(k), 0)),
         )
         .await
     }
@@ -172,16 +172,14 @@ impl<W: WalHandle> MemTable<W> {
 
     pub async fn scan_with_ts<'a>(
         &'a self,
-        lower: Bound<KeySlice<'a>>,
-        upper: Bound<KeySlice<'a>>,
+        lower: Bound<KeyBytes>,
+        upper: Bound<KeyBytes>,
     ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
         // todo: 由于 rust 的 Borrow trait 的限制，这里只能 copy
-        let lower = lower.map(|ks| ks.map(Bytes::copy_from_slice));
-        let upper = upper.map(|ks| ks.map(Bytes::copy_from_slice));
 
         let iter = self.map.range(BytesBound {
-            start: lower.as_ref(),
-            end: upper.as_ref(),
+            start: lower,
+            end: upper,
         });
         let iter = new_memtable_iter(iter);
         NonEmptyStream::try_new(iter).await
