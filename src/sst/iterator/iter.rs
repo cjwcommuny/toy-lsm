@@ -29,21 +29,19 @@ fn build_iter<'a, File>(
 where
     File: SstHandle,
 {
-    let iter = match lower {
-        Bound::Included(key) => future::Either::Left(future::Either::Left(build_bounded_iter(
-            table,
-            KeySlice::from_slice(key),
-            upper,
-            |meta: &BlockMeta, key| meta.last_key.raw_ref() < key,
-        ))),
-        Bound::Excluded(key) => future::Either::Left(future::Either::Right(build_bounded_iter(
-            table,
-            KeySlice::from_slice(key),
-            upper,
-            |meta, key| meta.last_key.raw_ref() <= key,
-        ))),
-        Bound::Unbounded => future::Either::Right(build_unbounded_iter(table)),
-    };
+    let iter =
+        match lower {
+            Bound::Included(key) => future::Either::Left(future::Either::Left(build_bounded_iter(
+                table,
+                key,
+                upper,
+                |meta: &BlockMeta, key| meta.last_key() < key,
+            ))),
+            Bound::Excluded(key) => future::Either::Left(future::Either::Right(
+                build_bounded_iter(table, key, upper, |meta, key| meta.last_key() <= key),
+            )),
+            Bound::Unbounded => future::Either::Right(build_unbounded_iter(table)),
+        };
     match upper {
         Bound::Included(upper) => future::Either::Left(future::Either::Left(transform_stop_iter(
             iter,
@@ -60,37 +58,33 @@ where
 }
 
 fn transform_stop_iter<'a>(
-    iter: impl Stream<Item = anyhow::Result<Entry>> + 'a,
-    upper: &'a [u8],
-    f: for<'b> fn(&'b [u8], &'b [u8]) -> bool,
-) -> impl Stream<Item = anyhow::Result<Entry>> + 'a {
-    iter.take_while(move |entry| {
-        let condition = entry
+    iter: impl Stream<Item = anyhow::Result<InnerEntry>> + 'a,
+    upper: KeySlice<'a>,
+    f: for<'b> fn(KeySlice<'b>, KeySlice<'b>) -> bool,
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + 'a {
+    iter.take_while(move |entry| async {
+        entry
             .as_ref()
-            .map(|entry| f(&entry.key, upper))
+            .map(|entry| f(entry.key.as_key_slice(), upper))
             .unwrap_or(true);
-        ready(condition)
     })
 }
 
 fn build_bounded_iter<'a, File>(
     table: &'a SsTable<File>,
     low: KeySlice<'a>,
-    upper: Bound<&'a [u8]>,
-    partition: impl for<'c> Fn(&'c BlockMeta, &'c [u8]) -> bool,
-) -> impl Stream<Item = anyhow::Result<Entry>> + 'a
+    upper: Bound<KeySlice<'a>>,
+    partition: impl for<'c> Fn(&'c BlockMeta, KeySlice<'c>) -> bool,
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + 'a
 where
     File: SstHandle,
 {
     let index = table
         .block_meta
         .as_slice()
-        .partition_point(|meta| partition(meta, low.raw_ref()));
+        .partition_point(|meta| partition(meta, low));
 
-    let metas = table.block_meta[index..]
-        .iter()
-        .map(BlockMeta::first_key)
-        .map(KeyBytes::raw_ref);
+    let metas = table.block_meta[index..].iter().map(BlockMeta::first_key);
     let metas = (index..).zip(metas);
 
     let Some(((head_index, _), tail)) = split_first(metas) else {
@@ -116,7 +110,7 @@ where
 
 fn build_unbounded_iter<File>(
     table: &SsTable<File>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + '_
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + '_
 where
     File: SstHandle,
 {

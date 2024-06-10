@@ -170,7 +170,7 @@ where
         &'a self,
         lower: Bound<KeySlice<'a>>,
         upper: Bound<KeySlice<'a>>,
-    ) -> MergeIterator<Entry, SstConcatIterator<'a>> {
+    ) -> MergeIterator<InnerEntry, SstConcatIterator<'a>> {
         let iters = self.levels.iter().filter_map(move |ids| {
             let tables = ids.iter().map(|id| self.sstables.get(id).unwrap().as_ref());
             scan_sst_concat(tables, lower, upper)

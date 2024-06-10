@@ -1,7 +1,7 @@
 use crate::key::KeyBytes;
 use bytes::Bytes;
 
-use crate::entry::Entry;
+use crate::entry::{Entry, InnerEntry};
 
 /// A block is the smallest unit of read and caching in LSM tree. It is a collection of sorted key-value pairs.
 #[derive(Debug)]
@@ -100,7 +100,7 @@ impl Block {
         (data, key)
     }
 
-    pub fn get_entry(&self, index: usize) -> Entry {
+    pub fn get_entry(&self, index: usize) -> InnerEntry {
         let (key, value) = self.get_entry_ref(index);
         let key = Bytes::copy_from_slice(key);
         let value = Bytes::copy_from_slice(value);

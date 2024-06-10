@@ -119,7 +119,7 @@ impl<W: WalHandle> MemTable<W> {
     /// In week 2, day 6, also flush the data to WAL.
     /// todo: remote this method
     pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
-        self.put_with_ts(KeyBytes::new(key, 0), value)
+        self.put_with_ts(KeyBytes::new(key, 0), value).await
     }
 
     pub async fn sync_wal(&self) -> anyhow::Result<()> {
@@ -145,6 +145,7 @@ impl<W: WalHandle> MemTable<W> {
             lower.map(|k| KeySlice::new(k, 0)),
             upper.map(|k| KeySlice::new(k, 0)),
         )
+        .await
     }
 }
 

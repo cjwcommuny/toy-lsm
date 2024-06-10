@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::key::KeyBytes;
+use crate::key::{Key, KeyBytes};
 use bytes::Bytes;
 
 pub type Entry = Keyed<Bytes, Bytes>;
@@ -32,11 +32,18 @@ impl<K: Ord, V> Ord for Keyed<K, V> {
     }
 }
 
-#[cfg(test)]
 impl<K, V> Keyed<K, V> {
     pub fn into_tuple(self) -> (K, V) {
         let Self { key, value } = self;
         (key, value)
+    }
+}
+
+impl<K, V> Keyed<Key<K>, V> {
+    pub fn into_timed_tuple(self) -> (Keyed<K, V>, u64) {
+        let Self { key, value } = self;
+        let (key, timestamp) = key.into_tuple();
+        (Keyed { key, value }, timestamp)
     }
 }
 

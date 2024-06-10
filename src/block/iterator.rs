@@ -1,5 +1,5 @@
 use crate::block::blocks::Block;
-use crate::entry::Entry;
+use crate::entry::{Entry, InnerEntry};
 use crate::key::{Key, KeySlice};
 use std::sync::Arc;
 use tracing::info;
@@ -47,7 +47,7 @@ impl BlockIterator {
 }
 
 impl Iterator for BlockIterator {
-    type Item = anyhow::Result<Entry>;
+    type Item = anyhow::Result<InnerEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx >= self.block.len() {

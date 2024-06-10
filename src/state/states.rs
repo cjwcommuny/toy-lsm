@@ -142,7 +142,7 @@ where
 
     fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
         let snapshot = self.inner.load();
-        LockedLsmIter::new(snapshot, lower, upper)
+        LockedLsmIter::new(snapshot, lower, upper, 0) // todo
     }
 }
 

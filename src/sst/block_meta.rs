@@ -1,4 +1,4 @@
-use crate::key::KeyBytes;
+use crate::key::{KeyBytes, KeySlice};
 use bytes::Buf;
 use derive_getters::Getters;
 
@@ -7,9 +7,13 @@ use derive_getters::Getters;
 pub struct BlockMeta {
     /// Offset of this data block.
     pub offset: usize,
+
     /// The first key of the data block.
+    #[getter(skip)]
     pub first_key: KeyBytes,
+
     /// The last key of the data block.
+    #[getter(skip)]
     pub last_key: KeyBytes,
 }
 
@@ -46,5 +50,13 @@ impl BlockMeta {
             result.push(Self::decode(&mut data))
         }
         result
+    }
+
+    pub fn first_key(&self) -> KeySlice {
+        KeySlice::new(self.first_key.raw_ref(), self.first_key.timestamp())
+    }
+
+    pub fn last_key(&self) -> KeySlice {
+        KeySlice::new(self.last_key.raw_ref(), self.last_key.timestamp())
     }
 }

@@ -28,6 +28,10 @@ impl<T> Key<T> {
     pub fn timestamp(&self) -> u64 {
         self.timestamp
     }
+
+    pub fn into_tuple(self) -> (T, u64) {
+        (self.key, self.timestamp)
+    }
 }
 
 impl<T> From<(T, u64)> for Key<T> {
