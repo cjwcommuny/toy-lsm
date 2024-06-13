@@ -5,6 +5,7 @@ use crate::persistent::Persistent;
 use crate::state::Map;
 
 mod command;
+pub mod iterator;
 mod map;
 
 pub async fn insert_sst<M: Map<Error = anyhow::Error>>(

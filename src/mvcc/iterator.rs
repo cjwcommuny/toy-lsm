@@ -1,6 +1,7 @@
 use std::future::ready;
 use std::ops::Bound;
 
+use crate::bound::BoundRange;
 use async_iter_ext::StreamTools;
 use futures::{Stream, StreamExt, TryStreamExt};
 use num_traits::Bounded;
@@ -15,24 +16,18 @@ where
     E: Send,
     T: PartialOrd + Copy + Send + Sync,
 {
-    let s = s
-        .try_filter(move |(_, timestamp)| {
-            let condition = timestamp.le(&timestamp_upper);
-            ready(condition)
-        })
-        .dedup_by(|left, right| match (left, right) {
-            (Ok((left, _)), Ok((right, _))) => left.eq(right),
-            _ => false,
-        })
-        .map(|entry| entry.map(|pair| pair.0));
-    s
+    s.try_filter(move |(_, timestamp)| {
+        let condition = timestamp.le(&timestamp_upper);
+        ready(condition)
+    })
+    .dedup_by(|left, right| match (left, right) {
+        (Ok((left, _)), Ok((right, _))) => left.eq(right),
+        _ => false,
+    })
+    .map(|entry| entry.map(|pair| pair.0))
 }
 
-pub fn transform_bound<A, T>(
-    lower: Bound<A>,
-    upper: Bound<A>,
-    timestamp: T,
-) -> (Bound<(A, T)>, Bound<(A, T)>)
+pub fn transform_bound<A, T>(lower: Bound<A>, upper: Bound<A>, timestamp: T) -> BoundRange<(A, T)>
 where
     T: Bounded + Clone,
 {

@@ -170,11 +170,11 @@ impl<W: WalHandle> MemTable<W> {
         Ok(())
     }
 
-    pub async fn scan_with_ts<'a>(
-        &'a self,
+    pub async fn scan_with_ts(
+        &self,
         lower: Bound<KeyBytes>,
         upper: Bound<KeyBytes>,
-    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'_>> {
         // todo: 由于 rust 的 Borrow trait 的限制，这里只能 copy
 
         let iter = self.map.range(BytesBound {
@@ -206,7 +206,11 @@ impl<W: WalHandle> MemTable<W> {
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
-        self.scan(lower, upper).await
+        self.scan_with_ts(
+            lower.map(|k| KeyBytes::new(Bytes::copy_from_slice(k), 0)),
+            upper.map(|k| KeyBytes::new(Bytes::copy_from_slice(k), 0)),
+        )
+        .await
     }
 }
 

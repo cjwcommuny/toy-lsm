@@ -103,6 +103,12 @@ async fn get_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
     Ok(file)
 }
 
+impl<File: WalHandle> Wal<File> {
+    pub async fn put_for_test<'a>(&'a self, key: &'a [u8], value: &'a [u8]) -> anyhow::Result<()> {
+        self.put(KeySlice::from_slice(key), value).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::key::KeyBytes;
@@ -120,10 +126,18 @@ mod tests {
 
         {
             let wal = Wal::create(id, &persistent).await.unwrap();
-            wal.put("111".as_bytes(), "a".as_bytes()).await.unwrap();
-            wal.put("222".as_bytes(), "bb".as_bytes()).await.unwrap();
-            wal.put("333".as_bytes(), "ccc".as_bytes()).await.unwrap();
-            wal.put("4".as_bytes(), "".as_bytes()).await.unwrap();
+            wal.put_for_test("111".as_bytes(), "a".as_bytes())
+                .await
+                .unwrap();
+            wal.put_for_test("222".as_bytes(), "bb".as_bytes())
+                .await
+                .unwrap();
+            wal.put_for_test("333".as_bytes(), "ccc".as_bytes())
+                .await
+                .unwrap();
+            wal.put_for_test("4".as_bytes(), "".as_bytes())
+                .await
+                .unwrap();
             wal.sync().await.unwrap();
         }
 

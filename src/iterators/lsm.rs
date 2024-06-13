@@ -48,63 +48,53 @@ impl<'a, P> LockedLsmIter<'a, P>
 where
     P: Persistent,
 {
-    pub fn iter(&'a self) -> impl Future<Output = anyhow::Result<LsmIterator<'a>>> + Send {
-        async {
-            let a = self.build_memtable_iter().await;
-            assert_raw_stream(&a);
-            let b = self.build_sst_iter().await?;
-            assert_raw_stream(&b);
-            let merge = create_two_merge_iter(a, b).await?;
-            assert_raw_stream(&merge);
-            let merge = merge.map(|entry| entry.map(Keyed::into_timed_tuple));
-            assert_tuple_stream(&merge);
-            let time_dedup = build_time_dedup_iter(merge, self.timestamp);
-            assert_result_stream(&time_dedup);
-            // todo: dedup timestamps
-            let iter = new_no_deleted_iter(time_dedup);
-            let iter = Box::new(iter) as _;
-            Ok(iter)
-        }
+    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
+        let a = self.build_memtable_iter().await;
+        assert_raw_stream(&a);
+        let b = self.build_sst_iter().await?;
+        assert_raw_stream(&b);
+        let merge = create_two_merge_iter(a, b).await?;
+        assert_raw_stream(&merge);
+        let merge = merge.map(|entry| entry.map(Keyed::into_timed_tuple));
+        assert_tuple_stream(&merge);
+        let time_dedup = build_time_dedup_iter(merge, self.timestamp);
+        assert_result_stream(&time_dedup);
+        // todo: dedup timestamps
+        let iter = new_no_deleted_iter(time_dedup);
+        let iter = Box::new(iter) as _;
+        Ok(iter)
     }
 
-    pub fn build_memtable_iter(
-        &self,
-    ) -> impl Future<Output = MergeIterator<InnerEntry, MemTableIterator>> + Send {
-        async {
-            let (lower, upper) = transform_bound(self.lower, self.upper, self.timestamp);
-            let lower = lower.map(Key::from);
-            let upper = upper.map(Key::from);
+    pub async fn build_memtable_iter(&self) -> MergeIterator<InnerEntry, MemTableIterator> {
+        let (lower, upper) = transform_bound(self.lower, self.upper, self.timestamp);
+        let lower = lower.map(Key::from);
+        let upper = upper.map(Key::from);
 
-            let memtable = self.state.memtable().deref().as_immutable_ref();
-            let imm_memtables = self.state.imm_memtables().as_slice();
-            let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
-            let tables = iter::once(memtable).chain(imm_memtables);
-            let iters = stream::iter(tables).filter_map(move |table| {
-                let lower = lower.map(|ks| ks.map(Bytes::copy_from_slice));
-                let upper = upper.map(|ks| ks.map(Bytes::copy_from_slice));
+        let memtable = self.state.memtable().deref().as_immutable_ref();
+        let imm_memtables = self.state.imm_memtables().as_slice();
+        let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
+        let tables = iter::once(memtable).chain(imm_memtables);
+        let iters = stream::iter(tables).filter_map(move |table| {
+            let lower = lower.map(|ks| ks.map(Bytes::copy_from_slice));
+            let upper = upper.map(|ks| ks.map(Bytes::copy_from_slice));
 
-                async {
-                    table
-                        .scan_with_ts(lower, upper)
-                        .await
-                        .inspect_err(|e| error!(error = ?e))
-                        .ok()
-                        .flatten()
-                }
-            });
-            create_merge_iter_from_non_empty_iters(iters).await
-        }
+            async {
+                table
+                    .scan_with_ts(lower, upper)
+                    .await
+                    .inspect_err(|e| error!(error = ?e))
+                    .ok()
+                    .flatten()
+            }
+        });
+        create_merge_iter_from_non_empty_iters(iters).await
     }
 
-    pub fn build_sst_iter(
-        &self,
-    ) -> impl Future<Output = anyhow::Result<MergedSstIterator<P::SstHandle>>> + Send {
-        async {
-            let (lower, upper) = transform_bound(self.lower, self.upper, self.timestamp);
-            let lower = lower.map(Key::from);
-            let upper = upper.map(Key::from);
+    pub async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::SstHandle>> {
+        let (lower, upper) = transform_bound(self.lower, self.upper, self.timestamp);
+        let lower = lower.map(Key::from);
+        let upper = upper.map(Key::from);
 
-            self.state.sstables_state().scan_sst(lower, upper).await
-        }
+        self.state.sstables_state().scan_sst(lower, upper).await
     }
 }

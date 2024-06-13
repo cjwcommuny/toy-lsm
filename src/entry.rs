@@ -16,7 +16,7 @@ impl<K: Eq, V> Eq for Keyed<K, V> {}
 
 impl<K: PartialEq, V> PartialEq<Self> for Keyed<K, V> {
     fn eq(&self, other: &Self) -> bool {
-        self.key.eq(&other.key)
+        PartialEq::eq(&self.key, &other.key)
     }
 }
 
@@ -53,6 +53,16 @@ impl Keyed<Bytes, Bytes> {
         Self {
             key: Bytes::copy_from_slice(key),
             value: Bytes::copy_from_slice(value),
+        }
+    }
+}
+
+#[cfg(test)]
+impl InnerEntry {
+    pub fn prune_ts(self) -> Entry {
+        Entry {
+            key: self.key.into_inner(),
+            value: self.value,
         }
     }
 }

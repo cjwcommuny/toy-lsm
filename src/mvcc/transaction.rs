@@ -50,8 +50,8 @@ impl<P: Persistent> Transaction<P> {
         Ok(stream::empty())
     }
 
-    pub fn commit(self) -> impl Future<Output = anyhow::Result<()>> + Send {
-        async { todo!() }
+    pub async fn commit(self) -> anyhow::Result<()> {
+        todo!()
     }
 }
 

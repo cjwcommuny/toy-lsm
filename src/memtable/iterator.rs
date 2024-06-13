@@ -42,6 +42,7 @@ mod test {
     use crate::memtable::MemTable;
     use crate::persistent::interface::WalHandle;
     use crate::persistent::wal_handle::WalFile;
+    use crate::test_utils::iterator::unwrap_ts_stream;
 
     #[tokio::test]
     async fn test_task1_memtable_iter() {
@@ -139,6 +140,7 @@ mod test {
     ) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a {
         let iter = memtable.for_testing_scan_slice(lower, upper).await.unwrap();
 
-        create_merge_iter_from_non_empty_iters(stream::iter(iter.into_iter())).await
+        let x = create_merge_iter_from_non_empty_iters(stream::iter(iter.into_iter())).await;
+        unwrap_ts_stream(x)
     }
 }

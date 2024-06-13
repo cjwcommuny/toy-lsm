@@ -3,6 +3,8 @@ use std::ops::RangeBounds;
 
 use crate::key::KeyBytes;
 
+pub type BoundRange<T> = (Bound<T>, Bound<T>);
+
 pub struct BytesBound {
     pub start: Bound<KeyBytes>,
     pub end: Bound<KeyBytes>,

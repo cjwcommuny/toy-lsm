@@ -205,7 +205,8 @@ mod tests {
                 .next()
                 .await
                 .unwrap()
-                .unwrap_or_else(|_| panic!("panic on {}", i));
+                .unwrap_or_else(|_| panic!("panic on {}", i))
+                .prune_ts();
             let key = entry.key.as_bytes();
             let value = entry.value.as_bytes();
             assert_eq!(

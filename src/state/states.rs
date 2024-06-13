@@ -339,7 +339,7 @@ mod test {
     use futures::StreamExt;
     use tempfile::{tempdir, TempDir};
 
-    use crate::entry::Entry;
+    use crate::entry::{Entry, InnerEntry};
     use crate::iterators::no_deleted::new_no_deleted_iter;
     use crate::iterators::two_merge::create_inner;
     use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
@@ -349,6 +349,7 @@ mod test {
     use crate::sst::SstOptions;
     use crate::state::mut_op::Op;
     use crate::state::states::LsmStorageState;
+    use crate::test_utils::iterator::unwrap_ts_stream;
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
@@ -679,7 +680,8 @@ mod test {
         );
         {
             let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let mut iter = guard.build_memtable_iter().await;
+            let iter = guard.build_memtable_iter().await;
+            let iter = unwrap_ts_stream(iter);
             assert_stream_eq(
                 iter.map(Result::unwrap).map(Entry::into_tuple),
                 build_tuple_stream([("00", "2333")]),
@@ -688,7 +690,8 @@ mod test {
         }
         {
             let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let mut iter = guard.build_sst_iter().await.unwrap();
+            let iter = guard.build_sst_iter().await.unwrap();
+            let iter = unwrap_ts_stream(iter);
             assert_stream_eq(
                 iter.map(Result::unwrap).map(Entry::into_tuple),
                 build_tuple_stream([("00", "2333333")]),
@@ -700,6 +703,7 @@ mod test {
             let a = guard.build_memtable_iter().await;
             let b = guard.build_sst_iter().await.unwrap();
             let iter = create_inner(a, b).await.unwrap();
+            let iter = unwrap_ts_stream(iter);
             assert_stream_eq(
                 iter.map(Result::unwrap).map(Entry::into_tuple),
                 build_tuple_stream([("00", "2333"), ("00", "2333333")]),
@@ -711,6 +715,7 @@ mod test {
             let a = guard.build_memtable_iter().await;
             let b = guard.build_sst_iter().await.unwrap();
             let iter = create_two_merge_iter(a, b).await.unwrap();
+            let iter = unwrap_ts_stream(iter);
             assert_stream_eq(
                 iter.map(Result::unwrap).map(Entry::into_tuple),
                 build_tuple_stream([("00", "2333")]),
@@ -722,6 +727,7 @@ mod test {
             let a = guard.build_memtable_iter().await;
             let b = guard.build_sst_iter().await.unwrap();
             let iter = create_two_merge_iter(a, b).await.unwrap();
+            let iter = unwrap_ts_stream(iter);
             let iter = new_no_deleted_iter(iter);
             assert_stream_eq(
                 iter.map(Result::unwrap).map(Entry::into_tuple),

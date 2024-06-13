@@ -14,7 +14,7 @@ impl Watermark {
     pub fn add_reader(&mut self, ts: u64) {
         self.readers
             .entry(ts)
-            .and_modify(|count| *count = *count + 1)
+            .and_modify(|count| *count += 1)
             .or_insert(1);
     }
 
@@ -23,7 +23,7 @@ impl Watermark {
         if *count == 1 {
             self.readers.remove(&ts);
         } else {
-            *count = *count - 1;
+            *count -= 1;
         }
     }
 

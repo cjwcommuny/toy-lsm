@@ -68,11 +68,11 @@ impl<W: WalHandle> ImmutableMemTable<W> {
         self.0.put_with_ts(key, value).await
     }
 
-    pub async fn scan_with_ts<'a>(
-        &'a self,
+    pub async fn scan_with_ts(
+        &self,
         lower: Bound<KeyBytes>,
         upper: Bound<KeyBytes>,
-    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'a>> {
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'_>> {
         self.0.scan_with_ts(lower, upper).await
     }
 }
