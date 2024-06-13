@@ -102,6 +102,7 @@ impl SsTableBuilder {
         }
 
         // first/last key
+        // todo: unwrap 能不能去掉？
         let first_key = meta.first().unwrap().first_key.clone();
         let last_key = meta.last().unwrap().last_key.clone();
 
@@ -132,7 +133,7 @@ impl SsTableBuilder {
             .first_key(first_key)
             .last_key(last_key)
             .bloom(Some(bloom))
-            .max_ts(0)
+            .max_ts(0) // todo
             .build();
 
         Ok(table)
