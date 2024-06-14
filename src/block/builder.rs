@@ -76,8 +76,7 @@ impl BlockBuilder {
             compress_key(first_key, key, &mut self.data);
         } else {
             // first key
-            self.data.extend((key.len() as u16).to_be_bytes());
-            self.data.extend(key.raw_ref());
+            encode_key(key, &mut self.data);
         }
 
         self.data.extend((value.len() as u16).to_be_bytes());
@@ -93,6 +92,7 @@ impl BlockBuilder {
 
 fn compress_key(first_key: &KeyVec, key: KeySlice, buffer: &mut Vec<u8>) {
     let first_key = first_key.raw_ref();
+    let timestamp = key.timestamp();
     let key = key.raw_ref();
 
     let common_prefix = iter::zip(first_key.iter(), key.iter())
@@ -104,6 +104,13 @@ fn compress_key(first_key: &KeyVec, key: KeySlice, buffer: &mut Vec<u8>) {
     if postfix > 0 {
         buffer.extend_from_slice(&key[common_prefix..]);
     }
+    buffer.put_u64(timestamp);
+}
+
+fn encode_key(key: KeySlice, buffer: &mut Vec<u8>) {
+    buffer.put_u16(key.len() as u16);
+    buffer.extend(key.raw_ref());
+    buffer.put_u64(key.timestamp());
 }
 
 #[cfg(test)]

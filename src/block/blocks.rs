@@ -1,5 +1,5 @@
 use crate::key::KeyBytes;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 
 use crate::entry::{Entry, InnerEntry};
 
@@ -79,7 +79,9 @@ impl Block {
     }
 
     fn get_uncompressed_key_ref(data: &[u8]) -> (&[u8], &[u8]) {
-        get_value(data)
+        let (raw_key, data) = get_value(data);
+        let (data, timestamp) = get_u64(data);
+
     }
 
     fn get_compressed_key_ref<'b>(first_key: &[u8], data: &'b [u8]) -> (&'b [u8], &'b [u8]) {
@@ -133,6 +135,12 @@ fn get_value(data: &[u8]) -> (&[u8], &[u8]) {
 fn get_u16(data: &[u8]) -> (&[u8], usize) {
     let new_data = &data[2..];
     let value = u16::from_be_bytes([data[0], data[1]]) as usize;
+    (new_data, value)
+}
+
+fn get_u64(data: &[u8]) -> (&[u8], u64) {
+    let new_data = &data[8..];
+    let value = (&data[..8]).get_u64();
     (new_data, value)
 }
 

@@ -121,8 +121,7 @@ impl Key<Bytes> {
 
 impl<'a> Key<&'a [u8]> {
     pub fn to_key_vec(self) -> KeyVec {
-        todo!()
-        // Key(self.0.to_vec())
+        self.map(|key| key.to_vec())
     }
 
     /// Create a key slice from a slice. Will be removed in week 3.
