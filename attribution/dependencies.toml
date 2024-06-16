@@ -82,7 +82,7 @@ homepage = "https://github.com/rust-cli/anstyle"
 
 [[dependencies]]
 name = "anstyle-query"
-version = "1.0.3"
+version = "1.1.0"
 description = "Look up colored console capabilities"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -229,7 +229,7 @@ description = "A crate for mucking around with piles of bytes."
 license = "Zlib OR Apache-2.0 OR MIT"
 notices = [
   "(c) You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and",
-  "Copyright (c) 2019 Daniel \"Lokathor\" Gee.",
+  'Copyright (c) 2019 Daniel "Lokathor" Gee.',
 ]
 authors = ["Lokathor <zefria@gmail.com>"]
 repository = "https://github.com/Lokathor/bytemuck"
@@ -241,7 +241,7 @@ description = "derive proc-macros for `bytemuck`"
 license = "Zlib OR Apache-2.0 OR MIT"
 notices = [
   "(c) You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and",
-  "Copyright (c) 2019 Daniel \"Lokathor\" Gee.",
+  'Copyright (c) 2019 Daniel "Lokathor" Gee.',
 ]
 authors = ["Lokathor <zefria@gmail.com>"]
 repository = "https://github.com/Lokathor/bytemuck"
@@ -278,7 +278,7 @@ repository = "https://github.com/japaric/cast.rs"
 
 [[dependencies]]
 name = "cc"
-version = "1.0.98"
+version = "1.0.99"
 description = """
 A build-time dependency for Cargo build scripts to assist in invoking the native
 C compiler to compile native C code into a static archive to be linked into Rust
@@ -340,7 +340,7 @@ homepage = "https://clap.rs/"
 
 [[dependencies]]
 name = "clap"
-version = "4.5.4"
+version = "4.5.6"
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -348,7 +348,7 @@ repository = "https://github.com/clap-rs/clap"
 
 [[dependencies]]
 name = "clap_builder"
-version = "4.5.2"
+version = "4.5.6"
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2015-2022 Kevin B. Knapp and Clap Contributors"]
@@ -356,19 +356,19 @@ repository = "https://github.com/clap-rs/clap"
 
 [[dependencies]]
 name = "clap_derive"
-version = "4.5.4"
+version = "4.5.5"
 description = "Parse command line argument by defining a struct, derive crate."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2015-2022 Kevin B. Knapp and Clap Contributors"]
-repository = "https://github.com/clap-rs/clap/tree/master/clap_derive"
+repository = "https://github.com/clap-rs/clap"
 
 [[dependencies]]
 name = "clap_lex"
-version = "0.7.0"
+version = "0.7.1"
 description = "Minimal, flexible command line parser"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2015-2022 Kevin B. Knapp and Clap Contributors"]
-repository = "https://github.com/clap-rs/clap/tree/master/clap_lex"
+repository = "https://github.com/clap-rs/clap"
 
 [[dependencies]]
 name = "colorchoice"
@@ -553,10 +553,13 @@ repository = "https://github.com/lambda-fairy/rust-errno"
 
 [[dependencies]]
 name = "event-listener"
-version = "5.3.0"
+version = "5.3.1"
 description = "Notify async tasks or threads"
 license = "Apache-2.0 OR MIT"
-authors = ["Stjepan Glavina <stjepang@gmail.com>"]
+authors = [
+  "Stjepan Glavina <stjepang@gmail.com>",
+  "John Nunley <dev@notgull.net>",
+]
 repository = "https://github.com/smol-rs/event-listener"
 
 [[dependencies]]
@@ -627,6 +630,15 @@ repository = "https://github.com/rust-lang/futures-rs"
 homepage = "https://rust-lang.github.io/futures-rs"
 
 [[dependencies]]
+name = "futures-buffered"
+version = "0.2.6"
+description = "future concurrency primitives with emphasis on performance and low memory usage"
+license = "MIT"
+notices = ["Copyright (c) 2022 Conrad Ludgate"]
+authors = ["Conrad Ludgate <conradludgate@gmail.com"]
+repository = "https://github.com/conradludgate/futures-buffered"
+
+[[dependencies]]
 name = "futures-channel"
 version = "0.3.30"
 description = """
@@ -642,7 +654,7 @@ homepage = "https://rust-lang.github.io/futures-rs"
 
 [[dependencies]]
 name = "futures-concurrency"
-version = "7.6.0"
+version = "7.6.1"
 description = "Structured concurrency operations for async Rust"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2020 Yoshua Wuyts", "Copyright 2020 Yoshua Wuyts"]
@@ -1496,7 +1508,7 @@ repository = "https://github.com/dtolnay/ref-cast"
 
 [[dependencies]]
 name = "regex"
-version = "1.10.4"
+version = "1.10.5"
 description = """
 An implementation of regular expressions for Rust. This implementation uses
 finite automata and guarantees linear time matching on all inputs.
@@ -1508,7 +1520,7 @@ repository = "https://github.com/rust-lang/regex"
 
 [[dependencies]]
 name = "regex-automata"
-version = "0.4.6"
+version = "0.4.7"
 description = "Automata construction and matching using regular expressions."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2014 The Rust Project Developers"]
@@ -1517,7 +1529,7 @@ repository = "https://github.com/rust-lang/regex/tree/master/regex-automata"
 
 [[dependencies]]
 name = "regex-syntax"
-version = "0.8.3"
+version = "0.8.4"
 description = "A regular expression parser."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2014 The Rust Project Developers"]
@@ -1611,7 +1623,7 @@ shorthands for guards with one of the implemented strategies.
 """
 license = "MIT OR Apache-2.0"
 notices = [
-  "Copyright (c) 2016-2019 Ulrik Sverdrup \"bluss\" and scopeguard developers",
+  'Copyright (c) 2016-2019 Ulrik Sverdrup "bluss" and scopeguard developers',
 ]
 authors = ["bluss"]
 repository = "https://github.com/bluss/scopeguard"
@@ -1975,7 +1987,7 @@ homepage = "https://tokio.rs"
 
 [[dependencies]]
 name = "toml"
-version = "0.8.13"
+version = "0.8.14"
 description = """
 A native Rust encoder and decoder of TOML-formatted files and streams. Provides
 implementations of the standard Serialize/Deserialize traits for TOML data to
@@ -1997,7 +2009,7 @@ repository = "https://github.com/toml-rs/toml"
 
 [[dependencies]]
 name = "toml_edit"
-version = "0.22.13"
+version = "0.22.14"
 description = "Yet another format-preserving TOML parser."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -2161,7 +2173,7 @@ repository = "https://github.com/unicode-rs/unicode-segmentation"
 
 [[dependencies]]
 name = "unicode-width"
-version = "0.1.12"
+version = "0.1.13"
 description = """
 Determine displayed width of `char` and `str` types
 according to Unicode Standard Annex #11 rules.
@@ -2176,7 +2188,7 @@ repository = "https://github.com/unicode-rs/unicode-width"
 
 [[dependencies]]
 name = "utf8parse"
-version = "0.2.1"
+version = "0.2.2"
 description = "Table-driven UTF-8 parser"
 license = "Apache-2.0 OR MIT"
 notices = ["Copyright (c) 2016 Joe Wilm"]
@@ -2565,7 +2577,7 @@ repository = "https://github.com/microsoft/windows-rs"
 
 [[dependencies]]
 name = "winnow"
-version = "0.6.9"
+version = "0.6.13"
 description = "A byte-oriented, zero-copy, parser combinators library"
 license = "MIT"
 repository = "https://github.com/winnow-rs/winnow"
