@@ -1,12 +1,12 @@
-use bytes::Bytes;
+
 use std::fmt::Debug;
 use std::future::Future;
 use std::iter::Map;
 use std::iter::Once;
 use std::pin::pin;
-use std::{iter, vec};
+use std::{iter};
 
-use crate::entry::Entry;
+
 use either::Either;
 use futures::future::IntoStream;
 use futures::stream::{FlatMap, Flatten, Iter};
@@ -94,31 +94,37 @@ where
 }
 
 #[cfg(test)]
-pub type EntryStream = Iter<vec::IntoIter<Entry>>;
+pub mod test_utils {
+    use std::vec;
+    use bytes::Bytes;
+    use futures::{stream, Stream};
+    use futures::stream::Iter;
+    use crate::entry::Entry;
 
-#[cfg(test)]
-pub fn build_stream<'a>(source: impl IntoIterator<Item = (&'a str, &'a str)>) -> EntryStream {
-    let s: Vec<_> = source
-        .into_iter()
-        .map(|(key, value)| Entry::from_slice(key.as_bytes(), value.as_bytes()))
-        .collect();
-    stream::iter(s)
-}
+    pub type EntryStream = Iter<vec::IntoIter<Entry>>;
 
-#[cfg(test)]
-pub fn build_tuple_stream<'a>(
-    source: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> impl Stream<Item = (Bytes, Bytes)> {
-    let s: Vec<_> = source
-        .into_iter()
-        .map(|(key, value)| {
-            (
-                Bytes::copy_from_slice(key.as_bytes()),
-                Bytes::copy_from_slice(value.as_bytes()),
-            )
-        })
-        .collect();
-    stream::iter(s)
+    pub fn build_stream<'a>(source: impl IntoIterator<Item = (&'a str, &'a str)>) -> EntryStream {
+        let s: Vec<_> = source
+            .into_iter()
+            .map(|(key, value)| Entry::from_slice(key.as_bytes(), value.as_bytes()))
+            .collect();
+        stream::iter(s)
+    }
+
+    pub fn build_tuple_stream<'a>(
+        source: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> impl Stream<Item = (Bytes, Bytes)> {
+        let s: Vec<_> = source
+            .into_iter()
+            .map(|(key, value)| {
+                (
+                    Bytes::copy_from_slice(key.as_bytes()),
+                    Bytes::copy_from_slice(value.as_bytes()),
+                )
+            })
+            .collect();
+        stream::iter(s)
+    }
 }
 
 #[cfg(test)]

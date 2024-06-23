@@ -122,7 +122,7 @@ pub fn may_contain(bloom: Option<&Bloom>, key: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::sst::bloom::Bloom;
-    use crate::sst::builder::{key_of, num_of_keys};
+    use crate::sst::builder::test_util::{key_of, num_of_keys};
 
     #[test]
     fn test_task1_bloom_filter() {

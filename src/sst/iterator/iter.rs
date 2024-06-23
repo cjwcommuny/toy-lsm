@@ -191,7 +191,7 @@ mod tests {
     use nom::AsBytes;
     use tempfile::tempdir;
 
-    use crate::sst::builder::{generate_sst, key_of, num_of_keys, value_of};
+    use crate::sst::builder::test_util::{generate_sst, key_of, num_of_keys, value_of};
     use crate::sst::iterator::SsTableIterator;
 
     #[tokio::test]

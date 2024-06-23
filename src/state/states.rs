@@ -341,7 +341,8 @@ mod test {
     use crate::iterators::create_two_merge_iter;
     use crate::iterators::no_deleted::new_no_deleted_iter;
     use crate::iterators::two_merge::create_inner;
-    use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream, eq};
+    use crate::iterators::utils::{assert_stream_eq, eq};
+    use crate::iterators::utils::test_utils::{build_stream, build_tuple_stream};
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
     use crate::sst::SstOptions;

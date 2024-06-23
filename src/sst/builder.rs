@@ -1,22 +1,17 @@
 use std::mem;
-
 use std::sync::Arc;
 
 use anyhow::Result;
 use bytes::BufMut;
 use nom::AsBytes;
-#[cfg(test)]
-use tempfile::TempDir;
 
 use crate::block::{BlockBuilder, BlockCache};
-use crate::key::{KeySlice, KeyVec};
+use crate::key::KeySlice;
 use crate::memtable::ImmutableMemTable;
-
-use crate::persistent::file_object::FileObject;
 use crate::persistent::interface::WalHandle;
-use crate::persistent::{LocalFs, Persistent};
-use crate::sst::bloom::Bloom;
+use crate::persistent::Persistent;
 use crate::sst::{BlockMeta, SsTable};
+use crate::sst::bloom::Bloom;
 
 /// Builds an SSTable from key-value pairs.
 pub struct SsTableBuilder {
@@ -152,52 +147,56 @@ impl SsTableBuilder {
 }
 
 #[cfg(test)]
-impl SsTableBuilder {
-    async fn build_for_test(self, dir: &TempDir, id: usize) -> anyhow::Result<SsTable<FileObject>> {
-        let persistent = LocalFs::new(dir.path().to_path_buf());
-        self.build(id, None, &persistent).await
+pub mod test_util {
+    use tempfile::TempDir;
+
+    use crate::key::KeyVec;
+    use crate::persistent::file_object::FileObject;
+    use crate::persistent::LocalFs;
+    use crate::sst::{SsTable, SsTableBuilder};
+
+    impl SsTableBuilder {
+        pub(crate) async fn build_for_test(self, dir: &TempDir, id: usize) -> anyhow::Result<SsTable<FileObject>> {
+            let persistent = LocalFs::new(dir.path().to_path_buf());
+            self.build(id, None, &persistent).await
+        }
     }
-}
 
-#[cfg(test)]
-pub fn key_of(idx: usize) -> KeyVec {
-    KeyVec::for_testing_from_vec_no_ts(format!("key_{:03}", idx * 5).into_bytes())
-}
-
-#[cfg(test)]
-pub fn value_of(idx: usize) -> Vec<u8> {
-    format!("value_{:010}", idx).into_bytes()
-}
-
-#[cfg(test)]
-pub fn num_of_keys() -> usize {
-    100
-}
-
-#[cfg(test)]
-pub async fn generate_sst(dir: &TempDir) -> SsTable<FileObject> {
-    let mut builder = SsTableBuilder::new(128);
-    for idx in 0..num_of_keys() {
-        let key = key_of(idx);
-        let value = value_of(idx);
-        builder.add(key.as_key_slice(), &value[..]);
+    pub fn key_of(idx: usize) -> KeyVec {
+        KeyVec::for_testing_from_vec_no_ts(format!("key_{:03}", idx * 5).into_bytes())
     }
-    builder.build_for_test(dir, 1).await.unwrap()
+
+    pub fn value_of(idx: usize) -> Vec<u8> {
+        format!("value_{:010}", idx).into_bytes()
+    }
+
+    pub fn num_of_keys() -> usize {
+        100
+    }
+
+    pub async fn generate_sst(dir: &TempDir) -> SsTable<FileObject> {
+        let mut builder = SsTableBuilder::new(128);
+        for idx in 0..num_of_keys() {
+            let key = key_of(idx);
+            let value = value_of(idx);
+            builder.add(key.as_key_slice(), &value[..]);
+        }
+        builder.build_for_test(dir, 1).await.unwrap()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::block::BlockCache;
-    use bytes::Bytes;
     use std::sync::Arc;
+
+    use bytes::Bytes;
     use tempfile::tempdir;
 
+    use crate::block::BlockCache;
     use crate::key::KeySlice;
     use crate::persistent::{LocalFs, Persistent};
-    use crate::sst::builder::{key_of, num_of_keys, value_of};
-    use crate::sst::iterator::SsTableIterator;
     use crate::sst::{SsTable, SsTableBuilder};
-    use futures::stream::StreamExt;
+    use crate::sst::builder::test_util::{key_of, num_of_keys, value_of};
 
     #[tokio::test]
     async fn test_sst_build_single_key() {
