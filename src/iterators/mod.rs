@@ -15,4 +15,4 @@ pub use ok_iter::OkIter;
 pub use two_merge::{create_two_merge_iter, TwoMergeIterator};
 pub use utils::iter_fut_iter_to_stream;
 pub use utils::split_first;
-pub use utils::{transpose_try_iter};
+pub use utils::transpose_try_iter;

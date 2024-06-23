@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use std::ops::{Bound};
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
-use crate::persistent::interface::{WalHandle};
+use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
 use crate::state::Map;
 use crate::wal::Wal;

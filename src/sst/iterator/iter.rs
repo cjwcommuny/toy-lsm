@@ -8,11 +8,10 @@ use futures::{future, FutureExt};
 use futures::{stream, Stream, StreamExt};
 use pin_project::pin_project;
 
-
 use crate::block::BlockIterator;
 use crate::entry::{Entry, InnerEntry};
 use crate::iterators::{iter_fut_iter_to_stream, split_first, MergeIterator, TwoMergeIterator};
-use crate::key::{KeySlice};
+use crate::key::KeySlice;
 use crate::persistent::SstHandle;
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::concat::SstConcatIterator;

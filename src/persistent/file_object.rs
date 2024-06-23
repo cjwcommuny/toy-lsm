@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use std::fs::{File};
+use std::fs::File;
 
 use std::io::Write;
 use std::os::unix::fs::FileExt;

@@ -1,4 +1,4 @@
-use crate::entry::{InnerEntry};
+use crate::entry::InnerEntry;
 use crate::iterators::{MergeIterator, TwoMergeIterator};
 use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::iter::SsTableIterator;

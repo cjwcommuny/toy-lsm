@@ -2,14 +2,13 @@ use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::future::ready;
 
-
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::stream::unfold;
 use futures::{pin_mut, FutureExt, Stream, StreamExt};
 use pin_project::pin_project;
-use tracing::{error};
+use tracing::error;
 
 use crate::iterators::maybe_empty::NonEmptyStream;
 use crate::iterators::merge::heap::HeapWrapper;

@@ -5,7 +5,6 @@ use nom::AsBytes;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
-
 #[derive(PartialEq, Eq, Debug, new, Default, Clone, Copy)]
 pub struct Key<T> {
     key: T,

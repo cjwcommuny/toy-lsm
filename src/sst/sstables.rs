@@ -6,36 +6,28 @@ use std::fmt::{Debug, Formatter};
 
 use std::iter::repeat;
 
+use std::mem;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use std::{mem};
 
 use futures::{stream, FutureExt, StreamExt};
 use itertools::Itertools;
 
-
 use tracing::error;
 
-use crate::entry::{InnerEntry};
+use crate::entry::InnerEntry;
 
-use crate::iterators::{
-    create_merge_iter, create_two_merge_iter, MergeIterator,
-};
+use crate::iterators::{create_merge_iter, create_two_merge_iter, MergeIterator};
 use crate::key::KeySlice;
 use crate::manifest::{Compaction, Flush};
 use crate::memtable::ImmutableMemTable;
-use crate::persistent::{SstHandle};
-use crate::sst::compact::{
-    CompactionOptions,
-};
+use crate::persistent::SstHandle;
+use crate::sst::compact::CompactionOptions;
 use crate::sst::iterator::concat::SstConcatIterator;
-use crate::sst::iterator::{
-    scan_sst_concat, MergedSstIterator, SsTableIterator,
-};
+use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
 use crate::sst::option::SstOptions;
-use crate::sst::{SsTable};
-
+use crate::sst::SsTable;
 
 #[derive(Default)]
 pub struct Sstables<File> {

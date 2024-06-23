@@ -2,13 +2,11 @@ use std::cmp::max;
 
 use std::iter;
 
-
 use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use derive_new::new;
 use getset::CopyGetters;
 
-
-use tracing::{trace};
+use tracing::trace;
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{Persistent, SstHandle};

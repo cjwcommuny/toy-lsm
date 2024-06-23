@@ -1,15 +1,13 @@
-use crate::entry::{InnerEntry};
+use crate::entry::InnerEntry;
+use crate::iterators::create_two_merge_iter;
 use crate::iterators::merge::MergeIteratorInner;
-use crate::iterators::{
-    create_two_merge_iter,
-};
 
 use derive_new::new;
 use futures::{stream, Stream, StreamExt};
 use getset::CopyGetters;
 use serde::{Deserialize, Serialize};
 
-use std::ops::{Range};
+use std::ops::Range;
 use std::sync::Arc;
 use tracing::error;
 

@@ -14,7 +14,7 @@ use crate::iterators::no_deleted::new_no_deleted_iter;
 use crate::iterators::{
     create_merge_iter_from_non_empty_iters, create_two_merge_iter, MergeIterator, TwoMergeIterator,
 };
-use crate::key::{Key};
+use crate::key::Key;
 use crate::memtable::MemTableIterator;
 use crate::mvcc::iterator::{build_time_dedup_iter, transform_bound};
 use crate::persistent::Persistent;

@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use futures::{stream, Stream, StreamExt};
 
-use crate::entry::{InnerEntry};
+use crate::entry::InnerEntry;
 use crate::key::KeySlice;
 use crate::persistent::SstHandle;
 use crate::sst::iterator::iter::SsTableIterator;
