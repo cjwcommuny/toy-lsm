@@ -155,7 +155,7 @@ repository = "https://github.com/cuviper/autocfg"
 
 [[dependencies]]
 name = "backtrace"
-version = "0.3.72"
+version = "0.3.73"
 description = """
 A library to acquire a stack trace (backtrace) at runtime in a Rust program.
 """
@@ -340,7 +340,7 @@ homepage = "https://clap.rs/"
 
 [[dependencies]]
 name = "clap"
-version = "4.5.6"
+version = "4.5.7"
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -348,7 +348,7 @@ repository = "https://github.com/clap-rs/clap"
 
 [[dependencies]]
 name = "clap_builder"
-version = "4.5.6"
+version = "4.5.7"
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2015-2022 Kevin B. Knapp and Clap Contributors"]
@@ -516,7 +516,7 @@ repository = "https://github.com/nrc/derive-new"
 
 [[dependencies]]
 name = "derive_more"
-version = "0.99.17"
+version = "0.99.18"
 description = "Adds #[derive(x)] macros for more traits"
 license = "MIT"
 notices = ["Copyright (c) 2016 Jelte Fennema"]
@@ -1019,7 +1019,7 @@ repository = "https://github.com/bluss/maplit"
 
 [[dependencies]]
 name = "memchr"
-version = "2.7.2"
+version = "2.7.4"
 description = """
 Provides extremely fast (uses SIMD on x86_64, aarch64 and wasm32) routines for
 1, 2 or 3 byte search and single substring search.
@@ -1116,7 +1116,7 @@ repository = "https://github.com/seanmonstar/num_cpus"
 
 [[dependencies]]
 name = "object"
-version = "0.35.0"
+version = "0.36.0"
 description = "A unified interface for reading and writing object file formats."
 license = "Apache-2.0 OR MIT"
 notices = ["Copyright (c) 2015 The Gimli Developers"]
@@ -1483,7 +1483,7 @@ repository = "https://github.com/rayon-rs/rayon"
 
 [[dependencies]]
 name = "redox_syscall"
-version = "0.5.1"
+version = "0.5.2"
 description = "A Rust library to access raw Redox system calls"
 license = "MIT"
 notices = ["Copyright (c) 2017 Redox OS Developers"]
