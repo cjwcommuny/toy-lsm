@@ -8,7 +8,7 @@ use derive_more::From;
 use serde::{Deserialize, Serialize};
 use serde_json::Deserializer;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::{Mutex};
 
 use crate::persistent::Persistent;
 use crate::sst::compact::common::CompactionTask;

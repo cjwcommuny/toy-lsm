@@ -1,6 +1,6 @@
-use std::future::Future;
+
 use std::io::Cursor;
-use std::ops::DerefMut;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -88,7 +88,7 @@ impl<File: WalHandle> Wal<File> {
     }
 
     pub async fn sync(&self) -> anyhow::Result<()> {
-        let mut guard = self.file.lock().await;
+        let guard = self.file.lock().await;
         guard.sync_all().await?;
         Ok(())
     }

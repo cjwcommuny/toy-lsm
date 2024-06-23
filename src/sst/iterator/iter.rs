@@ -7,16 +7,16 @@ use std::task::{Context, Poll};
 use futures::{future, FutureExt};
 use futures::{stream, Stream, StreamExt};
 use pin_project::pin_project;
-use tracing::info;
+
 
 use crate::block::BlockIterator;
 use crate::entry::{Entry, InnerEntry};
 use crate::iterators::{iter_fut_iter_to_stream, split_first, MergeIterator, TwoMergeIterator};
-use crate::key::{KeyBytes, KeySlice};
+use crate::key::{KeySlice};
 use crate::persistent::SstHandle;
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::concat::SstConcatIterator;
-use crate::sst::{bloom, BlockMeta, SsTable};
+use crate::sst::{BlockMeta, SsTable};
 
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
 type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<InnerEntry>> + Send + 'a>>;

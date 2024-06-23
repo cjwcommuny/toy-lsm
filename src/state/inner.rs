@@ -1,4 +1,4 @@
-use crossbeam_skiplist::SkipMap;
+
 use std::cmp::max;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
 use crate::sst::sstables::fold_flush_manifest;
 use crate::sst::{SsTable, SstOptions, Sstables};
-use crate::wal::Wal;
+
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {

@@ -1,12 +1,12 @@
 use crate::entry::Entry;
-use crate::iterators::LockedLsmIter;
+
 use crate::persistent::Persistent;
-use crate::state::{LsmStorageState, LsmStorageStateInner, Map};
+use crate::state::{LsmStorageStateInner, Map};
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use futures::{stream, Stream};
 use std::collections::{Bound, HashSet};
-use std::future::Future;
+
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::Mutex;

@@ -1,6 +1,6 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
-use crate::key::KeySlice;
+
 use anyhow::Result;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 

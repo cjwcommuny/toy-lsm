@@ -1,5 +1,5 @@
 use futures::{Stream, StreamExt};
-use std::future::Future;
+
 use tracing::Instrument;
 
 pub type MaybeEmptyStream<Item, S> = Option<NonEmptyStream<Item, S>>;

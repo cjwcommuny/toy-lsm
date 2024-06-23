@@ -1,8 +1,8 @@
 use crate::block::blocks::Block;
-use crate::entry::{Entry, InnerEntry};
-use crate::key::{Key, KeySlice};
+use crate::entry::{InnerEntry};
+use crate::key::{KeySlice};
 use std::sync::Arc;
-use tracing::info;
+
 
 // Iterates on a block.
 pub struct BlockIterator {

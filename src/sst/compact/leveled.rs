@@ -1,20 +1,20 @@
 use std::cmp::max;
-use std::future::{ready, Future};
+
 use std::iter;
-use std::sync::Arc;
+
 
 use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use derive_new::new;
 use getset::CopyGetters;
-use ordered_float::NotNan;
-use tokio::sync::MutexGuard;
-use tracing::{info, trace};
+
+
+use tracing::{trace};
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{Persistent, SstHandle};
 use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst, CompactionTask};
 use crate::sst::compact::CompactionOptions::Leveled;
-use crate::sst::{SsTable, SstOptions, Sstables};
+use crate::sst::{SstOptions, Sstables};
 use crate::utils::num::power_of_2;
 
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]

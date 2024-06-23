@@ -1,9 +1,8 @@
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
-use std::future::Future;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use arc_swap::ArcSwap;
 use bytes::Bytes;
@@ -20,10 +19,9 @@ use crate::memtable::MemTable;
 use crate::mvcc::core::LsmMvccInner;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
-use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
+use crate::sst::compact::leveled::force_compact;
 use crate::state::inner::LsmStorageStateInner;
-use crate::state::mut_op::Op;
 use crate::state::Map;
 use crate::utils::vec::pop;
 
@@ -322,12 +320,12 @@ where
         self.delete(Bytes::copy_from_slice(key)).await
     }
 
-    async fn write_batch_for_test(
-        &self,
-        records: impl IntoIterator<Item = Op<&[u8]>>,
-    ) -> anyhow::Result<()> {
-        todo!()
-    }
+    // async fn write_batch_for_test(
+    //     &self,
+    //     records: impl IntoIterator<Item = Op<&[u8]>>,
+    // ) -> anyhow::Result<()> {
+    //     todo!()
+    // }
 }
 
 #[cfg(test)]
@@ -339,15 +337,14 @@ mod test {
     use futures::StreamExt;
     use tempfile::{tempdir, TempDir};
 
-    use crate::entry::{Entry, InnerEntry};
+    use crate::entry::Entry;
+    use crate::iterators::create_two_merge_iter;
     use crate::iterators::no_deleted::new_no_deleted_iter;
     use crate::iterators::two_merge::create_inner;
-    use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
-    use crate::iterators::{create_two_merge_iter, eq};
+    use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream, eq};
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
     use crate::sst::SstOptions;
-    use crate::state::mut_op::Op;
     use crate::state::states::LsmStorageState;
     use crate::test_utils::iterator::unwrap_ts_stream;
 

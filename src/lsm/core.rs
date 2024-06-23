@@ -1,15 +1,15 @@
 use std::future::{ready, Future};
 use std::sync::Arc;
-use std::thread;
-use std::thread::sleep;
+
+
 use std::time::Duration;
 
 use bytes::Bytes;
-use futures::executor::block_on;
-use futures::{ready, FutureExt, StreamExt};
+
+use futures::{FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
-use tokio::sync::MutexGuard;
-use tokio::task::{block_in_place, JoinHandle};
+
+use tokio::task::{JoinHandle};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
@@ -18,7 +18,7 @@ use tracing::error;
 use crate::persistent::Persistent;
 use crate::sst::SstOptions;
 use crate::state::{LsmStorageState, Map};
-use crate::utils::func::do_nothing;
+
 
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,

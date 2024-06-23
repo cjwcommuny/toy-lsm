@@ -1,5 +1,5 @@
 use std::mem;
-use std::ops::Bound::Unbounded;
+
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -11,9 +11,10 @@ use tempfile::TempDir;
 use crate::block::{BlockBuilder, BlockCache};
 use crate::key::{KeySlice, KeyVec};
 use crate::memtable::ImmutableMemTable;
-use crate::persistent::file_object::FileObject;
+
 use crate::persistent::interface::WalHandle;
 use crate::persistent::{LocalFs, Persistent};
+use crate::persistent::file_object::FileObject;
 use crate::sst::bloom::Bloom;
 use crate::sst::{BlockMeta, SsTable};
 
