@@ -36,7 +36,6 @@ impl BlockIterator {
         let mut current = self.block.len();
         for index in 0..self.block.len() {
             let (this_key, _) = self.block.get_entry_ref(index);
-            let this_key = Key::from_slice(this_key);
             if this_key >= key {
                 current = index;
                 break;

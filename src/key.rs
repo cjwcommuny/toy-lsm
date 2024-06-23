@@ -66,6 +66,10 @@ impl<T: AsRef<[u8]>> Key<T> {
     pub fn for_testing_ts(self) -> u64 {
         0
     }
+
+    pub fn to_key_bytes(self) -> KeyBytes {
+        self.map(|slice| Bytes::copy_from_slice(slice.as_ref()))
+    }
 }
 
 impl Key<Vec<u8>> {
