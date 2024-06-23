@@ -119,17 +119,14 @@ async fn build_state<P: Persistent>(
             |(mut imm_memtables, mut sstables), manifest| async {
                 match manifest {
                     ManifestRecord::Flush(record) => {
-                        let flush = &record;
                         fold_flush_manifest(&mut imm_memtables, &mut sstables, record)?;
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::NewMemtable(record) => {
-                        let new_mem = &record;
                         fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::Compaction(record) => {
-                        let compact = &record;
                         sstables.fold_compaction_manifest(record);
                         Ok((imm_memtables, sstables))
                     }

@@ -21,7 +21,6 @@ use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
 use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
-use crate::state::Map;
 use crate::wal::Wal;
 
 /// A basic mem-table based on crossbeam-skiplist.

@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use deref_ext::DerefExt;
 
 use std::collections::{Bound, HashMap};
 use std::fmt::{Debug, Formatter};
@@ -11,8 +10,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 
-use futures::{stream, FutureExt, StreamExt};
-use itertools::Itertools;
+use futures::{stream};
 
 use tracing::error;
 
@@ -273,22 +271,22 @@ struct DebugLevel {
 #[cfg(test)]
 mod tests {
     use std::ops::Bound::Unbounded;
-    use std::path::PathBuf;
+    
     use std::sync::Arc;
-    use std::time::Duration;
+    
 
-    use crate::iterators::{create_two_merge_iter, NonEmptyStream};
+    
     use crate::key::KeySlice;
-    use futures::StreamExt;
-    use tempfile::{tempdir, TempDir};
-    use tokio::time::timeout;
-    use tracing::{info, Instrument};
-    use tracing_subscriber::fmt::format::FmtSpan;
+    
+    use tempfile::{TempDir};
+    
+    
+    
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
-    use crate::sst::iterator::SsTableIterator;
-    use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
+    
+    use crate::sst::{SsTableBuilder, SstOptions, Sstables};
 
     #[tokio::test]
     async fn test() {

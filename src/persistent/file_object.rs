@@ -2,7 +2,6 @@ use anyhow::Context;
 
 use std::fs::File;
 
-use std::io::Write;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +13,6 @@ use tokio::io::BufWriter;
 use tokio::task::spawn_blocking;
 use tracing::Instrument;
 
-use crate::persistent::interface::WalHandle;
 use crate::persistent::manifest_handle::ManifestFile;
 use crate::persistent::wal_handle::WalFile;
 use crate::persistent::{Persistent, SstHandle};

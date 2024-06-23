@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use bytes::Bytes;
-use deref_ext::DerefExt;
 use derive_getters::Getters;
 use futures::StreamExt;
 use tokio::sync::{Mutex, MutexGuard};

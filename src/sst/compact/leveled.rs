@@ -364,8 +364,8 @@ mod tests {
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
             .build();
-        let mut state = LsmStorageState::new(options, persistent).await.unwrap();
-        let next_sst_id = AtomicUsize::default();
+        let state = LsmStorageState::new(options, persistent).await.unwrap();
+        let _next_sst_id = AtomicUsize::default();
         let state_lock = Mutex::default();
 
         for i in 0..5 {

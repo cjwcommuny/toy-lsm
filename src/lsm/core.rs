@@ -148,8 +148,8 @@ mod tests {
     use nom::AsBytes;
     use tempfile::{tempdir, TempDir};
     use tokio::time::sleep;
-    use tracing_futures::Instrument;
-    use tracing_subscriber::fmt::format::FmtSpan;
+    
+    
 
     use crate::lsm::core::Lsm;
     use crate::persistent::{LocalFs, Persistent};

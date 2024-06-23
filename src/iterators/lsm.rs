@@ -37,11 +37,11 @@ pub struct LockedLsmIter<'a, P: Persistent> {
     timestamp: u64,
 }
 
-fn assert_raw_stream(s: &impl Stream<Item = anyhow::Result<InnerEntry>>) {}
+fn assert_raw_stream(_s: &impl Stream<Item = anyhow::Result<InnerEntry>>) {}
 
-fn assert_tuple_stream(s: &impl Stream<Item = anyhow::Result<(Keyed<Bytes, Bytes>, u64)>>) {}
+fn assert_tuple_stream(_s: &impl Stream<Item = anyhow::Result<(Keyed<Bytes, Bytes>, u64)>>) {}
 
-fn assert_result_stream(s: &impl Stream<Item = anyhow::Result<Keyed<Bytes, Bytes>>>) {}
+fn assert_result_stream(_s: &impl Stream<Item = anyhow::Result<Keyed<Bytes, Bytes>>>) {}
 
 impl<'a, P> LockedLsmIter<'a, P>
 where

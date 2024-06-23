@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use futures::stream::unfold;
-use futures::{Stream, StreamExt};
+use futures::{Stream};
 
 use crate::iterators::no_duplication::{new_no_duplication, NoDuplication};
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream};

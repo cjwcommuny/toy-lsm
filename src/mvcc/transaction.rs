@@ -23,19 +23,19 @@ pub struct Transaction<P: Persistent> {
 impl<P: Persistent> Map for Transaction<P> {
     type Error = anyhow::Error;
 
-    async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
+    async fn get(&self, _key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         todo!()
     }
 
     async fn put(
         &self,
-        key: impl Into<Bytes> + Send,
-        value: impl Into<Bytes> + Send,
+        _key: impl Into<Bytes> + Send,
+        _value: impl Into<Bytes> + Send,
     ) -> Result<(), Self::Error> {
         todo!()
     }
 
-    async fn delete(&self, key: impl Into<Bytes> + Send) -> Result<(), Self::Error> {
+    async fn delete(&self, _key: impl Into<Bytes> + Send) -> Result<(), Self::Error> {
         todo!()
     }
 }
@@ -43,10 +43,10 @@ impl<P: Persistent> Map for Transaction<P> {
 impl<P: Persistent> Transaction<P> {
     pub fn scan<'a>(
         &self,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'a [u8]>,
+        _lower: Bound<&'a [u8]>,
+        _upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Entry>>> {
-        todo!();
+        // todo
         Ok(stream::empty())
     }
 

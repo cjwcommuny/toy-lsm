@@ -100,9 +100,8 @@ impl Key<Bytes> {
     }
 
     /// Create a `KeyBytes` from a `Bytes`. Will be removed in week 3.
-    pub fn from_bytes(bytes: Bytes) -> KeyBytes {
+    pub fn from_bytes(_bytes: Bytes) -> KeyBytes {
         todo!()
-        // Key(bytes)
     }
 
     /// Always use `raw_ref` to access the key in week 1 + 2. This function will be removed in week 3.
@@ -111,7 +110,7 @@ impl Key<Bytes> {
         // self.0.as_ref()
     }
 
-    pub fn for_testing_from_bytes_no_ts(bytes: Bytes) -> KeyBytes {
+    pub fn for_testing_from_bytes_no_ts(_bytes: Bytes) -> KeyBytes {
         todo!()
         // Key(bytes)
     }

@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::io::{Read, Write};
+use std::io::{Read};
 use std::sync::Arc;
 
 use crate::persistent::interface::ManifestHandle;

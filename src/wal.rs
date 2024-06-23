@@ -111,7 +111,7 @@ impl<File: WalHandle> Wal<File> {
 #[cfg(test)]
 mod tests {
     use crate::key::KeyBytes;
-    use bytes::Bytes;
+    
     use tempfile::tempdir;
 
     use crate::persistent::LocalFs;

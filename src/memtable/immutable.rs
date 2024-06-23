@@ -5,7 +5,6 @@ use crate::key::{KeyBytes, KeySlice};
 use bytemuck::TransparentWrapper;
 use bytes::Bytes;
 use crossbeam_skiplist::map;
-use deref_ext::DerefExt;
 use derive_new::new;
 
 use ref_cast::RefCast;

@@ -4,7 +4,6 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use bytes::Buf;
 use derive_getters::Getters;
-use futures::StreamExt;
 use typed_builder::TypedBuilder;
 
 use crate::block::{Block, BlockCache, BlockIterator};
