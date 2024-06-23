@@ -1,16 +1,13 @@
-
-use std::fmt::Debug;
 use std::future::Future;
 use std::iter::Map;
 use std::iter::Once;
-use std::pin::pin;
-use std::{iter};
 
+use std::iter;
 
 use either::Either;
 use futures::future::IntoStream;
 use futures::stream::{FlatMap, Flatten, Iter};
-use futures::{stream, FutureExt, Stream, StreamExt};
+use futures::{stream, FutureExt, StreamExt};
 
 pub fn transpose_try_iter<I, T, E>(iterator: Result<I, E>) -> Either<I, Once<Result<T, E>>>
 where
@@ -58,48 +55,15 @@ where
     stream::iter(iterator.map(FutureExt::into_stream as fn(_) -> _)).flatten()
 }
 
-pub async fn assert_stream_eq<S1, S2>(s1: S1, s2: S2)
-where
-    S1: Stream,
-    S2: Stream,
-    S1::Item: PartialEq<S2::Item> + Debug,
-    S2::Item: Debug,
-{
-    let s1: Vec<_> = s1.collect().await;
-    let s2: Vec<_> = s2.collect().await;
-    assert_eq!(s1, s2);
-}
-
-pub async fn eq<S1, S2>(s1: S1, s2: S2) -> bool
-where
-    S1: Stream,
-    S2: Stream,
-    S1::Item: PartialEq<S2::Item> + Debug,
-    S2::Item: Debug,
-{
-    let mut s1 = pin!(s1);
-    let mut s2 = pin!(s2);
-    loop {
-        match (s1.next().await, s2.next().await) {
-            (Some(x1), Some(x2)) => {
-                if x1 != x2 {
-                    dbg!((x1, x2));
-                    return false;
-                }
-            }
-            (Some(_), None) | (None, Some(_)) => return false,
-            (None, None) => return true,
-        }
-    }
-}
-
 #[cfg(test)]
 pub mod test_utils {
-    use std::vec;
-    use bytes::Bytes;
-    use futures::{stream, Stream};
-    use futures::stream::Iter;
     use crate::entry::Entry;
+    use bytes::Bytes;
+    use futures::stream::Iter;
+    use futures::{stream, Stream, StreamExt};
+    use std::fmt::Debug;
+    use std::pin::pin;
+    use std::vec;
 
     pub type EntryStream = Iter<vec::IntoIter<Entry>>;
 
@@ -125,11 +89,46 @@ pub mod test_utils {
             .collect();
         stream::iter(s)
     }
+
+    pub async fn assert_stream_eq<S1, S2>(s1: S1, s2: S2)
+    where
+        S1: Stream,
+        S2: Stream,
+        S1::Item: PartialEq<S2::Item> + Debug,
+        S2::Item: Debug,
+    {
+        let s1: Vec<_> = s1.collect().await;
+        let s2: Vec<_> = s2.collect().await;
+        assert_eq!(s1, s2);
+    }
+
+    pub async fn eq<S1, S2>(s1: S1, s2: S2) -> bool
+    where
+        S1: Stream,
+        S2: Stream,
+        S1::Item: PartialEq<S2::Item> + Debug,
+        S2::Item: Debug,
+    {
+        let mut s1 = pin!(s1);
+        let mut s2 = pin!(s2);
+        loop {
+            match (s1.next().await, s2.next().await) {
+                (Some(x1), Some(x2)) => {
+                    if x1 != x2 {
+                        dbg!((x1, x2));
+                        return false;
+                    }
+                }
+                (Some(_), None) | (None, Some(_)) => return false,
+                (None, None) => return true,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::eq;
+    use crate::iterators::utils::test_utils::eq;
     use futures::stream;
     use std::fmt::Debug;
 

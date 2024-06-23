@@ -111,7 +111,7 @@ impl<File: WalHandle> Wal<File> {
 #[cfg(test)]
 mod tests {
     use crate::key::KeyBytes;
-    
+
     use tempfile::tempdir;
 
     use crate::persistent::LocalFs;
@@ -141,7 +141,7 @@ mod tests {
         }
 
         {
-            let (wal, map) = Wal::recover(id, &persistent).await.unwrap();
+            let (_wal, map) = Wal::recover(id, &persistent).await.unwrap();
 
             assert_eq!(map.get(&KeyBytes::new_no_ts(b"111")).unwrap().value(), "a");
             assert_eq!(map.get(&KeyBytes::new_no_ts(b"222")).unwrap().value(), "bb");

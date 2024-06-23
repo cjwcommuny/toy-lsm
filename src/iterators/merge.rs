@@ -132,8 +132,7 @@ mod test {
     use crate::entry::Entry;
     use crate::iterators::create_merge_iter;
     use crate::iterators::merge::MergeIteratorInner;
-    use crate::iterators::utils::test_utils::{build_stream, build_tuple_stream};
-    use crate::iterators::utils::{assert_stream_eq, };
+    use crate::iterators::utils::test_utils::{assert_stream_eq, build_stream, build_tuple_stream};
 
     #[tokio::test]
     async fn test_empty() {

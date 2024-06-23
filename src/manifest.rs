@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::io::{Read};
 use std::sync::Arc;
 
 use crate::persistent::interface::ManifestHandle;
@@ -109,7 +108,7 @@ mod tests {
         }
 
         {
-            let (manifest, records) = Manifest::recover(&persistent).await.unwrap();
+            let (_manifest, records) = Manifest::recover(&persistent).await.unwrap();
 
             let record = Compaction(CompactionTask::new(1, 2, 3), vec![1, 2, 3]);
 

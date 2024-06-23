@@ -47,8 +47,8 @@ impl LsmMvccInner {
 
     pub fn new_txn<P: Persistent>(
         &self,
-        inner: Arc<LsmStorageState<P>>,
-        serializable: bool,
+        _inner: Arc<LsmStorageState<P>>,
+        _serializable: bool,
     ) -> Arc<Transaction<P>> {
         unimplemented!()
     }

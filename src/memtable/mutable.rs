@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 use std::ops::Bound;
-use std::path::{Path, PathBuf};
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -183,10 +183,6 @@ impl<W: WalHandle> MemTable<W> {
         let iter = new_memtable_iter(iter);
         NonEmptyStream::try_new(iter).await
     }
-}
-
-fn build_path(dir: impl AsRef<Path>, id: usize) -> PathBuf {
-    dir.as_ref().join(format!("{}.wal", id))
 }
 
 #[cfg(test)]

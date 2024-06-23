@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 
-use futures::{stream};
+use futures::stream;
 
 use tracing::error;
 
@@ -170,15 +170,6 @@ where
         create_merge_iter(iters).await
     }
 
-    fn level_size(&self, level: usize) -> usize {
-        if level == 0 {
-            self.l0_sstables.len()
-        } else {
-            let ids = self.levels.get(level - 1).unwrap();
-            ids.len()
-        }
-    }
-
     pub(super) fn table_ids_mut(&mut self, level: usize) -> &mut Vec<usize> {
         if level == 0 {
             &mut self.l0_sstables
@@ -207,19 +198,6 @@ where
         todo!()
     }
 
-    fn debug_level(&self, level: usize) -> DebugLevel {
-        let tables = self.tables(level);
-        let (size, count) = tables.fold((0, 0), |(size, count), table| {
-            (size + table.table_size(), count + 1)
-        });
-        let ids = self.table_ids(level);
-        DebugLevel {
-            ids: ids.clone(),
-            size,
-            count,
-        }
-    }
-
     pub fn fold_compaction_manifest(&mut self, Compaction(task, result_ids): Compaction) {
         let source = self.table_ids_mut(task.source());
         source.remove(task.source_index());
@@ -229,7 +207,7 @@ where
 }
 
 fn filter_sst_by_bloom<File>(
-    table: &SsTable<File>,
+    _table: &SsTable<File>,
     lower: Bound<KeySlice>,
     upper: Bound<KeySlice>,
 ) -> bool {
@@ -262,30 +240,19 @@ pub fn fold_flush_manifest<W, File>(
     Ok(())
 }
 
-struct DebugLevel {
-    ids: Vec<usize>,
-    size: u64,
-    count: usize,
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::Bound::Unbounded;
-    
-    use std::sync::Arc;
-    
 
-    
+    use std::sync::Arc;
+
     use crate::key::KeySlice;
-    
-    use tempfile::{TempDir};
-    
-    
-    
+
+    use tempfile::TempDir;
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
-    
+
     use crate::sst::{SsTableBuilder, SstOptions, Sstables};
 
     #[tokio::test]
@@ -318,7 +285,8 @@ mod tests {
         };
         sst.insert_sst(Arc::new(table));
 
-        let iter = sst.scan_sst(Unbounded, Unbounded).await.unwrap();
+        let _iter = sst.scan_sst(Unbounded, Unbounded).await.unwrap();
+        todo!()
         // assert_eq!()
     }
 }

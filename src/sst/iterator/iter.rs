@@ -127,7 +127,7 @@ pub struct SsTableIterator<'a, File> {
 }
 
 impl<'a, File> SsTableIterator<'a, File> {
-    pub fn may_contain(&self, key: &[u8]) -> bool {
+    pub fn may_contain(&self, _key: &[u8]) -> bool {
         true
         // todo
         // bloom::may_contain(self.bloom, key)

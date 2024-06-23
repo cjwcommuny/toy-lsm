@@ -148,8 +148,6 @@ mod tests {
     use nom::AsBytes;
     use tempfile::{tempdir, TempDir};
     use tokio::time::sleep;
-    
-    
 
     use crate::lsm::core::Lsm;
     use crate::persistent::{LocalFs, Persistent};

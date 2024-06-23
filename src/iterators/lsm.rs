@@ -23,6 +23,7 @@ use crate::state::LsmStorageStateInner;
 
 pub type LsmIterator<'a> = Box<dyn Stream<Item = anyhow::Result<Entry>> + Unpin + Send + 'a>;
 
+#[allow(dead_code)]
 type LsmIteratorInner<'a, File> = TwoMergeIterator<
     Entry,
     MergeIterator<Entry, MemTableIterator<'a>>,

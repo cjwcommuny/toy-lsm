@@ -27,6 +27,7 @@ fn convert_entry(x: map::Entry<'_, KeyBytes, Bytes>) -> InnerEntry {
 
 type SkipMapRangeIter<'a> = map::Range<'a, KeyBytes, BytesBound, KeyBytes, Bytes>;
 
+#[allow(dead_code)]
 pub type NonEmptyMemTableIterRef<'a> = NonEmptyStream<InnerEntry, MemTableIterator<'a>>;
 pub type MaybeEmptyMemTableIterRef<'a> = MaybeEmptyStream<InnerEntry, MemTableIterator<'a>>;
 

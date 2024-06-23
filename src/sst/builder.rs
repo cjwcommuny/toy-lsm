@@ -10,8 +10,8 @@ use crate::key::KeySlice;
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
-use crate::sst::{BlockMeta, SsTable};
 use crate::sst::bloom::Bloom;
+use crate::sst::{BlockMeta, SsTable};
 
 /// Builds an SSTable from key-value pairs.
 pub struct SsTableBuilder {
@@ -156,7 +156,11 @@ pub mod test_util {
     use crate::sst::{SsTable, SsTableBuilder};
 
     impl SsTableBuilder {
-        pub(crate) async fn build_for_test(self, dir: &TempDir, id: usize) -> anyhow::Result<SsTable<FileObject>> {
+        pub(crate) async fn build_for_test(
+            self,
+            dir: &TempDir,
+            id: usize,
+        ) -> anyhow::Result<SsTable<FileObject>> {
             let persistent = LocalFs::new(dir.path().to_path_buf());
             self.build(id, None, &persistent).await
         }
@@ -195,8 +199,8 @@ mod tests {
     use crate::block::BlockCache;
     use crate::key::KeySlice;
     use crate::persistent::{LocalFs, Persistent};
-    use crate::sst::{SsTable, SsTableBuilder};
     use crate::sst::builder::test_util::{key_of, num_of_keys, value_of};
+    use crate::sst::{SsTable, SsTableBuilder};
 
     #[tokio::test]
     async fn test_sst_build_single_key() {
@@ -292,6 +296,7 @@ mod tests {
         assert_eq!(*sst.max_ts(), 6);
     }
 
+    #[allow(dead_code)]
     pub async fn generate_sst_with_ts<P: Persistent>(
         id: usize,
         persistent: &P,
@@ -308,6 +313,7 @@ mod tests {
         builder.build(id, block_cache, persistent).await.unwrap()
     }
 
+    #[allow(dead_code)]
     fn generate_test_data() -> Vec<((Bytes, u64), Bytes)> {
         (0..100)
             .map(|id| {
