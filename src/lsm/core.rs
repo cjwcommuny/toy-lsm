@@ -21,28 +21,23 @@ use crate::state::{LsmStorageState, Map};
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
     cancel_token: CancellationToken,
-    flush_handle: Option<JoinHandle<()>>,
-    compaction_handle: Option<JoinHandle<()>>,
 }
 
 impl<P: Persistent> Lsm<P> {
     pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
         let state = Arc::new(LsmStorageState::new(options, persistent).await?);
         let cancel_token = CancellationToken::new();
-        let flush_handle = Self::spawn_flush(state.clone(), cancel_token.clone());
-        let compaction_handle = Self::spawn_compaction(state.clone(), cancel_token.clone());
+        let _ = Self::spawn_flush(state.clone(), cancel_token.clone());
+        let _ = Self::spawn_compaction(state.clone(), cancel_token.clone());
         let this = Self {
             state,
             cancel_token,
-            flush_handle: Some(flush_handle),
-            compaction_handle: Some(compaction_handle),
         };
         Ok(this)
     }
 
     pub async fn sync(&self) -> anyhow::Result<()> {
-        // todo
-        Ok(())
+        todo!()
     }
 
     fn spawn_flush(
@@ -187,6 +182,7 @@ mod tests {
     //         .is_empty());
     // }
 
+    #[allow(dead_code)]
     async fn build_lsm(dir: &TempDir) -> anyhow::Result<Lsm<impl Persistent>> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()

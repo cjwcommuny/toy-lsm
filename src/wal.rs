@@ -1,12 +1,11 @@
 use std::io::Cursor;
 
-use std::path::Path;
 use std::sync::Arc;
 
 use crate::key::{KeyBytes, KeySlice};
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
-use tokio::fs::{File, OpenOptions};
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tracing_futures::Instrument;
@@ -91,15 +90,6 @@ impl<File: WalHandle> Wal<File> {
         guard.sync_all().await?;
         Ok(())
     }
-}
-
-async fn get_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .await?;
-    Ok(file)
 }
 
 impl<File: WalHandle> Wal<File> {
