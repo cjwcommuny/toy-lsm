@@ -33,7 +33,7 @@ async-iter-ext = { git = "https://github.com/cjwcommuny/async-iter-ext", rev = "
 typed-builder = "0.18.2"
 derive-getters = "0.4.0"
 tokio = { version = "1.38.0", features = ["full"] }
-dashmap = "5.5.3"
+dashmap = "6.0.1"
 futures = "0.3.30"
 pin-project = "1.1.5"
 proptest = "1.5.0"
