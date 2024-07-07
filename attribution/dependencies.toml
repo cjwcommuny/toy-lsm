@@ -278,7 +278,7 @@ repository = "https://github.com/japaric/cast.rs"
 
 [[dependencies]]
 name = "cc"
-version = "1.0.100"
+version = "1.0.104"
 description = """
 A build-time dependency for Cargo build scripts to assist in invoking the native
 C compiler to compile native C code into a static archive to be linked into Rust
@@ -340,7 +340,7 @@ homepage = "https://clap.rs/"
 
 [[dependencies]]
 name = "clap"
-version = "4.5.7"
+version = "4.5.8"
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -348,7 +348,7 @@ repository = "https://github.com/clap-rs/clap"
 
 [[dependencies]]
 name = "clap_builder"
-version = "4.5.7"
+version = "4.5.8"
 description = "A simple to use, efficient, and full-featured Command Line Argument Parser"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2015-2022 Kevin B. Knapp and Clap Contributors"]
@@ -356,7 +356,7 @@ repository = "https://github.com/clap-rs/clap"
 
 [[dependencies]]
 name = "clap_derive"
-version = "4.5.5"
+version = "4.5.8"
 description = "Parse command line argument by defining a struct, derive crate."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2015-2022 Kevin B. Knapp and Clap Contributors"]
@@ -482,7 +482,7 @@ authors = ["Vurich <jackefransham@hotmail.co.uk>"]
 
 [[dependencies]]
 name = "dashmap"
-version = "5.5.3"
+version = "6.0.1"
 description = "Blazing fast concurrent HashMap for Rust."
 license = "MIT"
 notices = ["Copyright (c) 2019 Acrimon"]
@@ -525,7 +525,7 @@ repository = "https://github.com/JelteF/derive_more"
 
 [[dependencies]]
 name = "either"
-version = "1.12.0"
+version = "1.13.0"
 description = """
 The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
 """
@@ -999,7 +999,7 @@ repository = "https://github.com/Amanieu/parking_lot"
 
 [[dependencies]]
 name = "log"
-version = "0.4.21"
+version = "0.4.22"
 description = """
 A lightweight logging facade for Rust
 """
@@ -1116,7 +1116,7 @@ repository = "https://github.com/seanmonstar/num_cpus"
 
 [[dependencies]]
 name = "object"
-version = "0.36.0"
+version = "0.36.1"
 description = "A unified interface for reading and writing object file formats."
 license = "Apache-2.0 OR MIT"
 notices = ["Copyright (c) 2015 The Gimli Developers"]
@@ -1141,7 +1141,7 @@ repository = "https://sr.ht/~icefox/oorandom/"
 
 [[dependencies]]
 name = "ordered-float"
-version = "4.2.0"
+version = "4.2.1"
 description = "Wrappers for total ordering on floats"
 license = "MIT"
 notices = ["Copyright (c) 2015 Jonathan Reem"]
@@ -1662,7 +1662,7 @@ homepage = "https://serde.rs"
 
 [[dependencies]]
 name = "serde_json"
-version = "1.0.117"
+version = "1.0.119"
 description = "A JSON serialization file format"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -2200,7 +2200,7 @@ repository = "https://github.com/alacritty/vte"
 
 [[dependencies]]
 name = "uuid"
-version = "1.9.0"
+version = "1.9.1"
 description = "A library to generate and parse UUIDs."
 license = "Apache-2.0 OR MIT"
 notices = [
