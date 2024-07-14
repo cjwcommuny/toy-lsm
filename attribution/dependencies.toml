@@ -129,7 +129,7 @@ repository = "https://github.com/smol-rs/async-lock"
 
 [[dependencies]]
 name = "async-trait"
-version = "0.1.80"
+version = "0.1.81"
 description = "Type erasure for async trait methods"
 license = "MIT OR Apache-2.0"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
@@ -278,7 +278,7 @@ repository = "https://github.com/japaric/cast.rs"
 
 [[dependencies]]
 name = "cc"
-version = "1.0.104"
+version = "1.0.105"
 description = """
 A build-time dependency for Cargo build scripts to assist in invoking the native
 C compiler to compile native C code into a static archive to be linked into Rust
@@ -1065,7 +1065,7 @@ repository = "https://github.com/tokio-rs/mio"
 
 [[dependencies]]
 name = "moka"
-version = "0.12.7"
+version = "0.12.8"
 description = "A fast and concurrent cache library inspired by Java Caffeine"
 license = "MIT OR Apache-2.0"
 notices = [
@@ -1132,12 +1132,12 @@ repository = "https://github.com/matklad/once_cell"
 
 [[dependencies]]
 name = "oorandom"
-version = "11.1.3"
+version = "11.1.4"
 description = "A tiny, robust PRNG implementation."
 license = "MIT"
 notices = ["Copyright (c) 2019 Simon Heath"]
 authors = ["Simon Heath <icefox@dreamquest.io>"]
-repository = "https://sr.ht/~icefox/oorandom/"
+repository = "https://hg.sr.ht/~icefox/oorandom"
 
 [[dependencies]]
 name = "ordered-float"
@@ -1638,7 +1638,7 @@ repository = "https://github.com/dtolnay/semver"
 
 [[dependencies]]
 name = "serde"
-version = "1.0.203"
+version = "1.0.204"
 description = "A generic serialization/deserialization framework"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1650,7 +1650,7 @@ homepage = "https://serde.rs"
 
 [[dependencies]]
 name = "serde_derive"
-version = "1.0.203"
+version = "1.0.204"
 description = "Macros 1.1 implementation of #[derive(Serialize, Deserialize)]"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1662,7 +1662,7 @@ homepage = "https://serde.rs"
 
 [[dependencies]]
 name = "serde_json"
-version = "1.0.119"
+version = "1.0.120"
 description = "A JSON serialization file format"
 license = "MIT OR Apache-2.0"
 authors = [
@@ -1790,7 +1790,7 @@ repository = "https://github.com/rapidfuzz/strsim-rs"
 
 [[dependencies]]
 name = "structmeta"
-version = "0.2.0"
+version = "0.3.0"
 description = "Parse Rust's attribute arguments by defining a struct."
 license = "MIT OR Apache-2.0"
 authors = ["frozenlib"]
@@ -1798,7 +1798,7 @@ repository = "https://github.com/frozenlib/structmeta"
 
 [[dependencies]]
 name = "structmeta-derive"
-version = "0.2.0"
+version = "0.3.0"
 description = "derive macro for structmeta crate."
 license = "MIT OR Apache-2.0"
 authors = ["frozenlib"]
@@ -1832,7 +1832,7 @@ repository = "https://github.com/dtolnay/syn"
 
 [[dependencies]]
 name = "syn"
-version = "2.0.52"
+version = "2.0.69"
 description = "Parser for Rust source code"
 license = "MIT OR Apache-2.0"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
@@ -1876,7 +1876,7 @@ homepage = "https://stebalien.com/projects/tempfile-rs/"
 
 [[dependencies]]
 name = "test-strategy"
-version = "0.3.1"
+version = "0.4.0"
 description = "Procedural macro to easily write higher-order strategies in proptest."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2020 FrozenLib"]
@@ -2107,14 +2107,11 @@ homepage = "https://tokio.rs"
 
 [[dependencies]]
 name = "triomphe"
-version = "0.1.13"
+version = "0.1.11"
 description = "A fork of std::sync::Arc with some extra functionality and without weak references (originally servo_arc)"
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) 2019 Manish Goregaokar"]
-authors = [
-  "Manish Goregaokar <manishsmail@gmail.com>",
-  "The Servo Project Developers",
-]
+authors = ["The Servo Project Developers"]
 repository = "https://github.com/Manishearth/triomphe"
 
 [[dependencies]]
