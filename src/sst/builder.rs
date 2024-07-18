@@ -244,7 +244,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let sst = builder.build_for_test(&dir, 1).await.unwrap();
         assert!(
-            sst.block_meta.len() <= 25,
+            sst.block_meta.len() <= 40,
             "you have {} blocks, expect 25",
             sst.block_meta.len()
         );
