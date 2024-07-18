@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use derive_new::new;
 use nom::AsBytes;
 
@@ -69,6 +69,15 @@ impl<T: AsRef<[u8]>> Key<T> {
     pub fn to_key_bytes(self) -> KeyBytes {
         self.map(|slice| Bytes::copy_from_slice(slice.as_ref()))
     }
+
+    pub fn to_byte_iter(&self) -> impl Iterator<Item = u8> + '_ {
+        let key = self.key.as_ref();
+        let key_len = (key.len() as u16).to_be_bytes().into_iter();
+        let key = key.iter().copied();
+        let timestamp = self.timestamp.to_be_bytes().into_iter();
+
+        key_len.chain(key).chain(timestamp)
+    }
 }
 
 impl Key<Vec<u8>> {
@@ -118,6 +127,13 @@ impl Key<Bytes> {
     pub fn for_testing_key_ref(&self) -> &[u8] {
         todo!()
         // self.0.as_ref()
+    }
+
+    pub fn decode(buf: &mut impl Buf) -> KeyBytes {
+        let key_len = buf.get_u16() as usize;
+        let key = buf.copy_to_bytes(key_len);
+        let timestamp = buf.get_u64();
+        Key::new(key, timestamp)
     }
 }
 
