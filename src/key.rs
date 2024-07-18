@@ -149,19 +149,19 @@ impl<'a> Key<&'a [u8]> {
 
     /// Always use `raw_ref` to access the key in week 1 + 2. This function will be removed in week 3.
     pub fn raw_ref(self) -> &'a [u8] {
-        todo!()
+        self.key
     }
 
     pub fn for_testing_key_ref(self) -> &'a [u8] {
         todo!()
     }
 
-    pub fn for_testing_from_slice_no_ts(_slice: &'a [u8]) -> Self {
-        todo!()
+    pub fn for_testing_from_slice_no_ts(slice: &'a [u8]) -> Self {
+        Self::new(slice, 123)
     }
 
-    pub fn for_testing_from_slice_with_ts(_slice: &'a [u8], _ts: u64) -> Self {
-        todo!()
+    pub fn for_testing_from_slice_with_ts(slice: &'a [u8], ts: u64) -> Self {
+        Self::new(slice, ts)
     }
 }
 

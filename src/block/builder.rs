@@ -107,6 +107,7 @@ fn compress_key(first_key: &KeyVec, key: KeySlice, buffer: &mut Vec<u8>) {
     buffer.put_u64(timestamp);
 }
 
+// todo: 太多的 encoding 方法了，需要统一
 fn encode_key(key: KeySlice, buffer: &mut Vec<u8>) {
     buffer.put_u16(key.len() as u16);
     buffer.extend(key.raw_ref());
