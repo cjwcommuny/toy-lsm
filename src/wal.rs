@@ -60,6 +60,7 @@ impl<File: WalHandle> Wal<File> {
 
     pub async fn put<'a>(&'a self, key: KeySlice<'a>, value: &'a [u8]) -> anyhow::Result<()> {
         let mut guard = self.file.lock().await;
+        // todo: 这里 write 的操作和 encode key/value 重复，需要合并
         guard
             .write_u32(key.len() as u32)
             .instrument(tracing::info_span!("wal_put_write_key_len"))
@@ -93,8 +94,13 @@ impl<File: WalHandle> Wal<File> {
 }
 
 impl<File: WalHandle> Wal<File> {
-    pub async fn put_for_test<'a>(&'a self, key: &'a [u8], value: &'a [u8]) -> anyhow::Result<()> {
-        self.put(KeySlice::from_slice(key), value).await
+    pub async fn put_for_test<'a>(
+        &'a self,
+        key: &'a [u8],
+        ts: u64,
+        value: &'a [u8],
+    ) -> anyhow::Result<()> {
+        self.put(KeySlice::new(key, ts), value).await
     }
 }
 
@@ -115,16 +121,16 @@ mod tests {
 
         {
             let wal = Wal::create(id, &persistent).await.unwrap();
-            wal.put_for_test("111".as_bytes(), "a".as_bytes())
+            wal.put_for_test("111".as_bytes(), 123, "a".as_bytes())
                 .await
                 .unwrap();
-            wal.put_for_test("222".as_bytes(), "bb".as_bytes())
+            wal.put_for_test("222".as_bytes(), 234, "bb".as_bytes())
                 .await
                 .unwrap();
-            wal.put_for_test("333".as_bytes(), "ccc".as_bytes())
+            wal.put_for_test("333".as_bytes(), 345, "ccc".as_bytes())
                 .await
                 .unwrap();
-            wal.put_for_test("4".as_bytes(), "".as_bytes())
+            wal.put_for_test("4".as_bytes(), 456, "".as_bytes())
                 .await
                 .unwrap();
             wal.sync().await.unwrap();
@@ -132,15 +138,29 @@ mod tests {
 
         {
             let (_wal, map) = Wal::recover(id, &persistent).await.unwrap();
-
-            assert_eq!(map.get(&KeyBytes::new_no_ts(b"111")).unwrap().value(), "a");
-            assert_eq!(map.get(&KeyBytes::new_no_ts(b"222")).unwrap().value(), "bb");
             assert_eq!(
-                map.get(&KeyBytes::new_no_ts(b"333")).unwrap().value(),
+                map.get(&KeyBytes::new_for_test(b"111", 123))
+                    .unwrap()
+                    .value(),
+                "a"
+            );
+            assert_eq!(
+                map.get(&KeyBytes::new_for_test(b"222", 234))
+                    .unwrap()
+                    .value(),
+                "bb"
+            );
+            assert_eq!(
+                map.get(&KeyBytes::new_for_test(b"333", 345))
+                    .unwrap()
+                    .value(),
                 "ccc"
             );
-            assert_eq!(map.get(&KeyBytes::new_no_ts(b"4")).unwrap().value(), "");
-            assert!(map.get(&KeyBytes::new_no_ts(b"555")).is_none());
+            assert_eq!(
+                map.get(&KeyBytes::new_for_test(b"4", 456)).unwrap().value(),
+                ""
+            );
+            assert!(map.get(&KeyBytes::new_for_test(b"555", 0)).is_none());
         }
     }
 }

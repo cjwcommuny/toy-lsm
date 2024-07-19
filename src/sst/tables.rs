@@ -29,7 +29,7 @@ pub struct SsTable<File> {
     last_key: KeyBytes,
     pub(crate) bloom: Option<Bloom>,
     /// The maximum timestamp stored in this SST, implemented in week 3.
-    max_ts: u64,
+    max_ts: u64, // todo: use Option?
 }
 
 impl<File: SstHandle> Debug for SsTable<File> {

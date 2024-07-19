@@ -20,6 +20,7 @@ pub struct SsTableBuilder {
     pub(crate) meta: Vec<BlockMeta>,
     block_size: usize,
     key_hashes: Vec<u32>,
+    max_ts: u64, // todo: use Option
 }
 
 impl SsTableBuilder {
@@ -31,6 +32,7 @@ impl SsTableBuilder {
             meta: Vec::new(),
             block_size,
             key_hashes: Vec::new(),
+            max_ts: 0,
         }
     }
 
@@ -45,6 +47,7 @@ impl SsTableBuilder {
             self.key_hashes.push(farmhash::fingerprint32(key.raw_ref()));
             return;
         }
+        self.max_ts = self.max_ts.max(key.timestamp());
         let old_builder = mem::replace(&mut self.builder, BlockBuilder::new(self.block_size));
         Self::add_block(&mut self.data, &mut self.meta, old_builder);
         self.add(key, value);
@@ -90,6 +93,7 @@ impl SsTableBuilder {
             mut meta,
             block_size: _,
             key_hashes,
+            max_ts,
         } = self;
 
         // add last block
@@ -129,7 +133,7 @@ impl SsTableBuilder {
             .first_key(first_key)
             .last_key(last_key)
             .bloom(Some(bloom))
-            .max_ts(0) // todo
+            .max_ts(max_ts) // todo
             .build();
 
         Ok(table)

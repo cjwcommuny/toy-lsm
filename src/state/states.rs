@@ -162,6 +162,7 @@ where
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
+    // todo: 这个函数用到的 snapshot 不用 load？直接从 caller 传过来？
     pub(crate) async fn force_freeze_memtable(
         &self,
         _guard: &MutexGuard<'_, ()>,

@@ -44,8 +44,8 @@ impl<T> From<(T, u64)> for Key<T> {
 
 #[cfg(test)]
 impl Key<Bytes> {
-    pub fn new_no_ts(key: &[u8]) -> Self {
-        Self::new(Bytes::copy_from_slice(key), 0)
+    pub fn new_for_test(key: &[u8], ts: u64) -> Self {
+        Self::new(Bytes::copy_from_slice(key), ts)
     }
 }
 
@@ -115,8 +115,7 @@ impl Key<Bytes> {
 
     /// Always use `raw_ref` to access the key in week 1 + 2. This function will be removed in week 3.
     pub fn raw_ref(&self) -> &[u8] {
-        todo!()
-        // self.0.as_ref()
+        self.key.as_ref()
     }
 
     pub fn for_testing_from_bytes_no_ts(_bytes: Bytes) -> KeyBytes {
@@ -140,11 +139,6 @@ impl Key<Bytes> {
 impl<'a> Key<&'a [u8]> {
     pub fn to_key_vec(self) -> KeyVec {
         self.map(|key| key.to_vec())
-    }
-
-    /// Create a key slice from a slice. Will be removed in week 3.
-    pub fn from_slice(_slice: &'a [u8]) -> Self {
-        todo!()
     }
 
     /// Always use `raw_ref` to access the key in week 1 + 2. This function will be removed in week 3.
