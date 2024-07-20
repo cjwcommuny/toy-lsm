@@ -12,6 +12,7 @@ pub struct Keyed<K, V> {
     pub value: V,
 }
 
+// todo: use Derivative for auto deriving
 impl<K: Eq, V> Eq for Keyed<K, V> {}
 
 impl<K: PartialEq, V> PartialEq<Self> for Keyed<K, V> {
