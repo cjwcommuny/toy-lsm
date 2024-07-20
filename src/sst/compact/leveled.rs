@@ -298,8 +298,8 @@ mod tests {
 
         {
             assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-            assert_eq!(sstables.levels, vec![vec![12, 13, 14], vec![], vec![]]);
-            assert_eq!(sstables.sstables.len(), 6);
+            assert_eq!(sstables.levels, vec![vec![12, 13, 14, 15], vec![], vec![]]);
+            assert_eq!(sstables.sstables.len(), 7);
         }
 
         compact_with_task(
@@ -314,8 +314,8 @@ mod tests {
 
         {
             assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-            assert_eq!(sstables.levels, vec![vec![13, 14], vec![16], vec![]]);
-            assert_eq!(sstables.sstables.len(), 6);
+            assert_eq!(sstables.levels, vec![vec![13, 14, 15], vec![17], vec![]]);
+            assert_eq!(sstables.sstables.len(), 7);
         }
     }
 

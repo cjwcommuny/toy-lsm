@@ -110,13 +110,13 @@ impl Block {
 
     pub fn get_entry(&self, index: usize) -> InnerEntry {
         let (key, value) = self.get_entry_ref(index);
-        let key = key.to_key_bytes();
+        let key = key.copy_to_key_bytes();
         let value = Bytes::copy_from_slice(value);
         InnerEntry { key, value }
     }
 
     pub fn first_key(&self) -> KeyBytes {
-        self.first_key_ref().to_key_bytes()
+        self.first_key_ref().copy_to_key_bytes()
     }
 
     fn first_key_ref(&self) -> KeySlice {
@@ -126,7 +126,7 @@ impl Block {
 
     pub fn last_key(&self) -> KeyBytes {
         let (_, key) = self.parse_key_ref(self.offsets.len() - 1);
-        key.to_key_bytes()
+        key.copy_to_key_bytes()
     }
 }
 
