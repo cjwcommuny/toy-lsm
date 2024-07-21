@@ -2,11 +2,12 @@ use std::cmp::Ordering;
 
 use crate::key::{Key, KeyBytes};
 use bytes::Bytes;
+use derive_new::new;
 
 pub type Entry = Keyed<Bytes, Bytes>;
 pub type InnerEntry = Keyed<KeyBytes, Bytes>;
 
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub struct Keyed<K, V> {
     pub key: K,
     pub value: V,

@@ -66,6 +66,54 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::entry::Keyed;
+    use crate::mvcc::iterator::build_time_dedup_iter;
+    use futures::{stream, StreamExt, TryStreamExt};
+
     #[tokio::test]
-    async fn test_build_time_dedup_iter() {}
+    async fn test_build_time_dedup_iter() {
+        test_time_dedup_iter_helper([(Keyed::new("a", "a1"), 1)], 3, [Keyed::new("a", "a1")]).await;
+        test_time_dedup_iter_helper(
+            [
+                (Keyed::new("a", "a1"), 1),
+                (Keyed::new("a", "a2"), 2),
+                (Keyed::new("b", "b3"), 3),
+            ],
+            2,
+            [Keyed::new("a", "a2")],
+        )
+        .await;
+        test_time_dedup_iter_helper(
+            [
+                (Keyed::new("a", "a1"), 1),
+                (Keyed::new("a", "a2"), 2),
+                (Keyed::new("a", "a3"), 3),
+                (Keyed::new("b", "b2"), 2),
+                (Keyed::new("c", "c1"), 1),
+                (Keyed::new("c", "c3"), 3),
+            ],
+            2,
+            [
+                Keyed::new("a", "a2"),
+                Keyed::new("b", "b2"),
+                Keyed::new("c", "c1"),
+            ],
+        )
+        .await;
+    }
+
+    async fn test_time_dedup_iter_helper<I, S>(s: I, timestamp_upper: u64, expected: S)
+    where
+        I: IntoIterator<Item = (Keyed<&'static str, &'static str>, u64)>,
+        I::IntoIter: Send,
+        S: IntoIterator<Item = Keyed<&'static str, &'static str>>,
+    {
+        let s = stream::iter(s).map(|pair| Ok::<_, ()>(pair));
+        let result: Vec<_> = build_time_dedup_iter(s, timestamp_upper)
+            .try_collect()
+            .await
+            .unwrap();
+        let expected: Vec<_> = expected.into_iter().collect();
+        assert_eq!(result, expected);
+    }
 }
