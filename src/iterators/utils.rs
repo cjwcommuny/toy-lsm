@@ -7,7 +7,7 @@ use std::iter;
 use either::Either;
 use futures::future::IntoStream;
 use futures::stream::{FlatMap, Flatten, Iter};
-use futures::{stream, FutureExt, StreamExt};
+use futures::{stream, FutureExt, Stream, StreamExt};
 
 pub fn transpose_try_iter<I, T, E>(iterator: Result<I, E>) -> Either<I, Once<Result<T, E>>>
 where

@@ -7,16 +7,20 @@ use crossbeam_skiplist::SkipMap;
 use futures::{stream, Stream};
 use std::collections::{Bound, HashSet};
 
+use crate::mvcc::iterator::txn_local_iterator;
+use parking_lot::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 pub struct Transaction<P: Persistent> {
     pub(crate) read_ts: u64,
-    pub(crate) inner: Arc<LsmStorageStateInner<P>>,
+    pub(crate) inner: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
+
+    // todo: need Arc<...> ?
     pub(crate) local_storage: Arc<SkipMap<Bytes, Bytes>>,
     pub(crate) committed: Arc<AtomicBool>,
     /// Write set and read set
+    /// todo: check deadlock?
     pub(crate) key_hashes: Option<Mutex<(HashSet<u32>, HashSet<u32>)>>,
 }
 
@@ -41,11 +45,31 @@ impl<P: Persistent> Map for Transaction<P> {
 }
 
 impl<P: Persistent> Transaction<P> {
+    pub fn new(
+        read_ts: u64,
+        inner: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
+        key_hashes: Option<Mutex<(HashSet<u32>, HashSet<u32>)>>,
+    ) -> Self {
+        Self {
+            read_ts,
+            inner,
+            local_storage: Arc::default(),
+            committed: Arc::default(),
+            key_hashes,
+        }
+    }
+
     pub fn scan<'a>(
         &self,
-        _lower: Bound<&'a [u8]>,
-        _upper: Bound<&'a [u8]>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Entry>>> {
+        let local_iterator = txn_local_iterator(
+            &self.local_storage,
+            lower.map(Bytes::copy_from_slice),
+            upper.map(Bytes::copy_from_slice),
+        );
+
         // todo
         Ok(stream::empty())
     }

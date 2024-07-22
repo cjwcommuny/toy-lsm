@@ -33,8 +33,8 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
 #[derive(new)]
 pub struct LockedLsmIter<'a, P: Persistent> {
     state: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
-    lower: Bound<&'a [u8]>,
-    upper: Bound<&'a [u8]>,
+    pub(crate) lower: Bound<&'a [u8]>,
+    pub(crate) upper: Bound<&'a [u8]>,
     timestamp: u64,
 }
 
@@ -49,6 +49,15 @@ where
     P: Persistent,
 {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
+        let time_dedup = self.iter_with_delete().await?;
+        let iter = new_no_deleted_iter(time_dedup);
+        let iter = Box::new(iter) as _;
+        Ok(iter)
+    }
+
+    pub async fn iter_with_delete(
+        &self,
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Entry>> + Unpin + Send + '_> {
         let a = self.build_memtable_iter().await;
         assert_raw_stream(&a);
         let b = self.build_sst_iter().await?;
@@ -59,10 +68,7 @@ where
         assert_tuple_stream(&merge);
         let time_dedup = build_time_dedup_iter(merge, self.timestamp);
         assert_result_stream(&time_dedup);
-        // todo: dedup timestamps
-        let iter = new_no_deleted_iter(time_dedup);
-        let iter = Box::new(iter) as _;
-        Ok(iter)
+        Ok(time_dedup)
     }
 
     pub async fn build_memtable_iter(&self) -> MergeIterator<InnerEntry, MemTableIterator> {

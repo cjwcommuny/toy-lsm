@@ -1,16 +1,15 @@
 use crate::mvcc::transaction::Transaction;
 use crate::mvcc::watermark::Watermark;
 use crate::persistent::Persistent;
-use crate::state::LsmStorageState;
+use crate::state::{LsmStorageState, LsmStorageStateInner};
 use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) struct CommittedTxnData {
     pub(crate) key_hashes: HashSet<u32>,
-    #[allow(dead_code)]
     pub(crate) read_ts: u64,
-    #[allow(dead_code)]
     pub(crate) commit_ts: u64,
 }
 
@@ -47,9 +46,16 @@ impl LsmMvccInner {
 
     pub fn new_txn<P: Persistent>(
         &self,
-        _inner: Arc<LsmStorageState<P>>,
-        _serializable: bool,
-    ) -> Arc<Transaction<P>> {
-        unimplemented!()
+        inner: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
+        serializable: bool,
+    ) -> Transaction<P> {
+        // todo: use external dependency to get time
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let key_hashes = serializable.then(|| Mutex::default());
+        let tx = Transaction::new(ts, inner, key_hashes);
+        tx
     }
 }

@@ -1,12 +1,53 @@
+use async_iter_ext::StreamTools;
+use bytes::Bytes;
+use crossbeam_skiplist::SkipMap;
+use futures::{stream, Stream, StreamExt, TryStreamExt};
+use num_traits::Bounded;
 use std::collections::Bound::{Excluded, Included, Unbounded};
 use std::future::ready;
 use std::ops::Bound;
-
-use async_iter_ext::StreamTools;
-use futures::{Stream, StreamExt, TryStreamExt};
-use num_traits::Bounded;
+use std::sync::Arc;
 
 use crate::bound::BoundRange;
+use crate::entry::{Entry, Keyed};
+use crate::iterators::lsm::LsmIterator;
+use crate::iterators::no_deleted::new_no_deleted_iter;
+use crate::iterators::{create_two_merge_iter, LockedLsmIter};
+use crate::persistent::Persistent;
+
+pub struct LockedTxnIter<'a, P: Persistent> {
+    local_storage: arc_swap::Guard<Arc<SkipMap<Bytes, Bytes>>>,
+    lsm_iter: LockedLsmIter<'a, P>,
+}
+
+impl<'a, P: Persistent> LockedTxnIter<'a, P> {
+    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
+        let lsm_iter = self.lsm_iter.iter_with_delete().await?;
+        let local_iter = txn_local_iterator(
+            self.local_storage.as_ref(),
+            self.lsm_iter.lower.map(Bytes::copy_from_slice),
+            self.lsm_iter.upper.map(Bytes::copy_from_slice),
+        );
+        let merged = create_two_merge_iter(local_iter, lsm_iter).await?;
+        let iter = new_no_deleted_iter(merged);
+        let iter = Box::new(iter) as _;
+        Ok(iter)
+    }
+}
+
+pub fn txn_local_iterator<'a>(
+    map: &'a SkipMap<Bytes, Bytes>,
+    lower: Bound<Bytes>,
+    upper: Bound<Bytes>,
+) -> impl Stream<Item = anyhow::Result<Entry>> + Unpin + Send + 'a {
+    let it = map.range((lower, upper)).map(|entry| {
+        let key = entry.key().clone();
+        let value = entry.value().clone();
+        let pair = Keyed::new(key, value);
+        Ok::<_, anyhow::Error>(pair)
+    });
+    stream::iter(it)
+}
 
 pub fn build_time_dedup_iter<S, A, T, E>(
     s: S,

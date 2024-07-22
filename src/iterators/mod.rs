@@ -1,4 +1,4 @@
-mod lsm;
+pub mod lsm;
 mod maybe_empty;
 pub mod merge;
 pub mod no_deleted;

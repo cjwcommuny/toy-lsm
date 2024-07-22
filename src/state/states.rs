@@ -1,13 +1,13 @@
+use anyhow::anyhow;
+use arc_swap::ArcSwap;
+use bytes::Bytes;
+use derive_getters::Getters;
+use futures::StreamExt;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-use arc_swap::ArcSwap;
-use bytes::Bytes;
-use derive_getters::Getters;
-use futures::StreamExt;
 use tokio::sync::{Mutex, MutexGuard};
 use tracing_futures::Instrument;
 
@@ -81,7 +81,9 @@ where
     }
 
     pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
-        todo!()
+        let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;
+        let tx = mvcc.new_txn(self.inner.load(), false);
+        Ok(tx)
     }
 }
 
