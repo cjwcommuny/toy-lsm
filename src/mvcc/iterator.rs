@@ -1,6 +1,13 @@
+use crate::bound::BoundRange;
+use crate::entry::{Entry, Keyed};
+use crate::iterators::lsm::LsmIterator;
+use crate::iterators::no_deleted::new_no_deleted_iter;
+use crate::iterators::{create_two_merge_iter, LockedLsmIter};
+use crate::persistent::Persistent;
 use async_iter_ext::StreamTools;
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
+use derive_new::new;
 use futures::{stream, Stream, StreamExt, TryStreamExt};
 use num_traits::Bounded;
 use std::collections::Bound::{Excluded, Included, Unbounded};
@@ -8,15 +15,9 @@ use std::future::ready;
 use std::ops::Bound;
 use std::sync::Arc;
 
-use crate::bound::BoundRange;
-use crate::entry::{Entry, Keyed};
-use crate::iterators::lsm::LsmIterator;
-use crate::iterators::no_deleted::new_no_deleted_iter;
-use crate::iterators::{create_two_merge_iter, LockedLsmIter};
-use crate::persistent::Persistent;
-
+#[derive(new)]
 pub struct LockedTxnIter<'a, P: Persistent> {
-    local_storage: arc_swap::Guard<Arc<SkipMap<Bytes, Bytes>>>,
+    local_storage: &'a SkipMap<Bytes, Bytes>,
     lsm_iter: LockedLsmIter<'a, P>,
 }
 
@@ -24,7 +25,7 @@ impl<'a, P: Persistent> LockedTxnIter<'a, P> {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
         let lsm_iter = self.lsm_iter.iter_with_delete().await?;
         let local_iter = txn_local_iterator(
-            self.local_storage.as_ref(),
+            self.local_storage,
             self.lsm_iter.lower.map(Bytes::copy_from_slice),
             self.lsm_iter.upper.map(Bytes::copy_from_slice),
         );
@@ -35,11 +36,11 @@ impl<'a, P: Persistent> LockedTxnIter<'a, P> {
     }
 }
 
-pub fn txn_local_iterator<'a>(
-    map: &'a SkipMap<Bytes, Bytes>,
+pub fn txn_local_iterator(
+    map: &SkipMap<Bytes, Bytes>,
     lower: Bound<Bytes>,
     upper: Bound<Bytes>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + Unpin + Send + 'a {
+) -> impl Stream<Item = anyhow::Result<Entry>> + Unpin + Send + '_ {
     let it = map.range((lower, upper)).map(|entry| {
         let key = entry.key().clone();
         let value = entry.value().clone();
@@ -149,7 +150,7 @@ mod tests {
         I::IntoIter: Send,
         S: IntoIterator<Item = Keyed<&'static str, &'static str>>,
     {
-        let s = stream::iter(s).map(|pair| Ok::<_, ()>(pair));
+        let s = stream::iter(s).map(Ok::<_, ()>);
         let result: Vec<_> = build_time_dedup_iter(s, timestamp_upper)
             .try_collect()
             .await

@@ -82,7 +82,7 @@ where
 
     pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
         let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;
-        let tx = mvcc.new_txn(self.inner.load(), false);
+        let tx = mvcc.new_txn(self.inner.load_full(), false);
         Ok(tx)
     }
 }
@@ -140,7 +140,7 @@ where
     }
 
     fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
-        let snapshot = self.inner.load();
+        let snapshot = self.inner.load_full();
         LockedLsmIter::new(snapshot, lower, upper, 0) // todo
     }
 }
@@ -346,6 +346,7 @@ mod test {
     use crate::iterators::utils::test_utils::{
         assert_stream_eq, build_stream, build_tuple_stream, eq,
     };
+    use crate::mvcc::transaction::Transaction;
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
     use crate::sst::SstOptions;
@@ -814,14 +815,7 @@ mod test {
         );
         assert_eq!(snapshot1.get_for_test(b"c").await.unwrap(), None);
 
-        {
-            let iter = snapshot1.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "1"), ("b", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&snapshot1, Unbounded, Unbounded, [("a", "1"), ("b", "1")]).await;
 
         assert_eq!(
             snapshot2.get_for_test(b"a").await.unwrap(),
@@ -833,14 +827,7 @@ mod test {
         );
         assert_eq!(snapshot2.get_for_test(b"c").await.unwrap(), None);
 
-        {
-            let iter = snapshot2.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "2"), ("b", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&snapshot2, Unbounded, Unbounded, [("a", "2"), ("b", "1")]).await;
 
         assert_eq!(
             snapshot3.get_for_test(b"a").await.unwrap(),
@@ -852,14 +839,7 @@ mod test {
             Some(Bytes::from_static(b"1"))
         );
 
-        {
-            let iter = snapshot3.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "2"), ("c", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&snapshot3, Unbounded, Unbounded, [("a", "2"), ("c", "1")]).await;
 
         if !flush {
             let guard = storage.state_lock.lock().await;
@@ -890,14 +870,7 @@ mod test {
         );
         assert_eq!(snapshot1.get_for_test(b"c").await.unwrap(), None);
 
-        {
-            let iter = snapshot1.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "1"), ("b", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&snapshot1, Unbounded, Unbounded, [("a", "1"), ("b", "1")]).await;
 
         assert_eq!(
             snapshot2.get_for_test(b"a").await.unwrap(),
@@ -909,14 +882,7 @@ mod test {
         );
         assert_eq!(snapshot2.get_for_test(b"c").await.unwrap(), None);
 
-        {
-            let iter = snapshot2.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "2"), ("b", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&snapshot2, Unbounded, Unbounded, [("a", "2"), ("b", "1")]).await;
 
         assert_eq!(
             snapshot3.get_for_test(b"a").await.unwrap(),
@@ -928,14 +894,7 @@ mod test {
             Some(Bytes::from_static(b"1"))
         );
 
-        {
-            let iter = snapshot3.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "2"), ("c", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&snapshot3, Unbounded, Unbounded, [("a", "2"), ("c", "1")]).await;
 
         assert_eq!(
             snapshot4.get_for_test(b"a").await.unwrap(),
@@ -950,14 +909,13 @@ mod test {
             Some(Bytes::from_static(b"1"))
         );
 
-        {
-            let iter = snapshot4.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "3"), ("b", "3"), ("c", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(
+            &snapshot4,
+            Unbounded,
+            Unbounded,
+            [("a", "3"), ("b", "3"), ("c", "1")],
+        )
+        .await;
 
         assert_eq!(
             snapshot5.get_for_test(b"a").await.unwrap(),
@@ -972,14 +930,13 @@ mod test {
             Some(Bytes::from_static(b"1"))
         );
 
-        {
-            let iter = snapshot4.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "4"), ("b", "3"), ("c", "1")]),
-            )
-            .await;
-        }
+        assert_scan_iter(
+            &snapshot4,
+            Unbounded,
+            Unbounded,
+            [("a", "4"), ("b", "3"), ("c", "1")],
+        )
+        .await;
 
         assert_eq!(
             snapshot6.get_for_test(b"a").await.unwrap(),
@@ -991,33 +948,11 @@ mod test {
             Some(Bytes::from_static(b"5"))
         );
 
-        {
-            let iter = snapshot6.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("a", "4"), ("c", "5")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&snapshot6, Unbounded, Unbounded, [("a", "4"), ("c", "5")]).await;
 
         if flush {
-            {
-                let iter = snapshot6.scan(Included(b"a"), Included(b"a")).unwrap();
-                assert_stream_eq(
-                    iter.map(Result::unwrap).map(Entry::into_tuple),
-                    build_tuple_stream([("a", "4")]),
-                )
-                .await;
-            }
-
-            {
-                let iter = snapshot6.scan(Excluded(b"a"), Excluded(b"c")).unwrap();
-                assert_stream_eq(
-                    iter.map(Result::unwrap).map(Entry::into_tuple),
-                    build_tuple_stream([]),
-                )
-                .await;
-            }
+            assert_scan_iter(&snapshot6, Included(b"a"), Included(b"a"), [("a", "4")]).await;
+            assert_scan_iter(&snapshot6, Excluded(b"a"), Excluded(b"c"), []).await;
         }
     }
 
@@ -1192,58 +1127,29 @@ mod test {
         txn1.put_for_test(b"test1", b"233").await.unwrap();
         txn2.put_for_test(b"test2", b"233").await.unwrap();
 
-        {
-            let iter = txn1.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("test1", "233")]),
-            )
-            .await;
-        }
-
-        {
-            let iter = txn2.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("test2", "233")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&txn1, Unbounded, Unbounded, [("test1", "233")]).await;
+        assert_scan_iter(&txn2, Unbounded, Unbounded, [("test2", "233")]).await;
 
         let txn3 = storage.new_txn().unwrap();
 
-        {
-            let iter = txn3.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([]),
-            )
-            .await;
-        }
+        assert_scan_iter(&txn3, Unbounded, Unbounded, []).await;
 
         txn1.commit().await.unwrap();
         txn2.commit().await.unwrap();
 
-        {
-            let iter = txn3.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([]),
-            )
-            .await;
-        }
+        assert_scan_iter(&txn3, Unbounded, Unbounded, []).await;
 
         drop(txn3);
 
-        // todo: add this test
-        // {
-        //     let iter = storage.scan(Unbounded, Unbounded);
-        //     assert_stream_eq(
-        //         iter.iter().await.unwrap().map(Result::unwrap).map(Entry::into_tuple),
-        //         build_tuple_stream([("test1", "233"), ("test2", "233")]),
-        //     )
-        //         .await;
-        // }
+        {
+            let guard = storage.scan(Unbounded, Unbounded);
+            let iter = guard.iter().await.unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("test1", "233"), ("test2", "233")]),
+            )
+            .await;
+        }
 
         let txn4 = storage.new_txn().unwrap();
 
@@ -1256,14 +1162,13 @@ mod test {
             Some(Bytes::from("233"))
         );
 
-        {
-            let iter = txn4.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("test1", "233"), ("test2", "233")]),
-            )
-            .await;
-        }
+        assert_scan_iter(
+            &txn4,
+            Unbounded,
+            Unbounded,
+            [("test1", "233"), ("test2", "233")],
+        )
+        .await;
 
         txn4.put_for_test(b"test2", b"2333").await.unwrap();
         assert_eq!(
@@ -1275,14 +1180,13 @@ mod test {
             Some(Bytes::from("2333"))
         );
 
-        {
-            let iter = txn4.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("test1", "233"), ("test2", "2333")]),
-            )
-            .await;
-        }
+        assert_scan_iter(
+            &txn4,
+            Unbounded,
+            Unbounded,
+            [("test1", "233"), ("test2", "2333")],
+        )
+        .await;
 
         txn4.delete_for_test(b"test2").await.unwrap();
 
@@ -1292,13 +1196,21 @@ mod test {
         );
         assert_eq!(txn4.get_for_test(b"test2").await.unwrap(), None);
 
-        {
-            let iter = txn4.scan(Unbounded, Unbounded).unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("test1", "233")]),
-            )
-            .await;
-        }
+        assert_scan_iter(&txn4, Unbounded, Unbounded, [("test1", "233")]).await;
+    }
+
+    async fn assert_scan_iter<P: Persistent>(
+        snapshot: &Transaction<P>,
+        lower: Bound<&[u8]>,
+        upper: Bound<&[u8]>,
+        expected: impl IntoIterator<Item = (&'static str, &'static str)>,
+    ) {
+        let guard = snapshot.scan(lower, upper).unwrap();
+        let iter = guard.iter().await.unwrap();
+        assert_stream_eq(
+            iter.map(Result::unwrap).map(Entry::into_tuple),
+            build_tuple_stream(expected),
+        )
+        .await;
     }
 }

@@ -46,7 +46,7 @@ impl LsmMvccInner {
 
     pub fn new_txn<P: Persistent>(
         &self,
-        inner: arc_swap::Guard<Arc<LsmStorageStateInner<P>>>,
+        inner: Arc<LsmStorageStateInner<P>>,
         serializable: bool,
     ) -> Transaction<P> {
         // todo: use external dependency to get time
@@ -54,8 +54,8 @@ impl LsmMvccInner {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let key_hashes = serializable.then(|| Mutex::default());
-        let tx = Transaction::new(ts, inner, key_hashes);
-        tx
+        let key_hashes = serializable.then(Mutex::default);
+
+        Transaction::new(ts, inner, key_hashes)
     }
 }
