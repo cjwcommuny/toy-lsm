@@ -808,6 +808,12 @@ mod test {
 
         storage.put_for_test(b"a", b"1").await.unwrap();
         storage.put_for_test(b"b", b"1").await.unwrap();
+
+        assert_eq!(
+            storage.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
         let snapshot1 = storage.new_txn().unwrap();
         storage.put_for_test(b"a", b"2").await.unwrap();
         let snapshot2 = storage.new_txn().unwrap();

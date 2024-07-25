@@ -15,4 +15,5 @@ mod lsm;
 mod manifest;
 pub mod mvcc;
 mod test_utils;
+pub mod time;
 mod utils;
