@@ -13,6 +13,7 @@ use arc_swap::access::Access;
 use parking_lot::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio_stream::StreamExt;
 
 pub struct Transaction<P: Persistent> {
     pub(crate) read_ts: u64,
@@ -29,20 +30,29 @@ pub struct Transaction<P: Persistent> {
 impl<P: Persistent> Map for Transaction<P> {
     type Error = anyhow::Error;
 
-    async fn get(&self, _key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
-        todo!()
+    async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
+        let guard = self.scan(Bound::Included(key), Bound::Included(key));
+        let output = guard
+            .iter()
+            .await?
+            .next()
+            .await
+            .transpose()?
+            .map(|entry| entry.value);
+        Ok(output)
     }
 
     async fn put(
         &self,
-        _key: impl Into<Bytes> + Send,
-        _value: impl Into<Bytes> + Send,
+        key: impl Into<Bytes> + Send,
+        value: impl Into<Bytes> + Send,
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.local_storage.insert(key.into(), value.into());
+        Ok(())
     }
 
-    async fn delete(&self, _key: impl Into<Bytes> + Send) -> Result<(), Self::Error> {
-        todo!()
+    async fn delete(&self, key: impl Into<Bytes> + Send) -> Result<(), Self::Error> {
+        self.put(key, Bytes::new()).await
     }
 }
 
@@ -66,10 +76,10 @@ impl<P: Persistent> Transaction<P> {
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> anyhow::Result<LockedTxnIter<'a, P>> {
+    ) -> LockedTxnIter<'a, P> {
         let inner_iter = LockedLsmIter::new(self.inner.clone(), lower, upper, self.read_ts); // todo
         let guard = LockedTxnIter::new(&self.local_storage, inner_iter);
-        Ok(guard)
+        guard
     }
 
     pub async fn commit(self) -> anyhow::Result<()> {

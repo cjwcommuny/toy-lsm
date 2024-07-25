@@ -1214,7 +1214,7 @@ mod test {
         upper: Bound<&[u8]>,
         expected: impl IntoIterator<Item = (&'static str, &'static str)>,
     ) {
-        let guard = snapshot.scan(lower, upper).unwrap();
+        let guard = snapshot.scan(lower, upper);
         let iter = guard.iter().await.unwrap();
         assert_stream_eq(
             iter.map(Result::unwrap).map(Entry::into_tuple),
