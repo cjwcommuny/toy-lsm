@@ -12,4 +12,7 @@ pub struct SstOptions {
     num_memtable_limit: usize,
     compaction_option: CompactionOptions,
     enable_wal: bool,
+
+    #[builder(default)]
+    enable_mvcc: bool,
 }

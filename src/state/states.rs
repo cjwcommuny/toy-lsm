@@ -22,6 +22,7 @@ use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
+use crate::utils::time::now_unix;
 use crate::utils::vec::pop;
 
 #[derive(Getters)]
@@ -67,6 +68,13 @@ where
         .await?;
         let sst_id = AtomicUsize::new(next_sst_id);
 
+        let mvcc = if *options.enable_mvcc() {
+            // todo: use external dependency to get time
+            Some(LsmMvccInner::new(now_unix()?))
+        } else {
+            None
+        };
+
         let this = Self {
             inner: ArcSwap::new(Arc::new(inner)),
             block_cache: Arc::new(BlockCache::new(1024)),
@@ -75,7 +83,7 @@ where
             persistent,
             options,
             sst_id,
-            mvcc: None, // todo
+            mvcc,
         };
         Ok(this)
     }
@@ -794,6 +802,7 @@ mod test {
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
             .enable_wal(true)
+            .enable_mvcc(true)
             .build();
         let storage = LsmStorageState::new(options, persistent).await.unwrap();
 

@@ -2,6 +2,7 @@ use crate::mvcc::transaction::Transaction;
 use crate::mvcc::watermark::Watermark;
 use crate::persistent::Persistent;
 use crate::state::{LsmStorageState, LsmStorageStateInner};
+use crate::utils::time::now_unix;
 use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -50,10 +51,7 @@ impl LsmMvccInner {
         serializable: bool,
     ) -> Transaction<P> {
         // todo: use external dependency to get time
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let ts = now_unix().unwrap();
         let key_hashes = serializable.then(Mutex::default);
 
         Transaction::new(ts, inner, key_hashes)
