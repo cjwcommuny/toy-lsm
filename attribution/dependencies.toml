@@ -278,7 +278,7 @@ repository = "https://github.com/japaric/cast.rs"
 
 [[dependencies]]
 name = "cc"
-version = "1.1.5"
+version = "1.1.6"
 description = """
 A build-time dependency for Cargo build scripts to assist in invoking the native
 C compiler to compile native C code into a static archive to be linked into Rust
@@ -1450,7 +1450,7 @@ homepage = "https://rust-random.github.io/book"
 
 [[dependencies]]
 name = "raw-cpuid"
-version = "11.0.2"
+version = "11.1.0"
 description = "A library to parse the x86 CPUID instruction, written in rust with no external dependencies. The implementation closely resembles the Intel CPUID manual description. The library does only depend on libcore."
 license = "MIT"
 notices = ["Copyright (c) 2015 Gerd Zellweger"]
@@ -1483,7 +1483,7 @@ repository = "https://github.com/rayon-rs/rayon"
 
 [[dependencies]]
 name = "redox_syscall"
-version = "0.5.2"
+version = "0.5.3"
 description = "A Rust library to access raw Redox system calls"
 license = "MIT"
 notices = ["Copyright (c) 2017 Redox OS Developers"]
@@ -1901,7 +1901,7 @@ repository = "https://github.com/mgeisler/textwrap"
 
 [[dependencies]]
 name = "thiserror"
-version = "1.0.62"
+version = "1.0.63"
 description = "derive(Error)"
 license = "MIT OR Apache-2.0"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
@@ -1909,7 +1909,7 @@ repository = "https://github.com/dtolnay/thiserror"
 
 [[dependencies]]
 name = "thiserror-impl"
-version = "1.0.62"
+version = "1.0.63"
 description = "Implementation detail of the `thiserror` crate"
 license = "MIT OR Apache-2.0"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
@@ -1935,7 +1935,7 @@ repository = "https://github.com/bheisler/TinyTemplate"
 
 [[dependencies]]
 name = "tokio"
-version = "1.38.0"
+version = "1.38.1"
 description = """
 An event-driven, non-blocking I/O platform for writing asynchronous I/O
 backed applications.
@@ -1987,7 +1987,7 @@ homepage = "https://tokio.rs"
 
 [[dependencies]]
 name = "toml"
-version = "0.8.14"
+version = "0.8.15"
 description = """
 A native Rust encoder and decoder of TOML-formatted files and streams. Provides
 implementations of the standard Serialize/Deserialize traits for TOML data to
@@ -2009,7 +2009,7 @@ repository = "https://github.com/toml-rs/toml"
 
 [[dependencies]]
 name = "toml_edit"
-version = "0.22.15"
+version = "0.22.16"
 description = "Yet another format-preserving TOML parser."
 license = "MIT OR Apache-2.0"
 notices = ["Copyright (c) Individual contributors"]
@@ -2573,7 +2573,7 @@ repository = "https://github.com/microsoft/windows-rs"
 
 [[dependencies]]
 name = "winnow"
-version = "0.6.13"
+version = "0.6.14"
 description = "A byte-oriented, zero-copy, parser combinators library"
 license = "MIT"
 repository = "https://github.com/winnow-rs/winnow"
