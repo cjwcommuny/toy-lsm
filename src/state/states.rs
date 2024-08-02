@@ -35,6 +35,7 @@ pub struct LsmStorageState<P: Persistent> {
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
     mvcc: Option<LsmMvccInner>,
+    time_provider: TimeProviderWrapper,
 }
 
 impl<P> Debug for LsmStorageState<P>
@@ -74,7 +75,7 @@ where
 
         let mvcc = if *options.enable_mvcc() {
             // todo: use external dependency to get time
-            Some(LsmMvccInner::new(time_provider))
+            Some(LsmMvccInner::new(time_provider.now()))
         } else {
             None
         };
@@ -88,13 +89,14 @@ where
             options,
             sst_id,
             mvcc,
+            time_provider,
         };
         Ok(this)
     }
 
     pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
         let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;
-        let tx = mvcc.new_txn(self.inner.load_full(), false);
+        let tx = mvcc.new_txn(self.inner.load_full(), false, self.time_provider.now());
         Ok(tx)
     }
 }
@@ -153,7 +155,7 @@ where
 
     fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
         let snapshot = self.inner.load_full();
-        LockedLsmIter::new(snapshot, lower, upper, 0) // todo
+        LockedLsmIter::new(snapshot, lower, upper, self.time_provider.now())
     }
 }
 
@@ -822,6 +824,18 @@ mod test {
         );
 
         let snapshot1 = storage.new_txn().unwrap();
+        {
+            let guard = snapshot1.scan(Included(b"a"), Included(b"a"));
+            let mut iter = guard.iter().await.unwrap();
+            while let Some(elem) = iter.next().await {
+                let elem = elem.unwrap();
+                dbg!(elem);
+            }
+        }
+        assert_eq!(
+            snapshot1.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
         storage.put_for_test(b"a", b"2").await.unwrap();
         let snapshot2 = storage.new_txn().unwrap();
         storage.delete_for_test(b"b").await.unwrap();

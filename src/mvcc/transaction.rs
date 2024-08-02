@@ -77,7 +77,7 @@ impl<P: Persistent> Transaction<P> {
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> LockedTxnIter<'a, P> {
-        let inner_iter = LockedLsmIter::new(self.inner.clone(), lower, upper, self.read_ts); // todo
+        let inner_iter = LockedLsmIter::new(self.inner.clone(), lower, upper, self.read_ts);
         let guard = LockedTxnIter::new(&self.local_storage, inner_iter);
         guard
     }

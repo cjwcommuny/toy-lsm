@@ -22,18 +22,15 @@ pub(crate) struct LsmMvccInner {
     pub(crate) commit_lock: Mutex<()>,
     pub(crate) ts: Arc<Mutex<(u64, Watermark)>>,
     pub(crate) committed_txns: Arc<Mutex<BTreeMap<u64, CommittedTxnData>>>,
-    time_provider: TimeProviderWrapper,
 }
 
 impl LsmMvccInner {
-    pub fn new(time_provider: TimeProviderWrapper) -> Self {
-        let initial_ts = time_provider.now();
+    pub fn new(initial_ts: u64) -> Self {
         Self {
             write_lock: Mutex::new(()),
             commit_lock: Mutex::new(()),
             ts: Arc::new(Mutex::new((initial_ts, Watermark::new()))),
             committed_txns: Arc::new(Mutex::new(BTreeMap::new())),
-            time_provider,
         }
     }
 
@@ -55,9 +52,8 @@ impl LsmMvccInner {
         &self,
         inner: Arc<LsmStorageStateInner<P>>,
         serializable: bool,
+        ts: u64,
     ) -> Transaction<P> {
-        // todo: use external dependency to get time
-        let ts = self.time_provider.now();
         let key_hashes = serializable.then(Mutex::default);
 
         Transaction::new(ts, inner, key_hashes)
