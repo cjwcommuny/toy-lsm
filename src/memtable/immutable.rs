@@ -60,10 +60,6 @@ impl<W: WalHandle> ImmutableMemTable<W> {
         self.0.get_with_ts(key)
     }
 
-    pub async fn put_with_ts(&self, key: KeyBytes, value: Bytes) -> anyhow::Result<()> {
-        self.0.put_with_ts(key, value).await
-    }
-
     pub async fn scan_with_ts(
         &self,
         lower: Bound<KeyBytes>,

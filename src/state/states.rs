@@ -13,6 +13,7 @@ use tracing_futures::Instrument;
 
 use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
+use crate::key::KeyBytes;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::mvcc::core::{LsmMvccInner, TimeProviderWrapper};
@@ -126,9 +127,10 @@ where
         value: impl Into<Bytes> + Send,
     ) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
+        let key = KeyBytes::new(key.into(), self.time_provider.now());
         snapshot
             .memtable()
-            .put(key.into(), value.into())
+            .put_with_ts(key, value.into())
             .instrument(tracing::info_span!("memtable_put"))
             .await?;
         self.try_freeze_memtable(&snapshot)
@@ -139,7 +141,8 @@ where
 
     async fn delete(&self, key: impl Into<Bytes> + Send) -> anyhow::Result<()> {
         let snapshot = self.inner.load();
-        snapshot.memtable().put(key.into(), Bytes::new()).await?;
+        let key = KeyBytes::new(key.into(), self.time_provider.now());
+        snapshot.memtable().put_with_ts(key, Bytes::new()).await?;
         self.try_freeze_memtable(&snapshot).await?;
         Ok(())
     }
@@ -818,20 +821,21 @@ mod test {
         storage.put_for_test(b"a", b"1").await.unwrap();
         storage.put_for_test(b"b", b"1").await.unwrap();
 
-        assert_eq!(
-            storage.get_for_test(b"a").await.unwrap(),
-            Some(Bytes::from_static(b"1"))
-        );
-
-        let snapshot1 = storage.new_txn().unwrap();
         {
-            let guard = snapshot1.scan(Included(b"a"), Included(b"a"));
+            let guard = storage.scan(Included(b"a"), Included(b"a"));
             let mut iter = guard.iter().await.unwrap();
             while let Some(elem) = iter.next().await {
                 let elem = elem.unwrap();
                 dbg!(elem);
             }
         }
+        assert_eq!(
+            storage.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        let snapshot1 = storage.new_txn().unwrap();
+
         assert_eq!(
             snapshot1.get_for_test(b"a").await.unwrap(),
             Some(Bytes::from_static(b"1"))

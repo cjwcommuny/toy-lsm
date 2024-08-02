@@ -112,15 +112,6 @@ impl<W: WalHandle> MemTable<W> {
         self.get_with_ts(KeySlice::new(key, 0))
     }
 
-    /// Put a key-value pair into the mem-table.
-    ///
-    /// In week 1, day 1, simply put the key-value pair into the skipmap.
-    /// In week 2, day 6, also flush the data to WAL.
-    /// todo: remote this method
-    pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
-        self.put_with_ts(KeyBytes::new(key, 0), value).await
-    }
-
     pub async fn sync_wal(&self) -> anyhow::Result<()> {
         if let Some(ref wal) = self.wal {
             wal.sync().await?;
@@ -207,6 +198,15 @@ impl<W: WalHandle> MemTable<W> {
         )
         .await
     }
+
+    /// Put a key-value pair into the mem-table.
+    ///
+    /// In week 1, day 1, simply put the key-value pair into the skipmap.
+    /// In week 2, day 6, also flush the data to WAL.
+    /// todo: remote this method
+    pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
+        self.put_with_ts(KeyBytes::new(key, 0), value).await
+    }
 }
 
 impl<W> MemTable<W> {
@@ -225,11 +225,16 @@ impl<W> MemTable<W> {
 
 #[cfg(test)]
 mod test {
-    use tempfile::tempdir;
-
+    use std::ops::Bound::Included;
+    use crate::key::Key;
     use crate::manifest::Manifest;
     use crate::memtable::mutable::MemTable;
     use crate::persistent::LocalFs;
+    use crate::time::{TimeIncrement, TimeProvider};
+    use bytes::Bytes;
+    use futures::StreamExt;
+    use tempfile::tempdir;
+    use crate::mvcc::iterator::transform_bound;
 
     #[tokio::test]
     async fn test_task1_memtable_get_wal() {
@@ -328,6 +333,48 @@ mod test {
                 &memtable.for_testing_get_slice(b"key3").unwrap()[..],
                 b"value33"
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_memtable_mvcc() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let manifest = Manifest::create(&persistent).await.unwrap();
+        let id = 123;
+
+        let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
+            .await
+            .unwrap();
+        let time_provider = Box::<TimeIncrement>::default();
+
+        memtable
+            .put_with_ts(
+                Key::new(Bytes::copy_from_slice(b"key1"), time_provider.now()),
+                Bytes::copy_from_slice(b"value1"),
+            )
+            .await
+            .unwrap();
+
+        {
+            let (lower, upper) = transform_bound(Included(b"key1"), Included(b"key1"), time_provider.now());
+            let lower = lower.map(Key::from);
+            let upper = upper.map(Key::from);
+            let lower = lower.map(|ks| ks.map(|b| Bytes::copy_from_slice(b)));
+            let upper = upper.map(|ks| ks.map(|b| Bytes::copy_from_slice(b)));
+            let mut iter = memtable.scan_with_ts(lower, upper).await.unwrap();
+
+            let (new_iter, elem) = iter.unwrap().next().await;
+            dbg!(elem);
+            let new_iter = new_iter.unwrap();
+            // iter = new_iter;
+            assert!(new_iter.is_none());
+
+
+            // let (new_iter, elem) = iter.unwrap().next().await;
+            // dbg!(elem);
+            // let new_iter = new_iter.unwrap();
+            // iter = new_iter;
         }
     }
 }

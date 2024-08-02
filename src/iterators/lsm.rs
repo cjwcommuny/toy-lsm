@@ -81,6 +81,7 @@ where
         let imm_memtables = imm_memtables.iter().map(Arc::as_ref);
         let tables = iter::once(memtable).chain(imm_memtables);
         let iters = stream::iter(tables).filter_map(move |table| {
+            // todo: 这里不用每个 loop 都 copy，可以放在外面？
             let lower = lower.map(|ks| ks.map(Bytes::copy_from_slice));
             let upper = upper.map(|ks| ks.map(Bytes::copy_from_slice));
 
