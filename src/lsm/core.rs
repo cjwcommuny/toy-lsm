@@ -8,15 +8,15 @@ use bytes::Bytes;
 use futures::{FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
 
+use crate::mvcc::core::TimeProviderWrapper;
+use crate::persistent::Persistent;
+use crate::sst::SstOptions;
+use crate::state::{LsmStorageState, Map};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
-
-use crate::persistent::Persistent;
-use crate::sst::SstOptions;
-use crate::state::{LsmStorageState, Map};
 
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
@@ -24,8 +24,12 @@ pub struct Lsm<P: Persistent> {
 }
 
 impl<P: Persistent> Lsm<P> {
-    pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
-        let state = Arc::new(LsmStorageState::new(options, persistent).await?);
+    pub async fn new(
+        options: SstOptions,
+        persistent: P,
+        time_provider: TimeProviderWrapper,
+    ) -> anyhow::Result<Self> {
+        let state = Arc::new(LsmStorageState::new(options, persistent, time_provider).await?);
         let cancel_token = CancellationToken::new();
         let _ = Self::spawn_flush(state.clone(), cancel_token.clone());
         let _ = Self::spawn_compaction(state.clone(), cancel_token.clone());
@@ -150,7 +154,7 @@ mod tests {
     use crate::sst::SstOptions;
     use crate::state::Map;
     use crate::test_utils::insert_sst;
-
+    use crate::time::TimeIncrement;
     // todo: WAL causes the "too many open files" error
     // #[tokio::test]
     // async fn test_task2_auto_flush() {
@@ -192,7 +196,7 @@ mod tests {
             .compaction_option(Default::default())
             .enable_wal(false)
             .build();
-        Lsm::new(options, persistent).await
+        Lsm::new(options, persistent, Box::<TimeIncrement>::default()).await
     }
 
     #[tokio::test]
@@ -211,7 +215,9 @@ mod tests {
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
             .build();
-        let lsm = Lsm::new(options, persistent).await.unwrap();
+        let lsm = Lsm::new(options, persistent, Box::<TimeIncrement>::default())
+            .await
+            .unwrap();
         for i in 0..10 {
             let begin = i * 100;
             insert_sst(&lsm, begin..begin + 100).await.unwrap();
@@ -247,7 +253,9 @@ mod tests {
             .build();
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
-        let lsm = Lsm::new(options.clone(), persistent).await.unwrap();
+        let lsm = Lsm::new(options.clone(), persistent, Box::<TimeIncrement>::default())
+            .await
+            .unwrap();
         add_data(&lsm).await.unwrap();
         sleep(Duration::from_secs(2)).await;
 
@@ -260,7 +268,9 @@ mod tests {
 
         {
             let persistent = LocalFs::new(dir.path().to_path_buf());
-            let lsm = Lsm::new(options, persistent).await.unwrap();
+            let lsm = Lsm::new(options, persistent, Box::<TimeIncrement>::default())
+                .await
+                .unwrap();
             assert_eq!(
                 &lsm.get(b"key-0").await.unwrap().unwrap()[..],
                 b"value-1024".as_slice()

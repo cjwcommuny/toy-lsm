@@ -12,6 +12,7 @@ use ycsb::workload::CoreWorkload;
 use better_mini_lsm::persistent::LocalFs;
 use better_mini_lsm::sst::SstOptions;
 use better_mini_lsm::state::{LsmStorageState, Map};
+use better_mini_lsm::time::SystemTime;
 
 #[derive(Clone)]
 struct LsmStorageStateBench(Arc<LsmStorageState<LocalFs>>);
@@ -63,8 +64,11 @@ fn ycsb_bench(c: &mut Criterion) {
         .enable_wal(false)
         .build();
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let state =
-        runtime.block_on(async { LsmStorageState::new(options, persistent).await.unwrap() });
+    let state = runtime.block_on(async {
+        LsmStorageState::new(options, persistent, Box::new(SystemTime))
+            .await
+            .unwrap()
+    });
     let database = LsmStorageStateBench(Arc::new(state));
     let props = Properties {
         operation_count: 1000,

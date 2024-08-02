@@ -226,6 +226,7 @@ mod tests {
     use crate::sst::{SstOptions, Sstables};
     use crate::state::{LsmStorageState, Map};
     use crate::test_utils::insert_sst;
+    use crate::time::TimeIncrement;
 
     #[test]
     fn test_select_level_source() {
@@ -364,7 +365,9 @@ mod tests {
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
             .build();
-        let state = LsmStorageState::new(options, persistent).await.unwrap();
+        let state = LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default())
+            .await
+            .unwrap();
         let _next_sst_id = AtomicUsize::default();
         let state_lock = Mutex::default();
 

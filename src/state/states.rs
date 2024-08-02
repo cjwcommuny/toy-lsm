@@ -15,14 +15,14 @@ use crate::block::BlockCache;
 use crate::iterators::LockedLsmIter;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
-use crate::mvcc::core::LsmMvccInner;
+use crate::mvcc::core::{LsmMvccInner, TimeProviderWrapper};
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::LsmStorageStateInner;
 use crate::state::Map;
-use crate::utils::time::now_unix;
+use crate::time::TimeProvider;
 use crate::utils::vec::pop;
 
 #[derive(Getters)]
@@ -55,7 +55,11 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
+    pub async fn new(
+        options: SstOptions,
+        persistent: P,
+        time_provider: TimeProviderWrapper,
+    ) -> anyhow::Result<Self> {
         let (manifest, manifest_records) = Manifest::recover(&persistent).await?;
         let block_cache = Arc::new(BlockCache::new(1024));
         let (inner, next_sst_id) = LsmStorageStateInner::recover(
@@ -70,7 +74,7 @@ where
 
         let mvcc = if *options.enable_mvcc() {
             // todo: use external dependency to get time
-            Some(LsmMvccInner::new(now_unix()?))
+            Some(LsmMvccInner::new(time_provider))
         } else {
             None
         };
@@ -360,6 +364,7 @@ mod test {
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
     use crate::test_utils::iterator::unwrap_ts_stream;
+    use crate::time::TimeIncrement;
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
@@ -780,7 +785,7 @@ mod test {
             .compaction_option(Default::default())
             .enable_wal(false)
             .build();
-        LsmStorageState::new(options, persistent).await
+        LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default()).await
     }
 
     #[tokio::test]
@@ -804,7 +809,9 @@ mod test {
             .enable_wal(true)
             .enable_mvcc(true)
             .build();
-        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+        let storage = LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default())
+            .await
+            .unwrap();
 
         storage.put_for_test(b"a", b"1").await.unwrap();
         storage.put_for_test(b"b", b"1").await.unwrap();
@@ -982,7 +989,9 @@ mod test {
             .compaction_option(Default::default())
             .enable_wal(true)
             .build();
-        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+        let storage = LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default())
+            .await
+            .unwrap();
 
         let txn1 = storage.new_txn().unwrap();
         let txn2 = storage.new_txn().unwrap();
@@ -1135,7 +1144,9 @@ mod test {
             .compaction_option(Default::default())
             .enable_wal(true)
             .build();
-        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+        let storage = LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default())
+            .await
+            .unwrap();
 
         let txn1 = storage.new_txn().unwrap();
         let txn2 = storage.new_txn().unwrap();
