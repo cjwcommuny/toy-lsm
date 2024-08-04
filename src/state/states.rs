@@ -821,14 +821,6 @@ mod test {
         storage.put_for_test(b"a", b"1").await.unwrap();
         storage.put_for_test(b"b", b"1").await.unwrap();
 
-        {
-            let guard = storage.scan(Included(b"a"), Included(b"a"));
-            let mut iter = guard.iter().await.unwrap();
-            while let Some(elem) = iter.next().await {
-                let elem = elem.unwrap();
-                dbg!(elem);
-            }
-        }
         assert_eq!(
             storage.get_for_test(b"a").await.unwrap(),
             Some(Bytes::from_static(b"1"))
@@ -971,7 +963,7 @@ mod test {
         );
 
         assert_scan_iter(
-            &snapshot4,
+            &snapshot5,
             Unbounded,
             Unbounded,
             [("a", "4"), ("b", "3"), ("c", "1")],

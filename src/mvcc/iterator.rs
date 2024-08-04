@@ -77,31 +77,31 @@ where
     T: Bounded,
 {
     (
-        transform_lower_bound(lower),
-        transform_upper_bound(upper, timestamp),
+        transform_lower_bound(lower, timestamp),
+        transform_upper_bound(upper),
     )
 }
 
-fn transform_lower_bound<A, T>(lower: Bound<A>) -> Bound<(A, T)>
+fn transform_lower_bound<A, T>(lower: Bound<A>, timestamp: T) -> Bound<(A, T)>
 where
     T: Bounded,
 {
     use Bound::{Excluded, Included, Unbounded};
     match lower {
-        Included(a) => Included((a, T::min_value())),
-        Excluded(a) => Excluded((a, T::max_value())),
+        Included(a) => Included((a, timestamp)),
+        Excluded(a) => Excluded((a, T::min_value())),
         Unbounded => Unbounded,
     }
 }
 
-fn transform_upper_bound<A, T>(upper: Bound<A>, timestamp: T) -> Bound<(A, T)>
+fn transform_upper_bound<A, T>(upper: Bound<A>) -> Bound<(A, T)>
 where
     T: Bounded,
 {
     use Bound::{Excluded, Included, Unbounded};
     match upper {
-        Included(a) => Included((a, timestamp)),
-        Excluded(a) => Excluded((a, T::min_value())),
+        Included(a) => Included((a, T::min_value())),
+        Excluded(a) => Excluded((a, T::max_value())),
         Unbounded => Unbounded,
     }
 }

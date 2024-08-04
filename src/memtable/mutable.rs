@@ -225,16 +225,16 @@ impl<W> MemTable<W> {
 
 #[cfg(test)]
 mod test {
-    use std::ops::Bound::Included;
     use crate::key::Key;
     use crate::manifest::Manifest;
     use crate::memtable::mutable::MemTable;
+    use crate::mvcc::iterator::transform_bound;
     use crate::persistent::LocalFs;
     use crate::time::{TimeIncrement, TimeProvider};
     use bytes::Bytes;
     use futures::StreamExt;
+    use std::ops::Bound::Included;
     use tempfile::tempdir;
-    use crate::mvcc::iterator::transform_bound;
 
     #[tokio::test]
     async fn test_task1_memtable_get_wal() {
@@ -357,7 +357,8 @@ mod test {
             .unwrap();
 
         {
-            let (lower, upper) = transform_bound(Included(b"key1"), Included(b"key1"), time_provider.now());
+            let now = time_provider.now();
+            let (lower, upper) = transform_bound(Included(b"key1"), Included(b"key1"), now);
             let lower = lower.map(Key::from);
             let upper = upper.map(Key::from);
             let lower = lower.map(|ks| ks.map(|b| Bytes::copy_from_slice(b)));
@@ -365,16 +366,8 @@ mod test {
             let mut iter = memtable.scan_with_ts(lower, upper).await.unwrap();
 
             let (new_iter, elem) = iter.unwrap().next().await;
-            dbg!(elem);
             let new_iter = new_iter.unwrap();
-            // iter = new_iter;
             assert!(new_iter.is_none());
-
-
-            // let (new_iter, elem) = iter.unwrap().next().await;
-            // dbg!(elem);
-            // let new_iter = new_iter.unwrap();
-            // iter = new_iter;
         }
     }
 }
