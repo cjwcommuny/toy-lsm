@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use arc_swap::access::Access;
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use derive_getters::Getters;
@@ -100,6 +101,10 @@ where
         let tx = mvcc.new_txn(self.inner.load_full(), false, self.time_provider.now());
         Ok(tx)
     }
+
+    pub async fn sync_wal(&self) -> anyhow::Result<()> {
+        self.inner.load().sync_wal().await
+    }
 }
 
 // KV store
@@ -156,7 +161,7 @@ where
         self.sst_id().fetch_add(1, Ordering::Relaxed)
     }
 
-    fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
+    pub fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
         let snapshot = self.inner.load_full();
         LockedLsmIter::new(snapshot, lower, upper, self.time_provider.now())
     }

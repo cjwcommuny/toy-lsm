@@ -71,6 +71,10 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         };
         Ok((this, next_sst_id + 1))
     }
+
+    pub async fn sync_wal(&self) -> anyhow::Result<()> {
+        self.memtable.sync_wal().await
+    }
 }
 
 impl<P: Persistent> Clone for LsmStorageStateInner<P> {

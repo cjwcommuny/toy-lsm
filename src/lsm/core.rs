@@ -41,7 +41,7 @@ impl<P: Persistent> Lsm<P> {
     }
 
     pub async fn sync(&self) -> anyhow::Result<()> {
-        todo!()
+        self.state.sync_wal().await
     }
 
     fn spawn_flush(
@@ -142,9 +142,11 @@ enum Signal {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
+    use arc_swap::access::DynAccess;
+    use futures::StreamExt;
     use nom::AsBytes;
+    use std::ops::Bound::{Included, Unbounded};
+    use std::time::Duration;
     use tempfile::{tempdir, TempDir};
     use tokio::time::sleep;
 
@@ -154,7 +156,7 @@ mod tests {
     use crate::sst::SstOptions;
     use crate::state::Map;
     use crate::test_utils::insert_sst;
-    use crate::time::TimeIncrement;
+    use crate::time::{SystemTime, TimeIncrement};
     // todo: WAL causes the "too many open files" error
     // #[tokio::test]
     // async fn test_task2_auto_flush() {
@@ -253,7 +255,7 @@ mod tests {
             .build();
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
-        let lsm = Lsm::new(options.clone(), persistent, Box::<TimeIncrement>::default())
+        let lsm = Lsm::new(options.clone(), persistent, Box::<SystemTime>::default())
             .await
             .unwrap();
         add_data(&lsm).await.unwrap();
@@ -268,16 +270,16 @@ mod tests {
 
         {
             let persistent = LocalFs::new(dir.path().to_path_buf());
-            let lsm = Lsm::new(options, persistent, Box::<TimeIncrement>::default())
+            let lsm = Lsm::new(options, persistent, Box::<SystemTime>::default())
                 .await
                 .unwrap();
             assert_eq!(
-                &lsm.get(b"key-0").await.unwrap().unwrap()[..],
-                b"value-1024".as_slice()
+                std::str::from_utf8(&lsm.get(b"key-0").await.unwrap().unwrap()[..]).unwrap(),
+                "value-1024",
             );
             assert_eq!(
-                &lsm.get(b"key-1").await.unwrap().unwrap()[..],
-                b"value-1024".as_slice()
+                std::str::from_utf8(&lsm.get(b"key-1").await.unwrap().unwrap()[..]).unwrap(),
+                "value-1024",
             );
             assert_eq!(lsm.get(b"key-2").await.unwrap(), None);
         }
