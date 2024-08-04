@@ -78,14 +78,14 @@ impl<File> Sstables<File> {
     pub fn levels(&self) -> &[Vec<usize>] {
         &self.levels
     }
-
-    pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
-        &self.sstables
-    }
 }
 
 // only for test
 impl<File> Sstables<File> {
+    pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
+        &self.sstables
+    }
+
     // todo: delete it
     pub fn sstables_mut(&mut self) -> &mut HashMap<usize, Arc<SsTable<File>>> {
         &mut self.sstables

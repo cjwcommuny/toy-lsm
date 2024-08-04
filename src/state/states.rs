@@ -18,11 +18,12 @@ use crate::key::KeyBytes;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::mvcc::core::{LsmMvccInner, TimeProviderWrapper};
+use crate::mvcc::iterator::LockedTxnIter;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
-use crate::state::inner::LsmStorageStateInner;
+use crate::state::inner::{LsmStorageStateInner, RecoveredState};
 use crate::state::Map;
 use crate::time::TimeProvider;
 use crate::utils::vec::pop;
@@ -37,7 +38,6 @@ pub struct LsmStorageState<P: Persistent> {
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
     mvcc: Option<LsmMvccInner>,
-    time_provider: TimeProviderWrapper,
 }
 
 impl<P> Debug for LsmStorageState<P>
@@ -58,14 +58,14 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
-    pub async fn new(
-        options: SstOptions,
-        persistent: P,
-        time_provider: TimeProviderWrapper,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
         let (manifest, manifest_records) = Manifest::recover(&persistent).await?;
         let block_cache = Arc::new(BlockCache::new(1024));
-        let (inner, next_sst_id) = LsmStorageStateInner::recover(
+        let RecoveredState {
+            state: inner,
+            next_sst_id,
+            initial_ts,
+        } = LsmStorageStateInner::recover(
             &options,
             &manifest,
             manifest_records,
@@ -76,8 +76,7 @@ where
         let sst_id = AtomicUsize::new(next_sst_id);
 
         let mvcc = if *options.enable_mvcc() {
-            // todo: use external dependency to get time
-            Some(LsmMvccInner::new(time_provider.now()))
+            Some(LsmMvccInner::new(initial_ts))
         } else {
             None
         };
@@ -91,14 +90,13 @@ where
             options,
             sst_id,
             mvcc,
-            time_provider,
         };
         Ok(this)
     }
 
     pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
         let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;
-        let tx = mvcc.new_txn(self.inner.load_full(), false, self.time_provider.now());
+        let tx = mvcc.new_txn(self.inner.load_full(), *self.options.serializable());
         Ok(tx)
     }
 
@@ -115,15 +113,8 @@ where
     type Error = anyhow::Error;
 
     async fn get(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>> {
-        let guard = self.scan(Bound::Included(key), Bound::Included(key));
-        let value = guard
-            .iter()
-            .await?
-            .next()
-            .await
-            .transpose()?
-            .map(|entry| entry.value);
-        Ok(value)
+        let txn = self.new_txn()?;
+        txn.get(key).await
     }
 
     async fn put(
@@ -131,25 +122,16 @@ where
         key: impl Into<Bytes> + Send,
         value: impl Into<Bytes> + Send,
     ) -> anyhow::Result<()> {
-        let snapshot = self.inner.load();
-        let key = KeyBytes::new(key.into(), self.time_provider.now());
-        snapshot
-            .memtable()
-            .put_with_ts(key, value.into())
-            .instrument(tracing::info_span!("memtable_put"))
-            .await?;
-        self.try_freeze_memtable(&snapshot)
-            .instrument(tracing::info_span!("try_freeze_memtable"))
-            .await?;
-        Ok(())
+        // todo: check options.serializable
+        let txn = self.new_txn()?;
+        txn.put(key, value).await?;
+        txn.commit().await
     }
 
     async fn delete(&self, key: impl Into<Bytes> + Send) -> anyhow::Result<()> {
-        let snapshot = self.inner.load();
-        let key = KeyBytes::new(key.into(), self.time_provider.now());
-        snapshot.memtable().put_with_ts(key, Bytes::new()).await?;
-        self.try_freeze_memtable(&snapshot).await?;
-        Ok(())
+        let txn = self.new_txn()?;
+        txn.delete(key).await?;
+        txn.commit().await
     }
 }
 
@@ -161,9 +143,12 @@ where
         self.sst_id().fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
-        let snapshot = self.inner.load_full();
-        LockedLsmIter::new(snapshot, lower, upper, self.time_provider.now())
+    pub fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedTxnIter<'a, P> {
+        todo!()
+        // let txn = self.new_txn()?;
+        // txn.scan(lower, upper).await
+        // let snapshot = self.inner.load_full();
+        // LockedLsmIter::new(snapshot, lower, upper, self.time_provider.now())
     }
 }
 
@@ -729,7 +714,7 @@ mod test {
             .compaction_option(Default::default())
             .enable_wal(false)
             .build();
-        LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default()).await
+        LsmStorageState::new(options, persistent).await
     }
 
     #[tokio::test]
@@ -753,9 +738,7 @@ mod test {
             .enable_wal(true)
             .enable_mvcc(true)
             .build();
-        let storage = LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default())
-            .await
-            .unwrap();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
 
         storage.put_for_test(b"a", b"1").await.unwrap();
         storage.put_for_test(b"b", b"1").await.unwrap();
@@ -938,9 +921,7 @@ mod test {
             .compaction_option(Default::default())
             .enable_wal(true)
             .build();
-        let storage = LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default())
-            .await
-            .unwrap();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
 
         let txn1 = storage.new_txn().unwrap();
         let txn2 = storage.new_txn().unwrap();
@@ -1092,10 +1073,9 @@ mod test {
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
             .enable_wal(true)
+            .enable_mvcc(true)
             .build();
-        let storage = LsmStorageState::new(options, persistent, Box::<TimeIncrement>::default())
-            .await
-            .unwrap();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
 
         let txn1 = storage.new_txn().unwrap();
         let txn2 = storage.new_txn().unwrap();

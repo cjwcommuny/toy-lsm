@@ -52,10 +52,12 @@ impl LsmMvccInner {
         &self,
         inner: Arc<LsmStorageStateInner<P>>,
         serializable: bool,
-        ts: u64,
     ) -> Transaction<P> {
         let key_hashes = serializable.then(Mutex::default);
-
+        let ts = {
+            let guard = self.ts.lock();
+            guard.0
+        };
         Transaction::new(ts, inner, key_hashes)
     }
 }

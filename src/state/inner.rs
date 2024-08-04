@@ -14,6 +14,12 @@ use crate::persistent::Persistent;
 use crate::sst::sstables::fold_flush_manifest;
 use crate::sst::{SsTable, SstOptions, Sstables};
 
+pub struct RecoveredState<P: Persistent> {
+    pub state: LsmStorageStateInner<P>,
+    pub next_sst_id: usize,
+    pub initial_ts: u64,
+}
+
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {
     pub(crate) memtable: Arc<MemTable<P::WalHandle>>,
@@ -28,7 +34,7 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         manifest_records: Vec<ManifestRecord>,
         persistent: &P,
         block_cache: Option<Arc<BlockCache>>,
-    ) -> anyhow::Result<(Self, usize)> {
+    ) -> anyhow::Result<RecoveredState<P>> {
         let (imm_memtables, mut sstables_state) =
             build_state(options, manifest_records, persistent).await?;
         // todo: split sst_ids & sst hashmap
@@ -64,12 +70,27 @@ impl<P: Persistent> LsmStorageStateInner<P> {
 
         let memtable = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
 
+        let max_ts = {
+            let memtable_max_ts = imm_memtables
+                .iter()
+                .flat_map(|table| table.iter().map(|entry| entry.key().timestamp()));
+            let sst_max_ts = sstables_state.sstables().values().map(|sst| sst.max_ts);
+            memtable_max_ts.chain(sst_max_ts).reduce(max).unwrap_or(0)
+        };
+
         let this = Self {
             memtable: Arc::new(memtable),
             imm_memtables,
             sstables_state: Arc::new(sstables_state),
         };
-        Ok((this, next_sst_id + 1))
+
+        let recovered = RecoveredState {
+            state: this,
+            next_sst_id: next_sst_id + 1,
+            initial_ts: max_ts,
+        };
+
+        Ok(recovered)
     }
 
     pub async fn sync_wal(&self) -> anyhow::Result<()> {
@@ -127,7 +148,8 @@ async fn build_state<P: Persistent>(
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::NewMemtable(record) => {
-                        fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
+                        let max_ts =
+                            fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::Compaction(record) => {

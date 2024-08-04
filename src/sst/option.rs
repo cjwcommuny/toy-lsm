@@ -15,4 +15,7 @@ pub struct SstOptions {
 
     #[builder(default)]
     enable_mvcc: bool,
+
+    #[builder(default)]
+    serializable: bool,
 }

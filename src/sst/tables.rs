@@ -29,7 +29,7 @@ pub struct SsTable<File> {
     last_key: KeyBytes,
     pub(crate) bloom: Option<Bloom>,
     /// The maximum timestamp stored in this SST, implemented in week 3.
-    max_ts: u64, // todo: use Option?
+    pub max_ts: u64, // todo: use Option?
 }
 
 impl<File: SstHandle> Debug for SsTable<File> {
@@ -54,6 +54,13 @@ impl<File: SstHandle> SsTable<File> {
     ) -> Result<Self> {
         let file = persistent.open_sst(id).await?;
         let mut end = file.size();
+
+        let max_ts = {
+            let data = file.read(end - 8, 8).await?;
+            end = end - 8;
+            u64::from_be_bytes(data.as_slice().try_into()?)
+        };
+
         let bloom = {
             let bloom_offset_begin = end - 4;
             let bloom_offset = file.read(bloom_offset_begin, 4).await?.as_slice().get_u32() as u64;
@@ -92,7 +99,7 @@ impl<File: SstHandle> SsTable<File> {
             first_key,
             last_key,
             bloom: Some(bloom),
-            max_ts: 0,
+            max_ts,
         };
         Ok(table)
     }

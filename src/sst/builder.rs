@@ -122,6 +122,9 @@ impl SsTableBuilder {
         bloom.encode(&mut data);
         data.put_u32(bloom_offset);
 
+        // encode max_ts
+        data.put_u64(max_ts);
+
         let file = persistent.create_sst(id, data).await?;
 
         let table = SsTable::builder()
@@ -133,7 +136,7 @@ impl SsTableBuilder {
             .first_key(first_key)
             .last_key(last_key)
             .bloom(Some(bloom))
-            .max_ts(max_ts) // todo
+            .max_ts(max_ts)
             .build();
 
         Ok(table)

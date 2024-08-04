@@ -1,4 +1,4 @@
-mod inner;
+pub mod inner;
 mod map;
 mod mut_op;
 mod states;
