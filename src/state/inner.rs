@@ -1,18 +1,21 @@
-use std::cmp::max;
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
-
+use bytes::Bytes;
 use derive_getters::Getters;
 use futures::stream;
 use futures::stream::{StreamExt, TryStreamExt};
+use std::cmp::max;
+use std::fmt::{Debug, Formatter};
+use std::future::Future;
+use std::sync::Arc;
 use typed_builder::TypedBuilder;
 
 use crate::block::BlockCache;
+use crate::key::KeyBytes;
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
 use crate::sst::sstables::fold_flush_manifest;
 use crate::sst::{SsTable, SstOptions, Sstables};
+use crate::state::{LsmStorageState, Map};
 
 pub struct RecoveredState<P: Persistent> {
     pub state: LsmStorageStateInner<P>,
@@ -28,6 +31,14 @@ pub struct LsmStorageStateInner<P: Persistent> {
 }
 
 impl<P: Persistent> LsmStorageStateInner<P> {
+    pub async fn put(&self, key: KeyBytes, value: impl Into<Bytes> + Send) -> anyhow::Result<()> {
+        self.memtable().put_with_ts(key, value.into()).await?;
+        // self.try_freeze_memtable(&snapshot)
+        //     .await?;
+        // todo
+        Ok(())
+    }
+
     pub async fn recover(
         options: &SstOptions,
         manifest: &Manifest<P::ManifestHandle>,

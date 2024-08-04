@@ -83,6 +83,11 @@ impl<P: Persistent> Transaction<P> {
     }
 
     pub async fn commit(self) -> anyhow::Result<()> {
+        // todo: use write batch
+        for entry in self.local_storage.iter() {
+            // self.inner
+            // todo
+        }
         todo!()
     }
 }
