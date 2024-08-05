@@ -1,18 +1,25 @@
 use std::collections::{Bound, HashSet};
-use std::future::Future;
+use std::ops::Bound::Excluded;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use crate::entry::Entry;
-use crate::iterators::LockedLsmIter;
-use crate::mvcc::iterator::LockedTxnIter;
-use crate::mvcc::watermark::Watermark;
-use crate::persistent::Persistent;
-use crate::state::{LsmStorageStateInner, Map};
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use parking_lot::Mutex;
 use tokio_stream::StreamExt;
+
+use crate::entry::Entry;
+use crate::iterators::LockedLsmIter;
+use crate::mvcc::core::LsmMvccInner;
+use crate::mvcc::iterator::LockedTxnIter;
+use crate::persistent::Persistent;
+use crate::state::{LsmStorageStateInner, Map};
+
+#[derive(Debug, Default)]
+pub struct RWSet {
+    read_set: HashSet<u32>,
+    write_set: HashSet<u32>,
+}
 
 pub struct Transaction<P: Persistent> {
     pub(crate) read_ts: u64,
@@ -25,12 +32,9 @@ pub struct Transaction<P: Persistent> {
     pub(crate) committed: Arc<AtomicBool>,
     /// Write set and read set
     /// todo: check deadlock?
-    pub(crate) key_hashes: Option<Mutex<(HashSet<u32>, HashSet<u32>)>>,
+    pub(crate) key_hashes: Option<Mutex<RWSet>>,
 
-    // todo: remove u64?
-    // todo: remove mutex?
-    // todo: 理论上存储一个 callback: fn(read_ts: u64) 即可
-    watermark: Arc<Mutex<(u64, Watermark)>>,
+    mvcc: Arc<LsmMvccInner>,
 }
 
 impl<P: Persistent> Map for Transaction<P> {
@@ -66,11 +70,11 @@ impl<P: Persistent> Transaction<P> {
     pub fn new(
         read_ts: u64,
         inner: Arc<LsmStorageStateInner<P>>,
-        key_hashes: Option<Mutex<(HashSet<u32>, HashSet<u32>)>>,
-        watermark: Arc<Mutex<(u64, Watermark)>>,
+        key_hashes: Option<Mutex<RWSet>>,
+        mvcc: Arc<LsmMvccInner>,
     ) -> Self {
         {
-            let mut guard = watermark.lock();
+            let mut guard = mvcc.ts.lock();
             guard.1.add_reader(read_ts);
         }
         Self {
@@ -79,7 +83,7 @@ impl<P: Persistent> Transaction<P> {
             local_storage: Arc::default(),
             committed: Arc::default(),
             key_hashes,
-            watermark,
+            mvcc,
         }
     }
 
@@ -95,24 +99,38 @@ impl<P: Persistent> Transaction<P> {
     }
 
     pub async fn commit(self) -> anyhow::Result<()> {
-        let commit_ts = {
-            let mut guard = self.watermark.lock();
-            guard.0 += 1;
-            guard.0
+        // todo: commit lock / write lock ?
+        let _commit_guard = self.mvcc.commit_lock.lock();
+        let expected_commit_ts = {
+            // todo: 这里的锁可以去掉？
+            let mut guard = self.mvcc.ts.lock();
+            guard.0 + 1
         };
-        let entries: Vec<_> = self
-            .local_storage
-            .iter()
-            .map(|e| Entry::new(e.key().clone(), e.value().clone()))
-            .collect();
-        self.inner.memtable.put_batch(&entries, commit_ts).await?;
+        let conflict = if let Some(key_hashes) = self.key_hashes.as_ref() {
+            let guard = self.mvcc.committed_txns.lock();
+            let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
+            let rw_set_guard = key_hashes.lock();
+            let read_set = &rw_set_guard.read_set;
+            guard
+                .range(range)
+                .any(|(_, data)| data.key_hashes.is_disjoint(read_set))
+        } else {
+            false
+        };
+
+        // let entries: Vec<_> = self
+        //     .local_storage
+        //     .iter()
+        //     .map(|e| Entry::new(e.key().clone(), e.value().clone()))
+        //     .collect();
+        // self.inner.memtable.put_batch(&entries, commit_ts).await?;
         Ok(())
     }
 }
 
 impl<P: Persistent> Drop for Transaction<P> {
     fn drop(&mut self) {
-        let mut guard = self.watermark.lock();
+        let mut guard = self.mvcc.ts.lock();
         guard.1.remove_reader(self.read_ts);
     }
 }

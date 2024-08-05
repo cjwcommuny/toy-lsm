@@ -49,7 +49,7 @@ impl LsmMvccInner {
     }
 
     pub fn new_txn<P: Persistent>(
-        &self,
+        self: &Arc<Self>,
         inner: Arc<LsmStorageStateInner<P>>,
         serializable: bool,
     ) -> Transaction<P> {
@@ -58,6 +58,6 @@ impl LsmMvccInner {
             let guard = self.ts.lock();
             guard.0
         };
-        Transaction::new(ts, inner, key_hashes, self.ts.clone())
+        Transaction::new(ts, inner, key_hashes, self.clone())
     }
 }

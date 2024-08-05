@@ -37,7 +37,7 @@ pub struct LsmStorageState<P: Persistent> {
     pub(crate) persistent: P,
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
-    mvcc: Option<LsmMvccInner>,
+    mvcc: Option<Arc<LsmMvccInner>>,
 }
 
 impl<P> Debug for LsmStorageState<P>
@@ -76,7 +76,7 @@ where
         let sst_id = AtomicUsize::new(next_sst_id);
 
         let mvcc = if *options.enable_mvcc() {
-            Some(LsmMvccInner::new(initial_ts))
+            Some(Arc::new(LsmMvccInner::new(initial_ts)))
         } else {
             None
         };
