@@ -1,17 +1,18 @@
 use std::collections::{Bound, HashSet};
+use std::future::Future;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use bytes::Bytes;
-use crossbeam_skiplist::SkipMap;
-use parking_lot::Mutex;
-use tokio_stream::StreamExt;
-
+use crate::entry::Entry;
 use crate::iterators::LockedLsmIter;
 use crate::mvcc::iterator::LockedTxnIter;
 use crate::mvcc::watermark::Watermark;
 use crate::persistent::Persistent;
 use crate::state::{LsmStorageStateInner, Map};
+use bytes::Bytes;
+use crossbeam_skiplist::SkipMap;
+use parking_lot::Mutex;
+use tokio_stream::StreamExt;
 
 pub struct Transaction<P: Persistent> {
     pub(crate) read_ts: u64,
@@ -94,12 +95,18 @@ impl<P: Persistent> Transaction<P> {
     }
 
     pub async fn commit(self) -> anyhow::Result<()> {
-        // todo: use write batch
-        for entry in self.local_storage.iter() {
-            // self.inner
-            // todo
-        }
-        todo!()
+        let commit_ts = {
+            let mut guard = self.watermark.lock();
+            guard.0 += 1;
+            guard.0
+        };
+        let entries: Vec<_> = self
+            .local_storage
+            .iter()
+            .map(|e| Entry::new(e.key().clone(), e.value().clone()))
+            .collect();
+        self.inner.memtable.put_batch(&entries, commit_ts).await?;
+        Ok(())
     }
 }
 

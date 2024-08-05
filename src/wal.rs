@@ -1,13 +1,13 @@
-use std::cmp::max;
-use std::io::Cursor;
-use std::slice;
-use std::sync::Arc;
-
 use crate::key::{KeyBytes, KeySlice};
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
+use std::cmp::max;
+use std::future::Future;
+use std::io::Cursor;
+use std::sync::Arc;
+use std::{iter, slice};
 
-use crate::entry::Entry;
+use crate::entry::{Entry, Keyed};
 use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -59,16 +59,20 @@ impl<File: WalHandle> Wal<File> {
         Ok((wal, map))
     }
 
-    pub async fn put_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
+    pub async fn put_batch(
+        &self,
+        entries: impl Iterator<Item = Keyed<&[u8], &[u8]>> + Send,
+        timestamp: u64,
+    ) -> anyhow::Result<()> {
+        // todo: atomic wal
         let mut guard = self.file.lock().await;
         for entry in entries {
-            let key = entry.key.as_ref();
+            let key = entry.key;
             guard.write_u32(key.len() as u32).await?;
             guard.write_all(key).await?;
             guard.write_u64(timestamp).await?;
 
-            let value = entry.value.as_ref();
-
+            let value = entry.value;
             guard.write_u32(value.len() as u32).await?;
             guard.write_all(value).await?;
         }
@@ -92,8 +96,8 @@ impl<File: WalHandle> Wal<File> {
         ts: u64,
         value: &'a [u8],
     ) -> anyhow::Result<()> {
-        let entry = Entry::new(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value));
-        self.put_batch(slice::from_ref(&entry), ts).await
+        let entry = Keyed::new(key, value);
+        self.put_batch(iter::once(entry), ts).await
     }
 }
 
