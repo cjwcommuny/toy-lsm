@@ -1,18 +1,18 @@
 use std::cmp::max;
 use std::io::Cursor;
-
+use std::slice;
 use std::sync::Arc;
 
 use crate::key::{KeyBytes, KeySlice};
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
 
+use crate::entry::Entry;
+use crate::persistent::interface::WalHandle;
+use crate::persistent::Persistent;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tracing_futures::Instrument;
-
-use crate::persistent::interface::WalHandle;
-use crate::persistent::Persistent;
 
 pub struct Wal<File> {
     file: Arc<Mutex<File>>,
@@ -59,31 +59,22 @@ impl<File: WalHandle> Wal<File> {
         Ok((wal, map))
     }
 
-    pub async fn put<'a>(&'a self, key: KeySlice<'a>, value: &'a [u8]) -> anyhow::Result<()> {
+    pub async fn put_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
         let mut guard = self.file.lock().await;
-        // todo: 这里 write 的操作和 encode key/value 重复，需要合并
-        guard
-            .write_u32(key.len() as u32)
-            .instrument(tracing::info_span!("wal_put_write_key_len"))
-            .await?;
-        guard
-            .write_all(key.raw_ref())
-            .instrument(tracing::info_span!("wal_put_write_all_key"))
-            .await?;
-        guard.write_u64(key.timestamp()).await?;
+        for entry in entries {
+            let key = entry.key.as_ref();
+            guard.write_u32(key.len() as u32).await?;
+            guard.write_all(key).await?;
+            guard.write_u64(timestamp).await?;
 
-        guard
-            .write_u32(value.len() as u32)
-            .instrument(tracing::info_span!("wal_put_write_value_len"))
-            .await?;
-        guard
-            .write_all(value)
-            .instrument(tracing::info_span!("wal_put_write_all_value"))
-            .await?;
-        guard
-            .flush()
-            .instrument(tracing::info_span!("wal_put_flush"))
-            .await?;
+            let value = entry.value.as_ref();
+
+            guard.write_u32(value.len() as u32).await?;
+            guard.write_all(value).await?;
+        }
+        guard.flush().await?;
+        guard.sync_all().await?;
+
         Ok(())
     }
 
@@ -101,7 +92,8 @@ impl<File: WalHandle> Wal<File> {
         ts: u64,
         value: &'a [u8],
     ) -> anyhow::Result<()> {
-        self.put(KeySlice::new(key, ts), value).await
+        let entry = Entry::new(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value));
+        self.put_batch(slice::from_ref(&entry), ts).await
     }
 }
 

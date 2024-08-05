@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 use std::ops::Bound;
-
+use std::slice;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -14,6 +14,7 @@ use ref_cast::RefCast;
 use tracing_futures::Instrument;
 
 use crate::bound::BytesBound;
+use crate::entry::Entry;
 use crate::iterators::NonEmptyStream;
 use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
@@ -148,13 +149,25 @@ impl<W: WalHandle> MemTable<W> {
     }
 
     pub async fn put_with_ts(&self, key: KeyBytes, value: Bytes) -> anyhow::Result<()> {
-        let size = key.len() + value.len();
+        let KeyBytes { key, timestamp } = key;
+        let entry = Entry::new(key, value);
+        self.put_batch(slice::from_ref(&entry), timestamp).await
+    }
+
+    pub async fn put_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
         if let Some(wal) = self.wal.as_ref() {
-            wal.put(key.as_key_slice(), value.as_bytes())
+            wal.put_batch(entries, timestamp)
                 .instrument(tracing::info_span!("wal_put"))
-                .await?
+                .await?;
         }
-        self.map.insert(key, value);
+        let mut size = 0;
+        for entry in entries {
+            let key = KeyBytes::new(entry.key.clone(), timestamp);
+            let value = entry.value.clone();
+
+            size += key.len() + value.len();
+            self.map.insert(key, value);
+        }
         self.approximate_size.fetch_add(size, Ordering::Release);
 
         Ok(())

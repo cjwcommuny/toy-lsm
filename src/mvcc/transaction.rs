@@ -1,19 +1,17 @@
-use crate::entry::Entry;
-
-use crate::persistent::Persistent;
-use crate::state::{LsmStorageStateInner, Map};
-use bytes::Bytes;
-use crossbeam_skiplist::SkipMap;
-use futures::{stream, Stream};
 use std::collections::{Bound, HashSet};
-
-use crate::iterators::LockedLsmIter;
-use crate::mvcc::iterator::{txn_local_iterator, LockedTxnIter};
-use arc_swap::access::Access;
-use parking_lot::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+use bytes::Bytes;
+use crossbeam_skiplist::SkipMap;
+use parking_lot::Mutex;
 use tokio_stream::StreamExt;
+
+use crate::iterators::LockedLsmIter;
+use crate::mvcc::iterator::LockedTxnIter;
+use crate::mvcc::watermark::Watermark;
+use crate::persistent::Persistent;
+use crate::state::{LsmStorageStateInner, Map};
 
 pub struct Transaction<P: Persistent> {
     pub(crate) read_ts: u64,
@@ -21,10 +19,17 @@ pub struct Transaction<P: Persistent> {
 
     // todo: need Arc<...> ?
     pub(crate) local_storage: Arc<SkipMap<Bytes, Bytes>>,
+
+    // todo: delete it?
     pub(crate) committed: Arc<AtomicBool>,
     /// Write set and read set
     /// todo: check deadlock?
     pub(crate) key_hashes: Option<Mutex<(HashSet<u32>, HashSet<u32>)>>,
+
+    // todo: remove u64?
+    // todo: remove mutex?
+    // todo: 理论上存储一个 callback: fn(read_ts: u64) 即可
+    watermark: Arc<Mutex<(u64, Watermark)>>,
 }
 
 impl<P: Persistent> Map for Transaction<P> {
@@ -61,13 +66,19 @@ impl<P: Persistent> Transaction<P> {
         read_ts: u64,
         inner: Arc<LsmStorageStateInner<P>>,
         key_hashes: Option<Mutex<(HashSet<u32>, HashSet<u32>)>>,
+        watermark: Arc<Mutex<(u64, Watermark)>>,
     ) -> Self {
+        {
+            let mut guard = watermark.lock();
+            guard.1.add_reader(read_ts);
+        }
         Self {
             read_ts,
             inner,
             local_storage: Arc::default(),
             committed: Arc::default(),
             key_hashes,
+            watermark,
         }
     }
 
@@ -89,6 +100,13 @@ impl<P: Persistent> Transaction<P> {
             // todo
         }
         todo!()
+    }
+}
+
+impl<P: Persistent> Drop for Transaction<P> {
+    fn drop(&mut self) {
+        let mut guard = self.watermark.lock();
+        guard.1.remove_reader(self.read_ts);
     }
 }
 

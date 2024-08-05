@@ -7,8 +7,8 @@ use std::fmt::Debug;
 
 #[derive(PartialEq, Eq, Debug, new, Default, Clone, Copy)]
 pub struct Key<T> {
-    key: T,
-    timestamp: u64,
+    pub key: T,
+    pub timestamp: u64,
 }
 
 pub type KeySlice<'a> = Key<&'a [u8]>;

@@ -58,6 +58,6 @@ impl LsmMvccInner {
             let guard = self.ts.lock();
             guard.0
         };
-        Transaction::new(ts, inner, key_hashes)
+        Transaction::new(ts, inner, key_hashes, self.ts.clone())
     }
 }
