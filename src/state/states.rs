@@ -34,6 +34,7 @@ pub struct LsmStorageState<P: Persistent> {
     block_cache: Arc<BlockCache>,
     manifest: Manifest<P::ManifestHandle>,
     pub(crate) state_lock: Mutex<()>,
+    write_lock: Mutex<()>,
     pub(crate) persistent: P,
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
@@ -85,6 +86,7 @@ where
             inner: ArcSwap::new(Arc::new(inner)),
             block_cache: Arc::new(BlockCache::new(1024)),
             manifest,
+            write_lock: Mutex::default(),
             state_lock: Mutex::default(),
             persistent,
             options,
@@ -122,6 +124,7 @@ where
         key: impl Into<Bytes> + Send,
         value: impl Into<Bytes> + Send,
     ) -> anyhow::Result<()> {
+        // let _guard =
         // todo: check options.serializable
         let txn = self.new_txn()?;
         txn.put(key, value).await?;

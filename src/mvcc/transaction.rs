@@ -1,20 +1,20 @@
+use anyhow::anyhow;
+use bytes::Bytes;
+use crossbeam_skiplist::SkipMap;
+use parking_lot::Mutex;
 use std::collections::{Bound, HashSet};
 use std::ops::Bound::Excluded;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-
-use bytes::Bytes;
-use crossbeam_skiplist::SkipMap;
-use parking_lot::Mutex;
 use tokio_stream::StreamExt;
 
 use crate::entry::Entry;
 use crate::iterators::LockedLsmIter;
-use crate::mvcc::core::LsmMvccInner;
+use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
 use crate::mvcc::iterator::LockedTxnIter;
 use crate::persistent::Persistent;
 use crate::state::{LsmStorageStateInner, Map};
-use crate::utils::scoped::Scoped;
+use crate::utils::scoped::{Scoped, ScopedMutex};
 
 #[derive(Debug, Default)]
 pub struct RWSet {
@@ -33,7 +33,7 @@ pub struct Transaction<P: Persistent> {
     pub(crate) committed: Arc<AtomicBool>,
     /// Write set and read set
     /// todo: check deadlock?
-    pub(crate) key_hashes: Option<Scoped<Mutex<RWSet>>>,
+    pub(crate) key_hashes: Option<ScopedMutex<RWSet>>,
 
     mvcc: Arc<LsmMvccInner>,
 }
@@ -71,7 +71,7 @@ impl<P: Persistent> Transaction<P> {
     pub fn new(
         read_ts: u64,
         inner: Arc<LsmStorageStateInner<P>>,
-        key_hashes: Option<Mutex<RWSet>>,
+        serializable: bool,
         mvcc: Arc<LsmMvccInner>,
     ) -> Self {
         {
@@ -83,7 +83,7 @@ impl<P: Persistent> Transaction<P> {
             inner,
             local_storage: Arc::default(),
             committed: Arc::default(),
-            key_hashes: key_hashes.map(Scoped::new),
+            key_hashes: serializable.then(|| ScopedMutex::default()),
             mvcc,
         }
     }
@@ -99,36 +99,47 @@ impl<P: Persistent> Transaction<P> {
         guard
     }
 
-    pub async fn commit(self) -> anyhow::Result<()> {
-        let guard = self.mvcc.committed_txns.lock().await;
+    // todo: 区分 snapshot isolation vs serializable isolation
+    pub async fn commit(mut self) -> anyhow::Result<()> {
+        let mut commit_guard = self.mvcc.committed_txns.lock().await;
 
-        // todo: commit lock / write lock ?
-        // let _commit_guard = self.mvcc.commit_lock.lock().await;
-        // let expected_commit_ts = {
-        //     // todo: 这里的锁可以去掉？
-        //     let mut guard = self.mvcc.ts.lock();
-        //     guard.0 + 1
-        // };
-        // let conflict = if let Some(key_hashes) = self.key_hashes.as_ref() {
-        //     key_hashes.with_ref(|key_hashes| {
-        //         let guard = self.mvcc.committed_txns.lock();
-        //         let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
-        //         let rw_set_guard = key_hashes.lock();
-        //         let read_set = &rw_set_guard.read_set;
-        //         guard
-        //             .range(range)
-        //             .any(|(_, data)| data.key_hashes.is_disjoint(read_set))
-        //     })
-        // } else {
-        //     false
-        // };
+        let expected_commit_ts = {
+            // todo: 这里的锁可以去掉？
+            let mut guard = self.mvcc.ts.lock();
+            guard.0 + 1
+        };
+        let key_hashes = self.key_hashes.take().map(ScopedMutex::into_inner);
+        let conflict = if let Some(key_hashes) = key_hashes.as_ref() {
+            let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
+            let read_set = &key_hashes.read_set;
+            commit_guard
+                .range(range)
+                .any(|(_, data)| data.key_hashes.is_disjoint(read_set))
+        } else {
+            false
+        };
+        if conflict {
+            return Err(anyhow!("commit conflict"));
+        }
 
-        // let entries: Vec<_> = self
-        //     .local_storage
-        //     .iter()
-        //     .map(|e| Entry::new(e.key().clone(), e.value().clone()))
-        //     .collect();
-        // self.inner.memtable.put_batch(&entries, commit_ts).await?;
+        let entries: Vec<_> = self
+            .local_storage
+            .iter()
+            .map(|e| Entry::new(e.key().clone(), e.value().clone()))
+            .collect();
+        // todo: 如果 write_batch 失败怎么保证 atomicity
+        self.inner.write_batch(&entries, expected_commit_ts).await?;
+        self.mvcc.update_commit_ts(expected_commit_ts);
+
+        if let Some(key_hashes) = key_hashes {
+            let committed_data = CommittedTxnData {
+                key_hashes: key_hashes.write_set,
+                read_ts: self.read_ts,
+                commit_ts: expected_commit_ts,
+            };
+            commit_guard.insert(expected_commit_ts, committed_data);
+        }
+
         Ok(())
     }
 }
