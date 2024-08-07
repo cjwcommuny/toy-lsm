@@ -18,19 +18,17 @@ pub(crate) struct CommittedTxnData {
 pub type TimeProviderWrapper = Box<dyn TimeProvider>;
 
 pub(crate) struct LsmMvccInner {
-    pub(crate) write_lock: Mutex<()>,
-    pub(crate) commit_lock: Mutex<()>,
+    pub(crate) write_lock: Mutex<()>, // 使用 tokio channel 替代，因为所有 write 都需要 serialized
     pub(crate) ts: Arc<Mutex<(u64, Watermark)>>,
-    pub(crate) committed_txns: Arc<Mutex<BTreeMap<u64, CommittedTxnData>>>,
+    pub(crate) committed_txns: Arc<tokio::sync::Mutex<BTreeMap<u64, CommittedTxnData>>>,
 }
 
 impl LsmMvccInner {
     pub fn new(initial_ts: u64) -> Self {
         Self {
             write_lock: Mutex::new(()),
-            commit_lock: Mutex::new(()),
             ts: Arc::new(Mutex::new((initial_ts, Watermark::new()))),
-            committed_txns: Arc::new(Mutex::new(BTreeMap::new())),
+            committed_txns: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
         }
     }
 

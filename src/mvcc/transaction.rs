@@ -14,6 +14,7 @@ use crate::mvcc::core::LsmMvccInner;
 use crate::mvcc::iterator::LockedTxnIter;
 use crate::persistent::Persistent;
 use crate::state::{LsmStorageStateInner, Map};
+use crate::utils::scoped::Scoped;
 
 #[derive(Debug, Default)]
 pub struct RWSet {
@@ -32,7 +33,7 @@ pub struct Transaction<P: Persistent> {
     pub(crate) committed: Arc<AtomicBool>,
     /// Write set and read set
     /// todo: check deadlock?
-    pub(crate) key_hashes: Option<Mutex<RWSet>>,
+    pub(crate) key_hashes: Option<Scoped<Mutex<RWSet>>>,
 
     mvcc: Arc<LsmMvccInner>,
 }
@@ -82,7 +83,7 @@ impl<P: Persistent> Transaction<P> {
             inner,
             local_storage: Arc::default(),
             committed: Arc::default(),
-            key_hashes,
+            key_hashes: key_hashes.map(Scoped::new),
             mvcc,
         }
     }
@@ -99,24 +100,28 @@ impl<P: Persistent> Transaction<P> {
     }
 
     pub async fn commit(self) -> anyhow::Result<()> {
+        let guard = self.mvcc.committed_txns.lock().await;
+
         // todo: commit lock / write lock ?
-        let _commit_guard = self.mvcc.commit_lock.lock();
-        let expected_commit_ts = {
-            // todo: 这里的锁可以去掉？
-            let mut guard = self.mvcc.ts.lock();
-            guard.0 + 1
-        };
-        let conflict = if let Some(key_hashes) = self.key_hashes.as_ref() {
-            let guard = self.mvcc.committed_txns.lock();
-            let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
-            let rw_set_guard = key_hashes.lock();
-            let read_set = &rw_set_guard.read_set;
-            guard
-                .range(range)
-                .any(|(_, data)| data.key_hashes.is_disjoint(read_set))
-        } else {
-            false
-        };
+        // let _commit_guard = self.mvcc.commit_lock.lock().await;
+        // let expected_commit_ts = {
+        //     // todo: 这里的锁可以去掉？
+        //     let mut guard = self.mvcc.ts.lock();
+        //     guard.0 + 1
+        // };
+        // let conflict = if let Some(key_hashes) = self.key_hashes.as_ref() {
+        //     key_hashes.with_ref(|key_hashes| {
+        //         let guard = self.mvcc.committed_txns.lock();
+        //         let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
+        //         let rw_set_guard = key_hashes.lock();
+        //         let read_set = &rw_set_guard.read_set;
+        //         guard
+        //             .range(range)
+        //             .any(|(_, data)| data.key_hashes.is_disjoint(read_set))
+        //     })
+        // } else {
+        //     false
+        // };
 
         // let entries: Vec<_> = self
         //     .local_storage
