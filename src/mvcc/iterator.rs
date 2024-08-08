@@ -3,6 +3,7 @@ use crate::entry::{Entry, Keyed};
 use crate::iterators::lsm::LsmIterator;
 use crate::iterators::no_deleted::new_no_deleted_iter;
 use crate::iterators::{create_two_merge_iter, LockedLsmIter};
+use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use async_iter_ext::StreamTools;
 use bytes::Bytes;
@@ -10,10 +11,37 @@ use crossbeam_skiplist::SkipMap;
 use derive_new::new;
 use futures::{stream, Stream, StreamExt, TryStreamExt};
 use num_traits::Bounded;
+use ouroboros::self_referencing;
 use std::collections::Bound::{Excluded, Included, Unbounded};
 use std::future::ready;
 use std::ops::Bound;
-use std::sync::Arc;
+
+struct TxnWithBound<'a, P: Persistent> {
+    txn: Transaction<'a, P>,
+    lower: Bound<&'a [u8]>,
+    upper: Bound<&'a [u8]>,
+}
+
+#[self_referencing]
+pub struct LockedTxnIterWithTxn<'a, P: Persistent> {
+    txn: TxnWithBound<'a, P>,
+
+    #[borrows(txn)]
+    #[covariant]
+    iter: LockedTxnIter<'this, P>,
+}
+
+impl<'a, P: Persistent> LockedTxnIterWithTxn<'a, P> {
+    pub fn new_(txn: Transaction<'a, P>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
+        Self::new(TxnWithBound { txn, lower, upper }, |txn| {
+            txn.txn.scan(txn.lower, txn.upper)
+        })
+    }
+
+    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
+        self.with_iter(|iter| iter.iter()).await
+    }
+}
 
 #[derive(new)]
 pub struct LockedTxnIter<'a, P: Persistent> {

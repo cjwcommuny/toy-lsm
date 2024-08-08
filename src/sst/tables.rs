@@ -57,7 +57,7 @@ impl<File: SstHandle> SsTable<File> {
 
         let max_ts = {
             let data = file.read(end - 8, 8).await?;
-            end = end - 8;
+            end -= 8;
             u64::from_be_bytes(data.as_slice().try_into()?)
         };
 

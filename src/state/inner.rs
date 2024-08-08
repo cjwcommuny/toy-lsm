@@ -160,8 +160,7 @@ async fn build_state<P: Persistent>(
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::NewMemtable(record) => {
-                        let max_ts =
-                            fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
+                        fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::Compaction(record) => {

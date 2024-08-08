@@ -20,6 +20,7 @@ use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::mvcc::core::{LsmMvccInner, TimeProviderWrapper};
 use crate::mvcc::iterator::LockedTxnIter;
+use crate::mvcc::iterator::LockedTxnIterWithTxn;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
@@ -155,12 +156,14 @@ where
         self.sst_id().fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedTxnIter<'a, P> {
-        todo!()
-        // let txn = self.new_txn()?;
-        // txn.scan(lower, upper).await
-        // let snapshot = self.inner.load_full();
-        // LockedLsmIter::new(snapshot, lower, upper, self.time_provider.now())
+    pub fn scan<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> LockedTxnIterWithTxn<'a, P> {
+        // todo: remove unwrap
+        let txn = self.new_txn().unwrap();
+        LockedTxnIterWithTxn::new_(txn, lower, upper)
     }
 }
 
@@ -1334,8 +1337,8 @@ mod test {
             .enable_mvcc(true)
             .serializable(true)
             .build();
-        let storage = LsmStorageState::new(options, persistent).await.unwrap();
-        storage
+        
+        LsmStorageState::new(options, persistent).await.unwrap()
     }
 
     // todo: week 3, day 7 test

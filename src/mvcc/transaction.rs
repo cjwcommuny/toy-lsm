@@ -83,7 +83,7 @@ impl<'a, P: Persistent> Transaction<'a, P> {
             state,
             local_storage: Arc::default(),
             committed: Arc::default(),
-            key_hashes: serializable.then(|| ScopedMutex::default()),
+            key_hashes: serializable.then(ScopedMutex::default),
             mvcc,
         }
     }
