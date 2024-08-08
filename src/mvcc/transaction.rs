@@ -13,7 +13,7 @@ use crate::iterators::LockedLsmIter;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
 use crate::mvcc::iterator::LockedTxnIter;
 use crate::persistent::Persistent;
-use crate::state::{LsmStorageStateInner, Map};
+use crate::state::{LsmStorageState, LsmStorageStateInner, Map};
 use crate::utils::scoped::{Scoped, ScopedMutex};
 
 #[derive(Debug, Default)]
@@ -22,9 +22,9 @@ pub struct RWSet {
     write_set: HashSet<u32>,
 }
 
-pub struct Transaction<P: Persistent> {
+pub struct Transaction<'a, P: Persistent> {
     pub(crate) read_ts: u64,
-    pub(crate) inner: Arc<LsmStorageStateInner<P>>,
+    pub(crate) state: &'a LsmStorageState<P>,
 
     // todo: need Arc<...> ?
     pub(crate) local_storage: Arc<SkipMap<Bytes, Bytes>>,
@@ -38,7 +38,7 @@ pub struct Transaction<P: Persistent> {
     mvcc: Arc<LsmMvccInner>,
 }
 
-impl<P: Persistent> Map for Transaction<P> {
+impl<'a, P: Persistent> Map for Transaction<'a, P> {
     type Error = anyhow::Error;
 
     async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
@@ -67,10 +67,10 @@ impl<P: Persistent> Map for Transaction<P> {
     }
 }
 
-impl<P: Persistent> Transaction<P> {
+impl<'a, P: Persistent> Transaction<'a, P> {
     pub fn new(
         read_ts: u64,
-        inner: Arc<LsmStorageStateInner<P>>,
+        state: &'a LsmStorageState<P>,
         serializable: bool,
         mvcc: Arc<LsmMvccInner>,
     ) -> Self {
@@ -80,7 +80,7 @@ impl<P: Persistent> Transaction<P> {
         }
         Self {
             read_ts,
-            inner,
+            state,
             local_storage: Arc::default(),
             committed: Arc::default(),
             key_hashes: serializable.then(|| ScopedMutex::default()),
@@ -89,12 +89,9 @@ impl<P: Persistent> Transaction<P> {
     }
 
     // todo: no need for Result?
-    pub fn scan<'a>(
-        &'a self,
-        lower: Bound<&'a [u8]>,
-        upper: Bound<&'a [u8]>,
-    ) -> LockedTxnIter<'a, P> {
-        let inner_iter = LockedLsmIter::new(self.inner.clone(), lower, upper, self.read_ts);
+    pub fn scan(&'a self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedTxnIter<'a, P> {
+        let inner = self.state.inner.load_full();
+        let inner_iter = LockedLsmIter::new(inner, lower, upper, self.read_ts);
         let guard = LockedTxnIter::new(&self.local_storage, inner_iter);
         guard
     }
@@ -122,13 +119,14 @@ impl<P: Persistent> Transaction<P> {
             return Err(anyhow!("commit conflict"));
         }
 
+        // todo: avoid collecting
         let entries: Vec<_> = self
             .local_storage
             .iter()
             .map(|e| Entry::new(e.key().clone(), e.value().clone()))
             .collect();
         // todo: 如果 write_batch 失败怎么保证 atomicity
-        self.inner.write_batch(&entries, expected_commit_ts).await?;
+        self.state.write_batch(&entries, expected_commit_ts).await?;
         self.mvcc.update_commit_ts(expected_commit_ts);
 
         if let Some(key_hashes) = key_hashes {
@@ -144,7 +142,7 @@ impl<P: Persistent> Transaction<P> {
     }
 }
 
-impl<P: Persistent> Drop for Transaction<P> {
+impl<'a, P: Persistent> Drop for Transaction<'a, P> {
     fn drop(&mut self) {
         let mut guard = self.mvcc.ts.lock();
         guard.1.remove_reader(self.read_ts);
@@ -152,7 +150,7 @@ impl<P: Persistent> Drop for Transaction<P> {
 }
 
 #[cfg(test)]
-impl<P: Persistent> Transaction<P> {
+impl<'a, P: Persistent> Transaction<'a, P> {
     pub async fn get_for_test(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>> {
         self.get(key).await
     }

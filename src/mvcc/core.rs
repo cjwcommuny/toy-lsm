@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use crate::mvcc::transaction::Transaction;
 use crate::mvcc::watermark::Watermark;
 use crate::persistent::Persistent;
-use crate::state::LsmStorageStateInner;
+use crate::state::{LsmStorageState, LsmStorageStateInner};
 use crate::time::TimeProvider;
 
 pub(crate) struct CommittedTxnData {
@@ -46,13 +46,13 @@ impl LsmMvccInner {
 
     pub fn new_txn<P: Persistent>(
         self: &Arc<Self>,
-        inner: Arc<LsmStorageStateInner<P>>,
+        state: &LsmStorageState<P>,
         serializable: bool,
     ) -> Transaction<P> {
         let ts = {
             let guard = self.ts.lock();
             guard.0
         };
-        Transaction::new(ts, inner, serializable, self.clone())
+        Transaction::new(ts, state, serializable, self.clone())
     }
 }

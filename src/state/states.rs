@@ -13,6 +13,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use tracing_futures::Instrument;
 
 use crate::block::BlockCache;
+use crate::entry::Entry;
 use crate::iterators::LockedLsmIter;
 use crate::key::KeyBytes;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
@@ -97,8 +98,9 @@ where
     }
 
     pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
+        // todo: avoid clone?
         let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;
-        let tx = mvcc.new_txn(self.inner.load_full(), *self.options.serializable());
+        let tx = mvcc.new_txn(self, *self.options.serializable());
         Ok(tx)
     }
 
@@ -142,6 +144,13 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
+    pub async fn write_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
+        let guard = self.inner.load();
+        guard.memtable.put_batch(entries, timestamp).await?;
+        self.try_freeze_memtable(guard.as_ref()).await?;
+        Ok(())
+    }
+
     pub(crate) fn next_sst_id(&self) -> usize {
         self.sst_id().fetch_add(1, Ordering::Relaxed)
     }
@@ -342,11 +351,11 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::collections::Bound;
-    use std::ops::Bound::{Excluded, Included, Unbounded};
-
     use bytes::Bytes;
     use futures::StreamExt;
+    use std::collections::Bound;
+    use std::ops::Bound::{Excluded, Included, Unbounded};
+    use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
 
     use crate::entry::Entry;
@@ -1158,8 +1167,8 @@ mod test {
         assert_scan_iter(&txn4, Unbounded, Unbounded, [("test1", "233")]).await;
     }
 
-    async fn assert_scan_iter<P: Persistent>(
-        snapshot: &Transaction<P>,
+    async fn assert_scan_iter<'a, P: Persistent>(
+        snapshot: &'a Transaction<'a, P>,
         lower: Bound<&[u8]>,
         upper: Bound<&[u8]>,
         expected: impl IntoIterator<Item = (&'static str, &'static str)>,

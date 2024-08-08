@@ -32,11 +32,6 @@ pub struct LsmStorageStateInner<P: Persistent> {
 }
 
 impl<P: Persistent> LsmStorageStateInner<P> {
-    pub async fn write_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
-        // todo: 使用 type system 保证单线程调用
-        todo!()
-    }
-
     pub async fn put(&self, key: KeyBytes, value: impl Into<Bytes> + Send) -> anyhow::Result<()> {
         self.memtable().put_with_ts(key, value.into()).await?;
         // self.try_freeze_memtable(&snapshot)
