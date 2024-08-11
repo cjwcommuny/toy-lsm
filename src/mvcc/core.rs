@@ -44,11 +44,11 @@ impl LsmMvccInner {
         ts.1.watermark().unwrap_or(ts.0)
     }
 
-    pub fn new_txn<P: Persistent>(
+    pub fn new_txn<'a, P: Persistent>(
         self: &Arc<Self>,
-        state: &LsmStorageState<P>,
+        state: &'a LsmStorageState<P>,
         serializable: bool,
-    ) -> Transaction<P> {
+    ) -> Transaction<'a, P> {
         let ts = {
             let guard = self.ts.lock();
             guard.0
