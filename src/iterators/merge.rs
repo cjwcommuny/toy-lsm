@@ -44,7 +44,7 @@ where
     Item: Ord + Debug,
     I: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    iters: Pin<Box<HeapStream<Item, I>>>,
+    iters: Pin<Box<<HeapStreamBuilderImpl as HeapStreamBuilder>::HeapStream<Item, I>>>,
 }
 
 impl<Item, I> MergeIteratorInner<Item, I>
@@ -67,7 +67,7 @@ where
             .collect()
             .await;
         Self {
-            iters: Box::pin(build_heap_stream(iters)),
+            iters: Box::pin(HeapStreamBuilderImpl::build_heap_stream(iters)),
         }
     }
 }
@@ -87,16 +87,46 @@ where
     }
 }
 
-type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
-    impl Stream<Item = anyhow::Result<Item>>;
+pub trait HeapStreamBuilder {
+    type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin>: Stream<
+        Item = anyhow::Result<Item>,
+    >;
 
-fn build_heap_stream<I, Item>(heap: BinaryHeap<HeapWrapper<Item, I>>) -> HeapStream<Item, I>
-where
-    I: Stream<Item = anyhow::Result<Item>> + Unpin,
-    Item: Ord + Debug,
-{
-    unfold(heap, unfold_fn)
+    fn build_heap_stream<I, Item>(
+        heap: BinaryHeap<HeapWrapper<Item, I>>,
+    ) -> Self::HeapStream<Item, I>
+    where
+        I: Stream<Item = anyhow::Result<Item>> + Unpin,
+        Item: Ord + Debug;
 }
+
+pub struct HeapStreamBuilderImpl;
+
+impl HeapStreamBuilder for HeapStreamBuilderImpl {
+    type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
+        impl Stream<Item = anyhow::Result<Item>>;
+
+    fn build_heap_stream<I, Item>(
+        heap: BinaryHeap<HeapWrapper<Item, I>>,
+    ) -> Self::HeapStream<Item, I>
+    where
+        I: Stream<Item = anyhow::Result<Item>> + Unpin,
+        Item: Ord + Debug,
+    {
+        unfold(heap, unfold_fn)
+    }
+}
+
+// type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
+//     impl Stream<Item = anyhow::Result<Item>>;
+//
+// fn build_heap_stream<I, Item>(heap: BinaryHeap<HeapWrapper<Item, I>>) -> HeapStream<Item, I>
+// where
+//     I: Stream<Item = anyhow::Result<Item>> + Unpin,
+//     Item: Ord + Debug,
+// {
+//     unfold(heap, unfold_fn)
+// }
 
 async fn unfold_fn<Item, I>(
     mut heap: BinaryHeap<HeapWrapper<Item, I>>,

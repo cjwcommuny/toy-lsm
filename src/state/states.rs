@@ -14,12 +14,9 @@ use tracing_futures::Instrument;
 
 use crate::block::BlockCache;
 use crate::entry::Entry;
-use crate::iterators::LockedLsmIter;
-use crate::key::KeyBytes;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
-use crate::mvcc::core::{LsmMvccInner, TimeProviderWrapper};
-use crate::mvcc::iterator::LockedTxnIter;
+use crate::mvcc::core::LsmMvccInner;
 use crate::mvcc::iterator::LockedTxnIterWithTxn;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
@@ -358,13 +355,9 @@ mod test {
     use futures::StreamExt;
     use std::collections::Bound;
     use std::ops::Bound::{Excluded, Included, Unbounded};
-    use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
 
     use crate::entry::Entry;
-    use crate::iterators::create_two_merge_iter;
-    use crate::iterators::no_deleted::new_no_deleted_iter;
-    use crate::iterators::two_merge::create_inner;
     use crate::iterators::utils::test_utils::{
         assert_stream_eq, build_stream, build_tuple_stream, eq,
     };
@@ -373,9 +366,6 @@ mod test {
     use crate::persistent::Persistent;
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
-    use crate::state::Map;
-    use crate::test_utils::iterator::unwrap_ts_stream;
-    use crate::time::TimeIncrement;
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
@@ -1337,7 +1327,7 @@ mod test {
             .enable_mvcc(true)
             .serializable(true)
             .build();
-        
+
         LsmStorageState::new(options, persistent).await.unwrap()
     }
 
