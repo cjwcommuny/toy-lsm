@@ -46,7 +46,7 @@ tokio-util = "0.7.11"
 futures-concurrency = "7.6.1"
 ordered-float = "4.2.2"
 getset = "0.1.2"
-derive_more = "0.99.18"
+derive_more = "1.0.0"
 tracing-futures = { version = "0.2.5", features = ["futures-03"] }
 
 [dev-dependencies]
