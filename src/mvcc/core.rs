@@ -9,10 +9,10 @@ use crate::persistent::Persistent;
 use crate::state::{LsmStorageState, LsmStorageStateInner};
 use crate::time::TimeProvider;
 
-pub(crate) struct CommittedTxnData {
-    pub(crate) key_hashes: HashSet<u32>,
-    pub(crate) read_ts: u64,
-    pub(crate) commit_ts: u64,
+pub struct CommittedTxnData {
+    pub key_hashes: HashSet<u32>,
+    pub read_ts: u64,
+    pub commit_ts: u64,
 }
 
 pub type TimeProviderWrapper = Box<dyn TimeProvider>;

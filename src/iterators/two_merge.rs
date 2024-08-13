@@ -1,7 +1,7 @@
-use std::fmt::Debug;
-
 use futures::stream::unfold;
 use futures::Stream;
+use std::fmt::Debug;
+use std::future::Future;
 
 use crate::iterators::no_duplication::{new_no_duplication, NoDuplication};
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream};
@@ -33,10 +33,10 @@ pub trait TwoMergeIter {
         B: Stream<Item = anyhow::Result<Item>> + Unpin,
     >: Stream<Item = anyhow::Result<Item>> + Unpin;
 
-    async fn create_inner<Item, A, B>(
+    fn create_inner<Item, A, B>(
         a: A,
         b: B,
-    ) -> anyhow::Result<Self::MyTwoMergeIterInner<Item, A, B>>
+    ) -> impl Future<Output = anyhow::Result<Self::MyTwoMergeIterInner<Item, A, B>>>
     where
         Item: Ord + Debug + Unpin,
         A: Stream<Item = anyhow::Result<Item>> + Unpin,
