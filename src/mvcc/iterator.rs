@@ -3,7 +3,7 @@ use crate::entry::{Entry, Keyed};
 use crate::iterators::lsm::LsmIterator;
 use crate::iterators::no_deleted::new_no_deleted_iter;
 use crate::iterators::{create_two_merge_iter, LockedLsmIter};
-use crate::mvcc::transaction::Transaction;
+use crate::mvcc::transaction::{RWSet, Transaction};
 use crate::persistent::Persistent;
 use async_iter_ext::StreamTools;
 use bytes::Bytes;
@@ -15,6 +15,8 @@ use ouroboros::self_referencing;
 use std::collections::Bound::{Excluded, Included, Unbounded};
 use std::future::ready;
 use std::ops::Bound;
+use crate::iterators::inspect::{InspectIter, InspectIterImpl};
+use crate::utils::scoped::ScopedMutex;
 
 struct TxnWithBound<'a, P: Persistent> {
     txn: Transaction<'a, P>,
@@ -47,6 +49,7 @@ impl<'a, P: Persistent> LockedTxnIterWithTxn<'a, P> {
 pub struct LockedTxnIter<'a, P: Persistent> {
     local_storage: &'a SkipMap<Bytes, Bytes>,
     lsm_iter: LockedLsmIter<'a, P>,
+    key_hashes: Option<&'a ScopedMutex<RWSet>>,
 }
 
 impl<'a, P: Persistent> LockedTxnIter<'a, P> {
@@ -59,6 +62,16 @@ impl<'a, P: Persistent> LockedTxnIter<'a, P> {
         );
         let merged = create_two_merge_iter(local_iter, lsm_iter).await?;
         let iter = new_no_deleted_iter(merged);
+        let iter = InspectIterImpl::inspect_stream(
+            iter,
+            |entry| {
+                let Ok(entry) = entry else { return };
+                let Some(key_hashes) = self.key_hashes else { return };
+                let key = entry.key.as_ref();
+                key_hashes.lock_with(|mut set| set.add_read_key(key));
+
+            }
+        );
         let iter = Box::new(iter) as _;
         Ok(iter)
     }

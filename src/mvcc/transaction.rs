@@ -22,6 +22,16 @@ pub struct RWSet {
     write_set: HashSet<u32>,
 }
 
+impl RWSet {
+    pub fn add_read_key(&mut self, key: &[u8]) {
+        self.read_set.insert(farmhash::hash32(key));
+    }
+
+    pub fn add_write_key(&mut self, key: &[u8]) {
+        self.write_set.insert(farmhash::hash32(key));
+    }
+}
+
 pub struct Transaction<'a, P: Persistent> {
     pub(crate) read_ts: u64,
     pub(crate) state: &'a LsmStorageState<P>,
@@ -50,6 +60,9 @@ impl<'a, P: Persistent> Map for Transaction<'a, P> {
             .await
             .transpose()?
             .map(|entry| entry.value);
+        if let Some(key_hashes) = self.key_hashes.as_ref() {
+            key_hashes.lock_with(|mut set| set.add_read_key(key));
+        }
         Ok(output)
     }
 
@@ -58,11 +71,19 @@ impl<'a, P: Persistent> Map for Transaction<'a, P> {
         key: impl Into<Bytes> + Send,
         value: impl Into<Bytes> + Send,
     ) -> Result<(), Self::Error> {
-        self.local_storage.insert(key.into(), value.into());
+        let key = key.into();
+        self.local_storage.insert(key.clone(), value.into());
+        if let Some(key_hashes) = self.key_hashes.as_ref() {
+            key_hashes.lock_with(|mut set| set.add_write_key(key.as_ref()));
+        }
         Ok(())
     }
 
     async fn delete(&self, key: impl Into<Bytes> + Send) -> Result<(), Self::Error> {
+        let key = key.into();
+        if let Some(key_hashes) = self.key_hashes.as_ref() {
+            key_hashes.lock_with(|mut set| set.add_write_key(key.as_ref()));
+        }
         self.put(key, Bytes::new()).await
     }
 }
@@ -92,7 +113,7 @@ impl<'a, P: Persistent> Transaction<'a, P> {
     pub fn scan(&'a self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedTxnIter<'a, P> {
         let inner = self.state.inner.load_full();
         let inner_iter = LockedLsmIter::new(inner, lower, upper, self.read_ts);
-        let guard = LockedTxnIter::new(&self.local_storage, inner_iter);
+        let guard = LockedTxnIter::new(&self.local_storage, inner_iter, self.key_hashes.as_ref());
         guard
     }
 
@@ -109,6 +130,10 @@ impl<'a, P: Persistent> Transaction<'a, P> {
         let conflict = if let Some(key_hashes) = key_hashes.as_ref() {
             let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
             let read_set = &key_hashes.read_set;
+            println!("====");
+            dbg!(key_hashes);
+            dbg!(&commit_guard);
+            println!("====");
             commit_guard
                 .range(range)
                 .any(|(_, data)| !data.key_hashes.is_disjoint(read_set))
