@@ -719,6 +719,7 @@ mod test {
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
             .enable_wal(false)
+            .enable_mvcc(true)
             .build();
         LsmStorageState::new(options, persistent).await
     }
@@ -926,6 +927,7 @@ mod test {
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
             .enable_wal(true)
+            .enable_mvcc(true)
             .build();
         let storage = LsmStorageState::new(options, persistent).await.unwrap();
 

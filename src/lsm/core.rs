@@ -212,6 +212,7 @@ mod tests {
             .num_memtable_limit(1000)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
+            .enable_mvcc(true)
             .build();
         let lsm = Lsm::new(options, persistent).await.unwrap();
         for i in 0..10 {
@@ -246,6 +247,7 @@ mod tests {
             .num_memtable_limit(10)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(true)
+            .enable_mvcc(true)
             .build();
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());

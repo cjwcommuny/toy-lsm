@@ -364,6 +364,7 @@ mod tests {
             .num_memtable_limit(1000)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
+            .enable_mvcc(true)
             .build();
         let state = LsmStorageState::new(options, persistent).await.unwrap();
         let _next_sst_id = AtomicUsize::default();

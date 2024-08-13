@@ -17,9 +17,9 @@ pub(crate) struct CommittedTxnData {
 
 pub type TimeProviderWrapper = Box<dyn TimeProvider>;
 
-pub(crate) struct LsmMvccInner {
-    pub(crate) ts: Arc<Mutex<(u64, Watermark)>>,
-    pub(crate) committed_txns: Arc<tokio::sync::Mutex<BTreeMap<u64, CommittedTxnData>>>,
+pub struct LsmMvccInner {
+    pub ts: Arc<Mutex<(u64, Watermark)>>,
+    pub committed_txns: Arc<tokio::sync::Mutex<BTreeMap<u64, CommittedTxnData>>>,
 }
 
 impl LsmMvccInner {
