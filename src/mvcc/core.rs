@@ -9,6 +9,7 @@ use crate::persistent::Persistent;
 use crate::state::{LsmStorageState, LsmStorageStateInner};
 use crate::time::TimeProvider;
 
+#[derive(Debug)]
 pub struct CommittedTxnData {
     pub key_hashes: HashSet<u32>,
     pub read_ts: u64,

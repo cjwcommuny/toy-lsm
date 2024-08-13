@@ -111,7 +111,7 @@ impl<'a, P: Persistent> Transaction<'a, P> {
             let read_set = &key_hashes.read_set;
             commit_guard
                 .range(range)
-                .any(|(_, data)| data.key_hashes.is_disjoint(read_set))
+                .any(|(_, data)| !data.key_hashes.is_disjoint(read_set))
         } else {
             false
         };
