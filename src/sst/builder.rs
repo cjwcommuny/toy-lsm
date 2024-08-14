@@ -204,10 +204,13 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::block::BlockCache;
-    use crate::key::KeySlice;
+    
+    use crate::key::{Key, KeySlice};
     use crate::persistent::{LocalFs, Persistent};
     use crate::sst::builder::test_util::{key_of, num_of_keys, value_of};
+    use crate::sst::iterator::SsTableIterator;
     use crate::sst::{SsTable, SsTableBuilder};
+    use futures::StreamExt;
 
     #[tokio::test]
     async fn test_sst_build_single_key() {
@@ -273,21 +276,24 @@ mod tests {
     }
 
     // todo: add test
-    // #[tokio::test]
-    // async fn test_sst_build_multi_version_hard() {
-    //     let dir = tempdir().unwrap();
-    //     let persistent = LocalFs::new(dir.path().to_path_buf());
-    //     let data = generate_test_data();
-    //     let _ = generate_sst_with_ts(1, &persistent, data.clone(), None).await;
-    //     let sst = SsTable::open(1, None, &persistent).await.unwrap();
-    //     let sst_iter = SsTableIterator::create_and_seek_to_first(&sst)
-    //         .map(|entry| {
-    //             let entry = entry.unwrap();
-    //             let key = entry.key;
-    //             todo!()
-    //         });
-    //
-    // }
+    #[tokio::test]
+    async fn test_sst_build_multi_version_hard() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let data = generate_test_data();
+        let _ = generate_sst_with_ts(1, &persistent, data.clone(), None).await;
+        let sst = SsTable::open(1, None, &persistent).await.unwrap();
+        let result: Vec<_> = SsTableIterator::create_and_seek_to_first(&sst)
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let Key { key, timestamp } = entry.key;
+                let value = entry.value;
+                ((key, timestamp), value)
+            })
+            .collect()
+            .await;
+        assert_eq!(data, result);
+    }
 
     #[tokio::test]
     async fn test_task3_sst_ts() {

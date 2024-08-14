@@ -71,7 +71,7 @@ impl Bloom {
     /// Build bloom filter from key hashes
     pub fn build_from_key_hashes(keys: &[u32], bits_per_key: usize) -> Self {
         let k = (bits_per_key as f64 * 0.69) as u32;
-        let k = k.min(30).max(1);
+        let k = k.clamp(1, 30);
         let nbits = (keys.len() * bits_per_key).max(64);
         let nbytes = (nbits + 7) / 8;
         let nbits = nbytes * 8;
@@ -103,7 +103,7 @@ impl Bloom {
 }
 
 fn compute_index(value: u32, num_hash: u8, nbits: usize) -> impl Iterator<Item = usize> {
-    let delta = (value >> 17) | (value << 15);
+    let delta = value.rotate_left(15);
 
     (0..num_hash).scan(value, move |h, _| {
         let new_h = (*h).wrapping_add(delta);

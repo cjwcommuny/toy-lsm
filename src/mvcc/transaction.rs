@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
-use parking_lot::Mutex;
 use std::collections::{Bound, HashSet};
 use std::ops::Bound::Excluded;
 use std::sync::atomic::AtomicBool;
@@ -13,8 +12,8 @@ use crate::iterators::LockedLsmIter;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
 use crate::mvcc::iterator::LockedTxnIter;
 use crate::persistent::Persistent;
-use crate::state::{LsmStorageState, LsmStorageStateInner, Map};
-use crate::utils::scoped::{Scoped, ScopedMutex};
+use crate::state::{LsmStorageState, Map};
+use crate::utils::scoped::ScopedMutex;
 
 #[derive(Debug, Default)]
 pub struct RWSet {
@@ -123,7 +122,7 @@ impl<'a, P: Persistent> Transaction<'a, P> {
 
         let expected_commit_ts = {
             // todo: 这里的锁可以去掉？
-            let mut guard = self.mvcc.ts.lock();
+            let guard = self.mvcc.ts.lock();
             guard.0 + 1
         };
         let key_hashes = self.key_hashes.take().map(ScopedMutex::into_inner);

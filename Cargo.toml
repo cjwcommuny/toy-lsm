@@ -57,7 +57,7 @@ criterion = { version = "0.5.1", features = ["async_tokio"] }
 maplit = "1.0.2"
 
 [lints.rust]
-unused = "allow"
+#unused = "allow"
 unsafe_code = "forbid"
 
 [[bench]]

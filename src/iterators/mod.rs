@@ -1,10 +1,10 @@
+pub mod inspect;
 pub mod lsm;
 mod maybe_empty;
 pub mod merge;
 pub mod no_deleted;
 mod no_duplication;
 mod ok_iter;
-pub mod inspect;
 pub mod two_merge;
 pub mod utils;
 

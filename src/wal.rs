@@ -1,18 +1,15 @@
-use crate::key::{KeyBytes, KeySlice};
+use crate::key::KeyBytes;
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
-use std::cmp::max;
-use std::future::Future;
 use std::io::Cursor;
 use std::sync::Arc;
-use std::{iter, slice};
+use std::iter;
 
-use crate::entry::{Entry, Keyed};
+use crate::entry::Keyed;
 use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tracing_futures::Instrument;
 
 pub struct Wal<File> {
     file: Arc<Mutex<File>>,

@@ -3,14 +3,12 @@ use arc_swap::access::Access;
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use derive_getters::Getters;
-use futures::StreamExt;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
-use tracing_futures::Instrument;
 
 use crate::block::BlockCache;
 use crate::entry::Entry;
@@ -24,7 +22,6 @@ use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::{LsmStorageStateInner, RecoveredState};
 use crate::state::Map;
-use crate::time::TimeProvider;
 use crate::utils::vec::pop;
 
 #[derive(Getters)]

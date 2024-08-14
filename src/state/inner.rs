@@ -4,19 +4,16 @@ use futures::stream;
 use futures::stream::{StreamExt, TryStreamExt};
 use std::cmp::max;
 use std::fmt::{Debug, Formatter};
-use std::future::Future;
 use std::sync::Arc;
 use typed_builder::TypedBuilder;
 
 use crate::block::BlockCache;
-use crate::entry::Entry;
 use crate::key::KeyBytes;
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
 use crate::sst::sstables::fold_flush_manifest;
 use crate::sst::{SsTable, SstOptions, Sstables};
-use crate::state::{LsmStorageState, Map};
 
 pub struct RecoveredState<P: Persistent> {
     pub state: LsmStorageStateInner<P>,

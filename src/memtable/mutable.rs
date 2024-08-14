@@ -1,15 +1,14 @@
 use std::fmt::{Debug, Formatter};
 
 use std::ops::Bound;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::{iter, slice};
+use std::slice;
 
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
-use nom::AsBytes;
 use ref_cast::RefCast;
 use tracing_futures::Instrument;
 
@@ -250,7 +249,6 @@ mod test {
     use crate::persistent::LocalFs;
     use crate::time::{TimeIncrement, TimeProvider};
     use bytes::Bytes;
-    use futures::StreamExt;
     use std::ops::Bound::Included;
     use tempfile::tempdir;
 
@@ -381,7 +379,7 @@ mod test {
             let upper = upper.map(Key::from);
             let lower = lower.map(|ks| ks.map(|b| Bytes::copy_from_slice(b)));
             let upper = upper.map(|ks| ks.map(|b| Bytes::copy_from_slice(b)));
-            let mut iter = memtable.scan_with_ts(lower, upper).await.unwrap();
+            let iter = memtable.scan_with_ts(lower, upper).await.unwrap();
 
             let (new_iter, elem) = iter.unwrap().next().await;
             let new_iter = new_iter.unwrap();

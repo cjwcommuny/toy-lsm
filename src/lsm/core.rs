@@ -8,7 +8,6 @@ use bytes::Bytes;
 use futures::{FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
 
-use crate::mvcc::core::TimeProviderWrapper;
 use crate::persistent::Persistent;
 use crate::sst::SstOptions;
 use crate::state::{LsmStorageState, Map};
@@ -139,9 +138,9 @@ enum Signal {
 #[cfg(test)]
 mod tests {
     use arc_swap::access::DynAccess;
-    use futures::StreamExt;
+    
     use nom::AsBytes;
-    use std::ops::Bound::{Included, Unbounded};
+    
     use std::time::Duration;
     use tempfile::{tempdir, TempDir};
     use tokio::time::sleep;
@@ -152,7 +151,7 @@ mod tests {
     use crate::sst::SstOptions;
     use crate::state::Map;
     use crate::test_utils::insert_sst;
-    use crate::time::{SystemTime, TimeIncrement};
+    
     // todo: WAL causes the "too many open files" error
     // #[tokio::test]
     // async fn test_task2_auto_flush() {

@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use crate::mvcc::transaction::Transaction;
 use crate::mvcc::watermark::Watermark;
 use crate::persistent::Persistent;
-use crate::state::{LsmStorageState, LsmStorageStateInner};
+use crate::state::LsmStorageState;
 use crate::time::TimeProvider;
 
 #[derive(Debug)]

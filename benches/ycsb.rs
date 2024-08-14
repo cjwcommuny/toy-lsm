@@ -12,7 +12,6 @@ use ycsb::workload::CoreWorkload;
 use better_mini_lsm::persistent::LocalFs;
 use better_mini_lsm::sst::SstOptions;
 use better_mini_lsm::state::{LsmStorageState, Map};
-use better_mini_lsm::time::SystemTime;
 
 #[derive(Clone)]
 struct LsmStorageStateBench(Arc<LsmStorageState<LocalFs>>);
