@@ -2,8 +2,8 @@ use crate::key::KeyBytes;
 use bytes::{Buf, Bytes};
 use crossbeam_skiplist::SkipMap;
 use std::io::Cursor;
-use std::sync::Arc;
 use std::iter;
+use std::sync::Arc;
 
 use crate::entry::Keyed;
 use crate::persistent::interface::WalHandle;

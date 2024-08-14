@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Formatter};
 
 use std::ops::Bound;
+use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::slice;
 
 use bytemuck::TransparentWrapperAlloc;
 use bytes::Bytes;

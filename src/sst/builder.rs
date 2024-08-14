@@ -204,7 +204,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::block::BlockCache;
-    
+
     use crate::key::{Key, KeySlice};
     use crate::persistent::{LocalFs, Persistent};
     use crate::sst::builder::test_util::{key_of, num_of_keys, value_of};

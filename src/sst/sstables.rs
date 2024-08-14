@@ -146,6 +146,7 @@ where
             .iter()
             .map(|id| self.sstables.get(id).unwrap())
             .filter_map(move |table| {
+                // todo: scan not use bloom?
                 if !filter_sst_by_bloom(table, lower, upper) {
                     None
                 } else {

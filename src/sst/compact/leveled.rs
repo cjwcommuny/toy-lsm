@@ -226,7 +226,6 @@ mod tests {
     use crate::sst::{SstOptions, Sstables};
     use crate::state::{LsmStorageState, Map};
     use crate::test_utils::insert_sst;
-    
 
     #[test]
     fn test_select_level_source() {
