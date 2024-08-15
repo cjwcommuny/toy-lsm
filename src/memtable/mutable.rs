@@ -381,7 +381,7 @@ mod test {
             let upper = upper.map(|ks| ks.map(|b| Bytes::copy_from_slice(b)));
             let iter = memtable.scan_with_ts(lower, upper).await.unwrap();
 
-            let (new_iter, elem) = iter.unwrap().next().await;
+            let (new_iter, _) = iter.unwrap().next().await;
             let new_iter = new_iter.unwrap();
             assert!(new_iter.is_none());
         }

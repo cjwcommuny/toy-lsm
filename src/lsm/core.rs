@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use futures::{FutureExt, StreamExt};
-use futures_concurrency::stream::Merge;
-
 use crate::persistent::Persistent;
 use crate::sst::SstOptions;
 use crate::state::{LsmStorageState, Map};
+use futures::{FutureExt, StreamExt};
+use futures_concurrency::stream::Merge;
+use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -20,17 +20,21 @@ use tracing::error;
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
     cancel_token: CancellationToken,
+    flush_handle: Option<JoinHandle<()>>,
+    spawn_handle: Option<JoinHandle<()>>,
 }
 
 impl<P: Persistent> Lsm<P> {
     pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
         let state = Arc::new(LsmStorageState::new(options, persistent).await?);
         let cancel_token = CancellationToken::new();
-        let _ = Self::spawn_flush(state.clone(), cancel_token.clone());
-        let _ = Self::spawn_compaction(state.clone(), cancel_token.clone());
+        let flush_handle = Self::spawn_flush(state.clone(), cancel_token.clone());
+        let spawn_handle = Self::spawn_compaction(state.clone(), cancel_token.clone());
         let this = Self {
             state,
             cancel_token,
+            flush_handle: Some(flush_handle),
+            spawn_handle: Some(spawn_handle),
         };
         Ok(this)
     }
@@ -114,6 +118,16 @@ where
 impl<P: Persistent> Drop for Lsm<P> {
     fn drop(&mut self) {
         self.cancel_token.cancel();
+        let flush_handle = self.flush_handle.take();
+        let spawn_handle = self.spawn_handle.take();
+        Handle::current().block_on(async {
+            if let Some(flush_handle) = flush_handle {
+                flush_handle.await.inspect_err(|e| error!(error = ?e)).ok();
+            }
+            if let Some(spawn_handle) = spawn_handle {
+                spawn_handle.await.inspect_err(|e| error!(error = ?e)).ok();
+            }
+        })
     }
 }
 
@@ -137,8 +151,6 @@ enum Signal {
 
 #[cfg(test)]
 mod tests {
-    use arc_swap::access::DynAccess;
-
     use nom::AsBytes;
 
     use std::time::Duration;

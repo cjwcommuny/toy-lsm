@@ -55,28 +55,6 @@ where
     stream::iter(iterator.map(FutureExt::into_stream as fn(_) -> _)).flatten()
 }
 
-pub struct Ref<T> {
-    data: T,
-    finished: bool,
-}
-
-impl<T> Ref<T> {
-    pub fn new(data: T) -> Self {
-        Self {
-            data,
-            finished: false,
-        }
-    }
-}
-
-impl<'a, T> Iterator for &'a Ref<T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
-}
-
 #[cfg(test)]
 pub mod test_utils {
     use crate::entry::Entry;

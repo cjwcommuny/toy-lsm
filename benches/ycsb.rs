@@ -19,7 +19,10 @@ struct LsmStorageStateBench(Arc<LsmStorageState<LocalFs>>);
 impl IsSend for LsmStorageStateBench {}
 impl IsSync for LsmStorageStateBench {}
 
+#[allow(dead_code)]
 trait IsSend: Send {}
+
+#[allow(dead_code)]
 trait IsSync: Sync {}
 
 impl DB for LsmStorageStateBench {

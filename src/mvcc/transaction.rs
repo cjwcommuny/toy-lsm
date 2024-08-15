@@ -3,7 +3,6 @@ use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use std::collections::{Bound, HashSet};
 use std::ops::Bound::Excluded;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
@@ -38,8 +37,6 @@ pub struct Transaction<'a, P: Persistent> {
     // todo: need Arc<...> ?
     pub(crate) local_storage: Arc<SkipMap<Bytes, Bytes>>,
 
-    // todo: delete it?
-    pub(crate) committed: Arc<AtomicBool>,
     /// Write set and read set
     /// todo: check deadlock?
     pub(crate) key_hashes: Option<ScopedMutex<RWSet>>,
@@ -102,7 +99,6 @@ impl<'a, P: Persistent> Transaction<'a, P> {
             read_ts,
             state,
             local_storage: Arc::default(),
-            committed: Arc::default(),
             key_hashes: serializable.then(ScopedMutex::default),
             mvcc,
         }

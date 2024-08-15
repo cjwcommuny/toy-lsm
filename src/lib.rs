@@ -11,7 +11,7 @@ pub mod sst;
 pub mod state;
 mod wal;
 
-mod lsm;
+pub mod lsm;
 mod manifest;
 pub mod mvcc;
 mod test_utils;

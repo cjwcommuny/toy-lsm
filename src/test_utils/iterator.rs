@@ -12,15 +12,3 @@ where
         })
     })
 }
-
-pub fn unwrap_ts_iterator<S>(s: S) -> impl Iterator<Item = anyhow::Result<Entry>>
-where
-    S: Iterator<Item = anyhow::Result<InnerEntry>>,
-{
-    s.map(|item| {
-        item.map(|entry| Entry {
-            key: entry.key.into_inner(),
-            value: entry.value,
-        })
-    })
-}

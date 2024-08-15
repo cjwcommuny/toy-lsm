@@ -1,24 +1,4 @@
-use derive_new::new;
 use parking_lot::{Mutex, MutexGuard};
-
-#[derive(Debug, Default, new)]
-pub struct Scoped<T> {
-    inner: T,
-}
-
-impl<T> Scoped<T> {
-    pub fn with_ref<B, F>(&self, f: F) -> B
-    where
-        F: FnOnce(&T) -> B,
-    {
-        f(&self.inner)
-    }
-
-    // todo: into_inner 不应该存在？
-    pub fn into_inner(self) -> T {
-        self.inner
-    }
-}
 
 #[derive(Debug, Default)]
 pub struct ScopedMutex<T> {

@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use arc_swap::access::Access;
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use derive_getters::Getters;
@@ -1091,9 +1090,9 @@ mod test {
         }
     }
 
-    async fn construct_test_mvcc_compaction_iter<'a, P: Persistent>(
-        storage: &'a LsmStorageStateInner<P>,
-    ) -> impl Stream<Item = anyhow::Result<InnerEntry>> + 'a {
+    async fn construct_test_mvcc_compaction_iter<P: Persistent>(
+        storage: &LsmStorageStateInner<P>,
+    ) -> impl Stream<Item = anyhow::Result<InnerEntry>> + '_ {
         let iter = storage
             .sstables_state
             .sstables()
@@ -1314,7 +1313,7 @@ mod test {
             let mut iter = guard.iter().await.unwrap();
             while let Some(entry) = iter.next().await {
                 // todo: check entry
-                let entry = entry.unwrap();
+                let _entry = entry.unwrap();
             }
         }
 
@@ -1350,7 +1349,7 @@ mod test {
             let mut iter = guard.iter().await.unwrap();
             while let Some(entry) = iter.next().await {
                 // todo: check entry
-                let entry = entry.unwrap();
+                let _entry = entry.unwrap();
             }
         }
 
