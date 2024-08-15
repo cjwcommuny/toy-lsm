@@ -354,11 +354,11 @@ mod test {
     use std::ops::Bound::{Excluded, Included, Unbounded};
     use tempfile::{tempdir, TempDir};
 
-    use crate::entry::{Entry, InnerEntry, Keyed};
+    use crate::entry::{Entry, InnerEntry};
+    use crate::iterators::create_merge_iter;
     use crate::iterators::utils::test_utils::{
         assert_stream_eq, build_stream, build_tuple_stream, eq,
     };
-    use crate::iterators::{create_merge_iter, MergeIterator};
     use crate::mvcc::transaction::Transaction;
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
@@ -1100,8 +1100,8 @@ mod test {
             .values()
             .map(|sst| SsTableIterator::scan(sst.as_ref(), Unbounded, Unbounded));
         let iter = stream::iter(iter);
-        let result = create_merge_iter(iter).await;
-        result
+
+        create_merge_iter(iter).await
     }
 
     #[tokio::test]

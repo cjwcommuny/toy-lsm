@@ -1,9 +1,10 @@
 use crate::bound::BoundRange;
-use crate::entry::{Entry, Keyed};
+use crate::entry::{Entry, InnerEntry, Keyed};
 use crate::iterators::inspect::{InspectIter, InspectIterImpl};
 use crate::iterators::lsm::LsmIterator;
 use crate::iterators::no_deleted::new_no_deleted_iter;
 use crate::iterators::{create_two_merge_iter, LockedLsmIter};
+use crate::key::KeyBytes;
 use crate::mvcc::transaction::{RWSet, Transaction};
 use crate::persistent::Persistent;
 use crate::utils::scoped::ScopedMutex;
@@ -110,6 +111,53 @@ where
     .map(|entry| entry.map(|pair| pair.0))
 }
 
+pub trait WatermarkGcIter {
+    type Stream<S: Stream<Item = anyhow::Result<InnerEntry>>>: Stream<
+        Item = anyhow::Result<InnerEntry>,
+    >;
+
+    fn build_watermark_gc_iter<S>(s: S, watermark: u64) -> Self::Stream<S>
+    where
+        S: Stream<Item = anyhow::Result<InnerEntry>>;
+}
+
+struct WatermarkGcIterImpl;
+
+impl WatermarkGcIter for WatermarkGcIterImpl {
+    type Stream<S: Stream<Item = anyhow::Result<InnerEntry>>> =
+        impl Stream<Item = anyhow::Result<InnerEntry>>;
+
+    fn build_watermark_gc_iter<S>(s: S, watermark: u64) -> Self::Stream<S>
+    where
+        S: Stream<Item = anyhow::Result<InnerEntry>>,
+    {
+        s.scan(None, move |state: &mut Option<KeyBytes>, entry| {
+            let item = match entry {
+                Err(e) => Some(Some(Err(e))),
+                Ok(entry) => {
+                    if let Some(prev_key) = state {
+                        if prev_key.key == entry.key.key {
+                            if entry.key.timestamp <= watermark {
+                                Some(None)
+                            } else {
+                                Some(Some(Ok(entry)))
+                            }
+                        } else {
+                            *state = Some(entry.key.clone());
+                            Some(Some(Ok(entry)))
+                        }
+                    } else {
+                        *state = Some(entry.key.clone());
+                        Some(Some(Ok(entry)))
+                    }
+                }
+            };
+            ready(item)
+        })
+        .filter_map(|entry| async { entry })
+    }
+}
+
 pub fn transform_bound<A, T>(lower: Bound<A>, upper: Bound<A>, timestamp: T) -> BoundRange<(A, T)>
 where
     T: Bounded,
@@ -146,9 +194,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::entry::Keyed;
-    use crate::mvcc::iterator::build_time_dedup_iter;
-    use futures::{stream, StreamExt, TryStreamExt};
+    use crate::entry::{InnerEntry, Keyed};
+    use crate::iterators::utils::test_utils::assert_stream_eq;
+    use crate::key::KeyBytes;
+    use crate::mvcc::iterator::{build_time_dedup_iter, WatermarkGcIter, WatermarkGcIterImpl};
+    use bytes::Bytes;
+    use futures::{stream, Stream, StreamExt, TryStreamExt};
 
     #[tokio::test]
     async fn test_build_time_dedup_iter() {
@@ -195,5 +246,37 @@ mod tests {
             .unwrap();
         let expected: Vec<_> = expected.into_iter().collect();
         assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn test_watermark_gc() {
+        test_watermark_gc_helper([("a", 0), ("b", 0)], 5, [("a", 0), ("b", 0)]).await;
+        test_watermark_gc_helper([("a", 3), ("a", 2), ("b", 0)], 2, [("a", 3), ("b", 0)]).await;
+        test_watermark_gc_helper([("a", 3), ("a", 2), ("b", 5)], 2, [("a", 3), ("b", 5)]).await;
+    }
+
+    async fn test_watermark_gc_helper(
+        input: impl IntoIterator<Item = (&'static str, u64)>,
+        watermark: u64,
+        expected_output: impl IntoIterator<Item = (&'static str, u64)>,
+    ) {
+        fn transform(
+            iter: impl IntoIterator<Item = (&'static str, u64)>,
+        ) -> impl Stream<Item = anyhow::Result<InnerEntry>> {
+            let s = iter.into_iter().map(|(key, timestamp)| {
+                Ok(InnerEntry::new(
+                    KeyBytes::new(Bytes::from(key), timestamp),
+                    Bytes::new(),
+                ))
+            });
+            stream::iter(s)
+        }
+
+        assert_stream_eq(
+            WatermarkGcIterImpl::build_watermark_gc_iter(transform(input), watermark)
+                .map(Result::unwrap),
+            transform(expected_output).map(Result::unwrap),
+        )
+        .await;
     }
 }
