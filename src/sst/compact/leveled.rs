@@ -48,12 +48,14 @@ pub async fn force_compact<P: Persistent>(
     options: &SstOptions,
     persistent: &P,
     manifest: Option<&Manifest<P::ManifestHandle>>,
+    watermark: Option<u64>,
 ) -> anyhow::Result<()> {
     let Some(task) = generate_task(sstables, options) else {
         return Ok(());
     };
 
-    let new_sst_ids = compact_with_task(sstables, next_sst_id, options, persistent, &task).await?;
+    let new_sst_ids =
+        compact_with_task(sstables, next_sst_id, options, persistent, &task, watermark).await?;
 
     if let Some(manifest) = manifest {
         let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
@@ -69,6 +71,7 @@ pub async fn compact_with_task<P: Persistent>(
     options: &SstOptions,
     persistent: &P,
     task: &CompactionTask,
+    watermark: Option<u64>,
 ) -> anyhow::Result<Vec<usize>> {
     let source = task.source();
     let source_index = task.source_index();
@@ -82,6 +85,7 @@ pub async fn compact_with_task<P: Persistent>(
         next_sst_id,
         options,
         persistent,
+        watermark,
     )
     .await?;
 
@@ -276,6 +280,7 @@ mod tests {
             &state.options,
             &state.persistent,
             &CompactionTask::new(0, 4, 1),
+            None,
         )
         .await
         .unwrap();
@@ -292,6 +297,7 @@ mod tests {
             &state.options,
             &state.persistent,
             &CompactionTask::new(0, 3, 1),
+            None,
         )
         .await
         .unwrap();
@@ -308,6 +314,7 @@ mod tests {
             &state.options,
             &state.persistent,
             &CompactionTask::new(1, 0, 2),
+            None,
         )
         .await
         .unwrap();
@@ -328,6 +335,7 @@ mod tests {
             || state.next_sst_id(),
             &state.options,
             &state.persistent,
+            None,
             None,
         )
         .await

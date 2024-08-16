@@ -7,13 +7,14 @@ use futures::{stream, Stream, StreamExt};
 use getset::CopyGetters;
 use serde::{Deserialize, Serialize};
 
-use std::ops::Range;
-use std::sync::Arc;
-use tracing::error;
-
+use crate::mvcc::iterator::{WatermarkGcIter, WatermarkGcIterImpl};
 use crate::persistent::{Persistent, SstHandle};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
+use futures::future::Either;
+use std::ops::Range;
+use std::sync::Arc;
+use tracing::error;
 
 #[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
 #[getset(get_copy = "pub")]
@@ -66,6 +67,7 @@ pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
     next_sst_id: impl Fn() -> usize + Send + 'a + Sync,
     options: &'a SstOptions,
     persistent: &'a P,
+    watermark: Option<u64>,
 ) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>
 where
     U: IntoIterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
@@ -86,7 +88,14 @@ where
         let tables = lower_sstables.into_iter().collect();
         create_sst_concat_and_seek_to_first(tables)
     }?;
-    let iter = assert_send(create_two_merge_iter(l0, l1)).await?;
+    let merged_iter = assert_send(create_two_merge_iter(l0, l1)).await?;
+    let iter = match watermark {
+        Some(watermark) => Either::Left(WatermarkGcIterImpl::build_watermark_gc_iter(
+            merged_iter,
+            watermark,
+        )),
+        None => Either::Right(merged_iter),
+    };
     let s: Vec<_> = assert_send(
         stream::unfold(iter, |mut iter| async {
             let id = next_sst_id();

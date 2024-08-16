@@ -233,6 +233,7 @@ where
         let new = {
             let mut new = Clone::clone(self.inner.load().as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
+            let watermark = self.mvcc.as_ref().map(|mvcc| mvcc.watermark());
 
             force_compact(
                 &mut new_sstables,
@@ -240,6 +241,7 @@ where
                 self.options(),
                 self.persistent(),
                 Some(&self.manifest),
+                watermark,
             )
             .await?;
 

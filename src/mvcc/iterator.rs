@@ -112,49 +112,53 @@ where
 }
 
 pub trait WatermarkGcIter {
-    type Stream<S: Stream<Item = anyhow::Result<InnerEntry>>>: Stream<
-        Item = anyhow::Result<InnerEntry>,
-    >;
+    type Stream<S: Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin>: Stream<Item = anyhow::Result<InnerEntry>>
+        + Send
+        + Unpin;
 
     fn build_watermark_gc_iter<S>(s: S, watermark: u64) -> Self::Stream<S>
     where
-        S: Stream<Item = anyhow::Result<InnerEntry>>;
+        S: Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin;
 }
 
-struct WatermarkGcIterImpl;
+pub struct WatermarkGcIterImpl;
 
 impl WatermarkGcIter for WatermarkGcIterImpl {
-    type Stream<S: Stream<Item = anyhow::Result<InnerEntry>>> =
-        impl Stream<Item = anyhow::Result<InnerEntry>>;
+    type Stream<S: Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin> =
+        impl Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin;
 
     fn build_watermark_gc_iter<S>(s: S, watermark: u64) -> Self::Stream<S>
     where
-        S: Stream<Item = anyhow::Result<InnerEntry>>,
+        S: Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin,
     {
-        s.scan(None, move |state: &mut Option<KeyBytes>, entry| {
-            let item = match entry {
-                Err(e) => Some(Some(Err(e))),
-                Ok(entry) => {
-                    if let Some(prev_key) = state {
-                        if prev_key.key == entry.key.key {
-                            if entry.key.timestamp <= watermark {
-                                Some(None)
+        let result = s
+            .scan(None, move |state: &mut Option<KeyBytes>, entry| {
+                let item = match entry {
+                    Err(e) => Some(Some(Err(e))),
+                    Ok(entry) => {
+                        if let Some(prev_key) = state {
+                            if prev_key.key == entry.key.key {
+                                if entry.key.timestamp <= watermark {
+                                    Some(None)
+                                } else {
+                                    Some(Some(Ok(entry)))
+                                }
                             } else {
+                                *state = Some(entry.key.clone());
                                 Some(Some(Ok(entry)))
                             }
                         } else {
                             *state = Some(entry.key.clone());
                             Some(Some(Ok(entry)))
                         }
-                    } else {
-                        *state = Some(entry.key.clone());
-                        Some(Some(Ok(entry)))
                     }
-                }
-            };
-            ready(item)
-        })
-        .filter_map(|entry| async { entry })
+                };
+                ready(item)
+            })
+            .filter_map(|entry| async { entry });
+
+        // todo: remove Box::pin?
+        Box::pin(result)
     }
 }
 
@@ -255,11 +259,13 @@ mod tests {
         test_watermark_gc_helper([("a", 3), ("a", 2), ("b", 5)], 2, [("a", 3), ("b", 5)]).await;
     }
 
-    async fn test_watermark_gc_helper(
-        input: impl IntoIterator<Item = (&'static str, u64)>,
-        watermark: u64,
-        expected_output: impl IntoIterator<Item = (&'static str, u64)>,
-    ) {
+    async fn test_watermark_gc_helper<S1, S2>(input: S1, watermark: u64, expected_output: S2)
+    where
+        S1: IntoIterator<Item = (&'static str, u64)>,
+        S1::IntoIter: Send,
+        S2: IntoIterator<Item = (&'static str, u64)>,
+        S2::IntoIter: Send,
+    {
         fn transform(
             iter: impl IntoIterator<Item = (&'static str, u64)>,
         ) -> impl Stream<Item = anyhow::Result<InnerEntry>> {
