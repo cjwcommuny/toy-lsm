@@ -64,6 +64,7 @@ fn ycsb_bench(c: &mut Criterion) {
         .num_memtable_limit(1000)
         .compaction_option(Default::default())
         .enable_wal(false)
+        .enable_mvcc(true)
         .build();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let state =
