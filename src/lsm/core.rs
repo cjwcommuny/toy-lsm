@@ -120,14 +120,17 @@ impl<P: Persistent> Drop for Lsm<P> {
         self.cancel_token.cancel();
         let flush_handle = self.flush_handle.take();
         let spawn_handle = self.spawn_handle.take();
-        Handle::current().block_on(async {
-            if let Some(flush_handle) = flush_handle {
-                flush_handle.await.inspect_err(|e| error!(error = ?e)).ok();
-            }
-            if let Some(spawn_handle) = spawn_handle {
-                spawn_handle.await.inspect_err(|e| error!(error = ?e)).ok();
-            }
-        })
+
+        tokio::task::block_in_place(|| {
+            Handle::current().block_on(async {
+                if let Some(flush_handle) = flush_handle {
+                    flush_handle.await.inspect_err(|e| error!(error = ?e)).ok();
+                }
+                if let Some(spawn_handle) = spawn_handle {
+                    spawn_handle.await.inspect_err(|e| error!(error = ?e)).ok();
+                }
+            })
+        });
     }
 }
 
@@ -208,7 +211,7 @@ mod tests {
         Lsm::new(options, persistent).await
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_auto_compaction() {
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
@@ -244,7 +247,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_wal_integration() {
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(3)
