@@ -1,26 +1,26 @@
+use anyhow::anyhow;
+use arc_swap::ArcSwap;
+use bytes::Bytes;
+use derive_getters::Getters;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
-use std::future::Future;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-use arc_swap::ArcSwap;
-use bytes::Bytes;
-use deref_ext::DerefExt;
-use derive_getters::Getters;
-use futures::StreamExt;
 use tokio::sync::{Mutex, MutexGuard};
-use tracing_futures::Instrument;
 
 use crate::block::BlockCache;
-use crate::iterators::LockedLsmIter;
+use crate::entry::Entry;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
+use crate::mvcc::core::LsmMvccInner;
+use crate::mvcc::iterator::LockedTxnIterWithTxn;
+use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
-use crate::state::inner::LsmStorageStateInner;
+use crate::state::inner::{LsmStorageStateInner, RecoveredState};
+use crate::state::write_batch::WriteBatchRecord;
 use crate::state::Map;
 use crate::utils::vec::pop;
 
@@ -30,9 +30,11 @@ pub struct LsmStorageState<P: Persistent> {
     block_cache: Arc<BlockCache>,
     manifest: Manifest<P::ManifestHandle>,
     pub(crate) state_lock: Mutex<()>,
+    write_lock: Mutex<()>,
     pub(crate) persistent: P,
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
+    mvcc: Option<Arc<LsmMvccInner>>,
 }
 
 impl<P> Debug for LsmStorageState<P>
@@ -56,7 +58,11 @@ where
     pub async fn new(options: SstOptions, persistent: P) -> anyhow::Result<Self> {
         let (manifest, manifest_records) = Manifest::recover(&persistent).await?;
         let block_cache = Arc::new(BlockCache::new(1024));
-        let (inner, next_sst_id) = LsmStorageStateInner::recover(
+        let RecoveredState {
+            state: inner,
+            next_sst_id,
+            initial_ts,
+        } = LsmStorageStateInner::recover(
             &options,
             &manifest,
             manifest_records,
@@ -66,16 +72,35 @@ where
         .await?;
         let sst_id = AtomicUsize::new(next_sst_id);
 
+        let mvcc = if *options.enable_mvcc() {
+            Some(Arc::new(LsmMvccInner::new(initial_ts)))
+        } else {
+            None
+        };
+
         let this = Self {
             inner: ArcSwap::new(Arc::new(inner)),
             block_cache: Arc::new(BlockCache::new(1024)),
             manifest,
+            write_lock: Mutex::default(),
             state_lock: Mutex::default(),
             persistent,
             options,
             sst_id,
+            mvcc,
         };
         Ok(this)
+    }
+
+    pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
+        // todo: avoid clone?
+        let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;
+        let tx = mvcc.new_txn(self, *self.options.serializable());
+        Ok(tx)
+    }
+
+    pub async fn sync_wal(&self) -> anyhow::Result<()> {
+        self.inner.load().sync_wal().await
     }
 }
 
@@ -87,15 +112,8 @@ where
     type Error = anyhow::Error;
 
     async fn get(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>> {
-        let guard = self.scan(Bound::Included(key), Bound::Included(key));
-        let value = guard
-            .iter()
-            .await?
-            .next()
-            .await
-            .transpose()?
-            .map(|entry| entry.value);
-        Ok(value)
+        let txn = self.new_txn()?;
+        txn.get(key).await
     }
 
     async fn put(
@@ -103,23 +121,17 @@ where
         key: impl Into<Bytes> + Send,
         value: impl Into<Bytes> + Send,
     ) -> anyhow::Result<()> {
-        let snapshot = self.inner.load();
-        snapshot
-            .memtable()
-            .put(key.into(), value.into())
-            .instrument(tracing::info_span!("memtable_put"))
-            .await?;
-        self.try_freeze_memtable(&snapshot)
-            .instrument(tracing::info_span!("try_freeze_memtable"))
-            .await?;
-        Ok(())
+        // let _guard =
+        // todo: check options.serializable
+        let txn = self.new_txn()?;
+        txn.put(key, value).await?;
+        txn.commit().await
     }
 
     async fn delete(&self, key: impl Into<Bytes> + Send) -> anyhow::Result<()> {
-        let snapshot = self.inner.load();
-        snapshot.memtable().put(key.into(), Bytes::new()).await?;
-        self.try_freeze_memtable(&snapshot).await?;
-        Ok(())
+        let txn = self.new_txn()?;
+        txn.delete(key).await?;
+        txn.commit().await
     }
 }
 
@@ -127,13 +139,31 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
+    pub async fn put_batch(&self, batch: &[WriteBatchRecord]) -> anyhow::Result<()> {
+        let txn = self.new_txn()?;
+        txn.write_batch(batch);
+        txn.commit().await
+    }
+
+    pub async fn write_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
+        let guard = self.inner.load();
+        guard.memtable.put_batch(entries, timestamp).await?;
+        self.try_freeze_memtable(guard.as_ref()).await?;
+        Ok(())
+    }
+
     pub(crate) fn next_sst_id(&self) -> usize {
         self.sst_id().fetch_add(1, Ordering::Relaxed)
     }
 
-    fn scan<'a>(&self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedLsmIter<'a, P> {
-        let snapshot = self.inner.load();
-        LockedLsmIter::new(snapshot, lower, upper)
+    pub fn scan<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> LockedTxnIterWithTxn<'a, P> {
+        // todo: remove unwrap
+        let txn = self.new_txn().unwrap();
+        LockedTxnIterWithTxn::new_(txn, lower, upper)
     }
 }
 
@@ -156,6 +186,7 @@ where
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
+    // todo: 这个函数用到的 snapshot 不用 load？直接从 caller 传过来？
     pub(crate) async fn force_freeze_memtable(
         &self,
         _guard: &MutexGuard<'_, ()>,
@@ -209,6 +240,7 @@ where
         let new = {
             let mut new = Clone::clone(self.inner.load().as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
+            let watermark = self.mvcc.as_ref().map(|mvcc| mvcc.watermark());
 
             force_compact(
                 &mut new_sstables,
@@ -216,6 +248,7 @@ where
                 self.options(),
                 self.persistent(),
                 Some(&self.manifest),
+                watermark,
             )
             .await?;
 
@@ -312,26 +345,36 @@ where
     async fn delete_for_test(&self, key: &[u8]) -> anyhow::Result<()> {
         self.delete(Bytes::copy_from_slice(key)).await
     }
+
+    // async fn write_batch_for_test(
+    //     &self,
+    //     records: impl IntoIterator<Item = Op<&[u8]>>,
+    // ) -> anyhow::Result<()> {
+    //     todo!()
+    // }
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::Bound;
-    use std::ops::Bound::{Included, Unbounded};
-
     use bytes::Bytes;
-    use futures::StreamExt;
+    use futures::{stream, Stream, StreamExt};
+    use std::collections::Bound;
+    use std::ops::Bound::{Excluded, Included, Unbounded};
     use tempfile::{tempdir, TempDir};
 
-    use crate::entry::Entry;
-    use crate::iterators::no_deleted::new_no_deleted_iter;
-    use crate::iterators::two_merge::create_inner;
-    use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
-    use crate::iterators::{create_two_merge_iter, eq};
+    use crate::entry::{Entry, InnerEntry};
+    use crate::iterators::merge::MergeIteratorInner;
+    use crate::iterators::utils::test_utils::{
+        assert_stream_eq, build_stream, build_tuple_stream, eq,
+    };
+    use crate::mvcc::transaction::Transaction;
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
+    use crate::sst::compact::CompactionOptions;
+    use crate::sst::iterator::SsTableIterator;
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
+    use crate::state::LsmStorageStateInner;
 
     #[tokio::test]
     async fn test_task2_storage_integration() {
@@ -410,7 +453,6 @@ mod test {
             storage.put_for_test(b"1", b"2333").await.unwrap();
         }
         let num_imm_memtables = storage.inner.load().imm_memtables().len();
-        println!("num_imm_memtables: {}", num_imm_memtables);
         assert!(num_imm_memtables >= 1, "no memtable frozen?");
         for _ in 0..1000 {
             storage.delete_for_test(b"1").await.unwrap();
@@ -661,67 +703,6 @@ mod test {
             storage.get_for_test(b"0").await.unwrap(),
             Some(Bytes::from_static(b"2333333"))
         );
-        {
-            let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let mut iter = guard.build_memtable_iter().await;
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("00", "2333")]),
-            )
-            .await;
-        }
-        {
-            let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let mut iter = guard.build_sst_iter().await.unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("00", "2333333")]),
-            )
-            .await;
-        }
-        {
-            let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let a = guard.build_memtable_iter().await;
-            let b = guard.build_sst_iter().await.unwrap();
-            let iter = create_inner(a, b).await.unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("00", "2333"), ("00", "2333333")]),
-            )
-            .await;
-        }
-        {
-            let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let a = guard.build_memtable_iter().await;
-            let b = guard.build_sst_iter().await.unwrap();
-            let iter = create_two_merge_iter(a, b).await.unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("00", "2333")]),
-            )
-            .await;
-        }
-        {
-            let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let a = guard.build_memtable_iter().await;
-            let b = guard.build_sst_iter().await.unwrap();
-            let iter = create_two_merge_iter(a, b).await.unwrap();
-            let iter = new_no_deleted_iter(iter);
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("00", "2333")]),
-            )
-            .await;
-        }
-        {
-            let guard = storage.scan(Included(b"00"), Included(b"00"));
-            let iter = guard.iter().await.unwrap();
-            assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
-                build_tuple_stream([("00", "2333")]),
-            )
-            .await;
-        }
         assert_eq!(
             storage.get_for_test(b"00").await.unwrap(),
             Some(Bytes::from_static(b"2333"))
@@ -747,7 +728,754 @@ mod test {
             .num_memtable_limit(1000)
             .compaction_option(Default::default())
             .enable_wal(false)
+            .enable_mvcc(true)
             .build();
         LsmStorageState::new(options, persistent).await
     }
+
+    #[tokio::test]
+    async fn test_task2_memtable_mvcc() {
+        test_task2_memtable_mvcc_helper(false).await;
+    }
+
+    #[tokio::test]
+    async fn test_task2_lsm_iterator_mvcc() {
+        test_task2_memtable_mvcc_helper(true).await;
+    }
+
+    async fn test_task2_memtable_mvcc_helper(flush: bool) {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .enable_wal(true)
+            .enable_mvcc(true)
+            .build();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+
+        storage.put_for_test(b"a", b"1").await.unwrap();
+        storage.put_for_test(b"b", b"1").await.unwrap();
+
+        assert_eq!(
+            storage.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        let snapshot1 = storage.new_txn().unwrap();
+
+        assert_eq!(
+            snapshot1.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        storage.put_for_test(b"a", b"2").await.unwrap();
+        let snapshot2 = storage.new_txn().unwrap();
+        storage.delete_for_test(b"b").await.unwrap();
+        storage.put_for_test(b"c", b"1").await.unwrap();
+        let snapshot3 = storage.new_txn().unwrap();
+        assert_eq!(
+            snapshot1.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(
+            snapshot1.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot1.get_for_test(b"c").await.unwrap(), None);
+
+        assert_scan_iter(&snapshot1, Unbounded, Unbounded, [("a", "1"), ("b", "1")]).await;
+
+        assert_eq!(
+            snapshot2.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(
+            snapshot2.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot2.get_for_test(b"c").await.unwrap(), None);
+
+        assert_scan_iter(&snapshot2, Unbounded, Unbounded, [("a", "2"), ("b", "1")]).await;
+
+        assert_eq!(
+            snapshot3.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(snapshot3.get_for_test(b"b").await.unwrap(), None);
+        assert_eq!(
+            snapshot3.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        assert_scan_iter(&snapshot3, Unbounded, Unbounded, [("a", "2"), ("c", "1")]).await;
+
+        if !flush {
+            let guard = storage.state_lock.lock().await;
+            storage.force_freeze_memtable(&guard).await.unwrap();
+        }
+
+        storage.put_for_test(b"a", b"3").await.unwrap();
+        storage.put_for_test(b"b", b"3").await.unwrap();
+        let snapshot4 = storage.new_txn().unwrap();
+        storage.put_for_test(b"a", b"4").await.unwrap();
+        let snapshot5 = storage.new_txn().unwrap();
+        storage.delete_for_test(b"b").await.unwrap();
+        storage.put_for_test(b"c", b"5").await.unwrap();
+        let snapshot6 = storage.new_txn().unwrap();
+
+        if flush {
+            let guard = storage.state_lock.lock().await;
+            storage.force_flush_imm_memtable(&guard).await.unwrap();
+        }
+
+        assert_eq!(
+            snapshot1.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(
+            snapshot1.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot1.get_for_test(b"c").await.unwrap(), None);
+
+        assert_scan_iter(&snapshot1, Unbounded, Unbounded, [("a", "1"), ("b", "1")]).await;
+
+        assert_eq!(
+            snapshot2.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(
+            snapshot2.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+        assert_eq!(snapshot2.get_for_test(b"c").await.unwrap(), None);
+
+        assert_scan_iter(&snapshot2, Unbounded, Unbounded, [("a", "2"), ("b", "1")]).await;
+
+        assert_eq!(
+            snapshot3.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"2"))
+        );
+        assert_eq!(snapshot3.get_for_test(b"b").await.unwrap(), None);
+        assert_eq!(
+            snapshot3.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        assert_scan_iter(&snapshot3, Unbounded, Unbounded, [("a", "2"), ("c", "1")]).await;
+
+        assert_eq!(
+            snapshot4.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"3"))
+        );
+        assert_eq!(
+            snapshot4.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"3"))
+        );
+        assert_eq!(
+            snapshot4.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        assert_scan_iter(
+            &snapshot4,
+            Unbounded,
+            Unbounded,
+            [("a", "3"), ("b", "3"), ("c", "1")],
+        )
+        .await;
+
+        assert_eq!(
+            snapshot5.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"4"))
+        );
+        assert_eq!(
+            snapshot5.get_for_test(b"b").await.unwrap(),
+            Some(Bytes::from_static(b"3"))
+        );
+        assert_eq!(
+            snapshot5.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"1"))
+        );
+
+        assert_scan_iter(
+            &snapshot5,
+            Unbounded,
+            Unbounded,
+            [("a", "4"), ("b", "3"), ("c", "1")],
+        )
+        .await;
+
+        assert_eq!(
+            snapshot6.get_for_test(b"a").await.unwrap(),
+            Some(Bytes::from_static(b"4"))
+        );
+        assert_eq!(snapshot6.get_for_test(b"b").await.unwrap(), None);
+        assert_eq!(
+            snapshot6.get_for_test(b"c").await.unwrap(),
+            Some(Bytes::from_static(b"5"))
+        );
+
+        assert_scan_iter(&snapshot6, Unbounded, Unbounded, [("a", "4"), ("c", "5")]).await;
+
+        if flush {
+            assert_scan_iter(&snapshot6, Included(b"a"), Included(b"a"), [("a", "4")]).await;
+            assert_scan_iter(&snapshot6, Excluded(b"a"), Excluded(b"c"), []).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_task2_snapshot_watermark() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .enable_wal(true)
+            .enable_mvcc(true)
+            .build();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+
+        let txn1 = storage.new_txn().unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        storage.put_for_test(b"233", b"23333").await.unwrap();
+        let txn3 = storage.new_txn().unwrap();
+        assert_eq!(storage.mvcc().as_ref().unwrap().watermark(), txn1.read_ts);
+        drop(txn1);
+        assert_eq!(storage.mvcc().as_ref().unwrap().watermark(), txn2.read_ts);
+        drop(txn2);
+        assert_eq!(storage.mvcc().as_ref().unwrap().watermark(), txn3.read_ts);
+        drop(txn3);
+        assert_eq!(
+            storage.mvcc().as_ref().unwrap().watermark(),
+            storage.mvcc().as_ref().unwrap().latest_commit_ts()
+        );
+    }
+
+    // todo: add test
+    #[tokio::test]
+    async fn test_task3_mvcc_compaction() {
+        use crate::state::write_batch::WriteBatchRecord::{Del, Put};
+
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let compaction_option = CompactionOptions::Full;
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(compaction_option)
+            .enable_wal(true)
+            .enable_mvcc(true)
+            .build();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+
+        /*
+        a b c d
+        ----------- 0
+        1 1
+        ----------- 1
+        2     2
+        ----------- 2
+        3     -
+        ----------- 3
+        -    4
+         */
+
+        let snapshot0 = storage.new_txn().unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"a"), Bytes::copy_from_slice(b"1")),
+                Put(Bytes::copy_from_slice(b"b"), Bytes::copy_from_slice(b"1")),
+            ])
+            .await
+            .unwrap();
+
+        let snapshot1 = storage.new_txn().unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"a"), Bytes::copy_from_slice(b"2")),
+                Put(Bytes::copy_from_slice(b"d"), Bytes::copy_from_slice(b"2")),
+            ])
+            .await
+            .unwrap();
+
+        let snapshot2 = storage.new_txn().unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"a"), Bytes::copy_from_slice(b"3")),
+                Del(Bytes::copy_from_slice(b"d")),
+            ])
+            .await
+            .unwrap();
+
+        let snapshot3 = storage.new_txn().unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"c"), Bytes::copy_from_slice(b"4")),
+                Del(Bytes::copy_from_slice(b"a")),
+            ])
+            .await
+            .unwrap();
+
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_freeze_memtable(&guard).await.unwrap();
+            storage.force_flush_imm_memtable(&guard).await.unwrap();
+            storage.force_compact(&guard).await.unwrap();
+        }
+
+        {
+            let inner = storage.inner.load();
+            let iter = construct_test_mvcc_compaction_iter(inner.as_ref()).await;
+            assert_mvcc_compaction_iter(
+                iter,
+                [
+                    ("a", ""),
+                    ("a", "3"),
+                    ("a", "2"),
+                    ("a", "1"),
+                    ("b", "1"),
+                    ("c", "4"),
+                    ("d", ""),
+                    ("d", "2"),
+                ],
+            )
+            .await;
+        }
+
+        drop(snapshot0);
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_compact(&guard).await.unwrap();
+        }
+
+        {
+            let inner = storage.inner.load();
+            let iter = construct_test_mvcc_compaction_iter(inner.as_ref()).await;
+            assert_mvcc_compaction_iter(
+                iter,
+                [
+                    ("a", ""),
+                    ("a", "3"),
+                    ("a", "2"),
+                    ("a", "1"),
+                    ("b", "1"),
+                    ("c", "4"),
+                    ("d", ""),
+                    ("d", "2"),
+                ],
+            )
+            .await;
+        }
+
+        drop(snapshot1);
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_compact(&guard).await.unwrap();
+        }
+
+        {
+            let inner = storage.inner.load();
+            let iter = construct_test_mvcc_compaction_iter(inner.as_ref()).await;
+            assert_mvcc_compaction_iter(
+                iter,
+                [
+                    ("a", ""),
+                    ("a", "3"),
+                    ("a", "2"),
+                    ("b", "1"),
+                    ("c", "4"),
+                    ("d", ""),
+                    ("d", "2"),
+                ],
+            )
+            .await;
+        }
+
+        drop(snapshot2);
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_compact(&guard).await.unwrap();
+        }
+
+        {
+            let inner = storage.inner.load();
+            let iter = construct_test_mvcc_compaction_iter(inner.as_ref()).await;
+            assert_mvcc_compaction_iter(iter, [("a", ""), ("a", "3"), ("b", "1"), ("c", "4")])
+                .await;
+        }
+
+        drop(snapshot3);
+        {
+            let guard = storage.state_lock.lock().await;
+            storage.force_compact(&guard).await.unwrap();
+        }
+
+        {
+            let inner = storage.inner.load();
+            let iter = construct_test_mvcc_compaction_iter(inner.as_ref()).await;
+            assert_mvcc_compaction_iter(iter, [("b", "1"), ("c", "4")]).await;
+        }
+    }
+
+    async fn construct_test_mvcc_compaction_iter<P: Persistent>(
+        storage: &LsmStorageStateInner<P>,
+    ) -> impl Stream<Item = anyhow::Result<InnerEntry>> + '_ {
+        let l0 = storage.sstables_state.l0_sstables().iter();
+        let level_other = storage
+            .sstables_state
+            .levels()
+            .iter()
+            .flat_map(|v| v.iter());
+        let iter = l0
+            .chain(level_other)
+            .map(|id| storage.sstables_state.sstables().get(id).unwrap())
+            .map(|sst| SsTableIterator::scan(sst.as_ref(), Unbounded, Unbounded));
+        let iter = stream::iter(iter);
+
+        MergeIteratorInner::create(iter).await
+    }
+
+    #[tokio::test]
+    async fn test_txn_integration() {
+        let dir = tempdir().unwrap();
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .enable_wal(true)
+            .enable_mvcc(true)
+            .build();
+        let storage = LsmStorageState::new(options, persistent).await.unwrap();
+
+        let txn1 = storage.new_txn().unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        txn1.put_for_test(b"test1", b"233").await.unwrap();
+        txn2.put_for_test(b"test2", b"233").await.unwrap();
+
+        assert_scan_iter(&txn1, Unbounded, Unbounded, [("test1", "233")]).await;
+        assert_scan_iter(&txn2, Unbounded, Unbounded, [("test2", "233")]).await;
+
+        let txn3 = storage.new_txn().unwrap();
+
+        assert_scan_iter(&txn3, Unbounded, Unbounded, []).await;
+
+        txn1.commit().await.unwrap();
+        txn2.commit().await.unwrap();
+
+        assert_scan_iter(&txn3, Unbounded, Unbounded, []).await;
+
+        drop(txn3);
+
+        {
+            let guard = storage.scan(Unbounded, Unbounded);
+            let iter = guard.iter().await.unwrap();
+            assert_stream_eq(
+                iter.map(Result::unwrap).map(Entry::into_tuple),
+                build_tuple_stream([("test1", "233"), ("test2", "233")]),
+            )
+            .await;
+        }
+
+        let txn4 = storage.new_txn().unwrap();
+
+        assert_eq!(
+            txn4.get_for_test(b"test1").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+        assert_eq!(
+            txn4.get_for_test(b"test2").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+
+        assert_scan_iter(
+            &txn4,
+            Unbounded,
+            Unbounded,
+            [("test1", "233"), ("test2", "233")],
+        )
+        .await;
+
+        txn4.put_for_test(b"test2", b"2333").await.unwrap();
+        assert_eq!(
+            txn4.get_for_test(b"test1").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+        assert_eq!(
+            txn4.get_for_test(b"test2").await.unwrap(),
+            Some(Bytes::from("2333"))
+        );
+
+        assert_scan_iter(
+            &txn4,
+            Unbounded,
+            Unbounded,
+            [("test1", "233"), ("test2", "2333")],
+        )
+        .await;
+
+        txn4.delete_for_test(b"test2").await.unwrap();
+
+        assert_eq!(
+            txn4.get_for_test(b"test1").await.unwrap(),
+            Some(Bytes::from("233"))
+        );
+        assert_eq!(txn4.get_for_test(b"test2").await.unwrap(), None);
+
+        assert_scan_iter(&txn4, Unbounded, Unbounded, [("test1", "233")]).await;
+    }
+
+    async fn assert_scan_iter<'a, P: Persistent>(
+        snapshot: &'a Transaction<'a, P>,
+        lower: Bound<&[u8]>,
+        upper: Bound<&[u8]>,
+        expected: impl IntoIterator<Item = (&'static str, &'static str)>,
+    ) {
+        let guard = snapshot.scan(lower, upper);
+        let iter = guard.iter().await.unwrap();
+        assert_stream_eq(
+            iter.map(Result::unwrap).map(Entry::into_tuple),
+            build_tuple_stream(expected),
+        )
+        .await;
+    }
+
+    async fn assert_mvcc_compaction_iter(
+        iter: impl Stream<Item = anyhow::Result<InnerEntry>>,
+        expected: impl IntoIterator<Item = (&'static str, &'static str)>,
+    ) {
+        let iter = iter
+            .map(Result::unwrap)
+            .map(|entry| (entry.key.key, entry.value));
+        let expected = expected
+            .into_iter()
+            .map(|(key, value)| (Bytes::from(key), Bytes::from(value)));
+        let expected = stream::iter(expected);
+        assert_stream_eq(iter, expected).await;
+    }
+
+    #[tokio::test]
+    async fn test_serializable_1() {
+        let dir = tempdir().unwrap();
+        let storage = build_serializable_lsm(&dir).await;
+
+        storage.put_for_test(b"key1", b"1").await.unwrap();
+        storage.put_for_test(b"key2", b"2").await.unwrap();
+        let txn1 = storage.new_txn().unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        txn1.put_for_test(b"key1", &txn1.get_for_test(b"key2").await.unwrap().unwrap())
+            .await
+            .unwrap();
+        txn2.put_for_test(b"key2", &txn2.get_for_test(b"key1").await.unwrap().unwrap())
+            .await
+            .unwrap();
+        txn1.commit().await.unwrap();
+        assert!(txn2.commit().await.is_err());
+        assert_eq!(
+            storage.get_for_test(b"key1").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+        assert_eq!(
+            storage.get_for_test(b"key2").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_serializable_2() {
+        let dir = tempdir().unwrap();
+        let storage = build_serializable_lsm(&dir).await;
+
+        let txn1 = storage.new_txn().unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        txn1.put_for_test(b"key1", b"1").await.unwrap();
+        txn2.put_for_test(b"key1", b"2").await.unwrap();
+        txn1.commit().await.unwrap();
+        txn2.commit().await.unwrap();
+        assert_eq!(
+            storage.get_for_test(b"key1").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_serializable_3_ts_range() {
+        let dir = tempdir().unwrap();
+        let storage = build_serializable_lsm(&dir).await;
+
+        storage.put_for_test(b"key1", b"1").await.unwrap();
+        storage.put_for_test(b"key2", b"2").await.unwrap();
+        let txn1 = storage.new_txn().unwrap();
+        txn1.put_for_test(b"key1", &txn1.get_for_test(b"key2").await.unwrap().unwrap())
+            .await
+            .unwrap();
+        txn1.commit().await.unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        txn2.put_for_test(b"key2", &txn2.get_for_test(b"key1").await.unwrap().unwrap())
+            .await
+            .unwrap();
+        txn2.commit().await.unwrap();
+        assert_eq!(
+            storage.get_for_test(b"key1").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+        assert_eq!(
+            storage.get_for_test(b"key2").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_serializable_4_scan() {
+        let dir = tempdir().unwrap();
+        let storage = build_serializable_lsm(&dir).await;
+
+        storage.put_for_test(b"key1", b"1").await.unwrap();
+        storage.put_for_test(b"key2", b"2").await.unwrap();
+        let txn1 = storage.new_txn().unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        txn1.put_for_test(b"key1", &txn1.get_for_test(b"key2").await.unwrap().unwrap())
+            .await
+            .unwrap();
+        txn1.commit().await.unwrap();
+
+        {
+            let guard = txn2.scan(Unbounded, Unbounded);
+            let mut iter = guard.iter().await.unwrap();
+            while let Some(entry) = iter.next().await {
+                // todo: check entry
+                let _entry = entry.unwrap();
+            }
+        }
+
+        txn2.put_for_test(b"key2", b"1").await.unwrap();
+        assert!(txn2.commit().await.is_err());
+        assert_eq!(
+            storage.get_for_test(b"key1").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+        assert_eq!(
+            storage.get_for_test(b"key2").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_serializable_5_read_only() {
+        let dir = tempdir().unwrap();
+        let storage = build_serializable_lsm(&dir).await;
+
+        storage.put_for_test(b"key1", b"1").await.unwrap();
+        storage.put_for_test(b"key2", b"2").await.unwrap();
+        let txn1 = storage.new_txn().unwrap();
+        txn1.put_for_test(b"key1", &txn1.get_for_test(b"key2").await.unwrap().unwrap())
+            .await
+            .unwrap();
+        txn1.commit().await.unwrap();
+        let txn2 = storage.new_txn().unwrap();
+        txn2.get_for_test(b"key1").await.unwrap().unwrap();
+
+        {
+            let guard = txn2.scan(Unbounded, Unbounded);
+            let mut iter = guard.iter().await.unwrap();
+            while let Some(entry) = iter.next().await {
+                // todo: check entry
+                let _entry = entry.unwrap();
+            }
+        }
+
+        txn2.commit().await.unwrap();
+        assert_eq!(
+            storage.get_for_test(b"key1").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+        assert_eq!(
+            storage.get_for_test(b"key2").await.unwrap(),
+            Some(Bytes::from("2"))
+        );
+    }
+
+    async fn build_serializable_lsm(dir: &TempDir) -> LsmStorageState<impl Persistent> {
+        let persistent = LocalFs::new(dir.path().to_path_buf());
+        let options = SstOptions::builder()
+            .target_sst_size(1024)
+            .block_size(4096)
+            .num_memtable_limit(1000)
+            .compaction_option(Default::default())
+            .enable_wal(true)
+            .enable_mvcc(true)
+            .serializable(true)
+            .build();
+
+        LsmStorageState::new(options, persistent).await.unwrap()
+    }
+
+    // todo: week 3, day 7 test
+    // #[test]
+    // fn test_task3_mvcc_compaction() {
+    //     let dir = tempdir().unwrap();
+    //     let options = LsmStorageOptions::default_for_week2_test(CompactionOptions::NoCompaction);
+    //     let storage = MiniLsm::open(&dir, options.clone()).unwrap();
+    //     storage
+    //         .write_batch(&[
+    //             WriteBatchRecord::Put("table1_a", "1"),
+    //             WriteBatchRecord::Put("table1_b", "1"),
+    //             WriteBatchRecord::Put("table1_c", "1"),
+    //             WriteBatchRecord::Put("table2_a", "1"),
+    //             WriteBatchRecord::Put("table2_b", "1"),
+    //             WriteBatchRecord::Put("table2_c", "1"),
+    //         ])
+    //         .unwrap();
+    //     storage.force_flush().unwrap();
+    //     let snapshot0 = storage.new_txn().unwrap();
+    //     storage
+    //         .write_batch(&[
+    //             WriteBatchRecord::Put("table1_a", "2"),
+    //             WriteBatchRecord::Del("table1_b"),
+    //             WriteBatchRecord::Put("table1_c", "2"),
+    //             WriteBatchRecord::Put("table2_a", "2"),
+    //             WriteBatchRecord::Del("table2_b"),
+    //             WriteBatchRecord::Put("table2_c", "2"),
+    //         ])
+    //         .unwrap();
+    //     storage.force_flush().unwrap();
+    //     storage.add_compaction_filter(CompactionFilter::Prefix(Bytes::from("table2_")));
+    //     storage.force_full_compaction().unwrap();
+    //
+    //     let mut iter = construct_merge_iterator_over_storage(&storage.inner.state.read());
+    //     check_iter_result_by_key(
+    //         &mut iter,
+    //         vec![
+    //             (Bytes::from("table1_a"), Bytes::from("2")),
+    //             (Bytes::from("table1_a"), Bytes::from("1")),
+    //             (Bytes::from("table1_b"), Bytes::new()),
+    //             (Bytes::from("table1_b"), Bytes::from("1")),
+    //             (Bytes::from("table1_c"), Bytes::from("2")),
+    //             (Bytes::from("table1_c"), Bytes::from("1")),
+    //             (Bytes::from("table2_a"), Bytes::from("2")),
+    //             (Bytes::from("table2_b"), Bytes::new()),
+    //             (Bytes::from("table2_c"), Bytes::from("2")),
+    //         ],
+    //     );
+    //
+    //     drop(snapshot0);
+    //
+    //     storage.force_full_compaction().unwrap();
+    //
+    //     let mut iter = construct_merge_iterator_over_storage(&storage.inner.state.read());
+    //     check_iter_result_by_key(
+    //         &mut iter,
+    //         vec![
+    //             (Bytes::from("table1_a"), Bytes::from("2")),
+    //             (Bytes::from("table1_c"), Bytes::from("2")),
+    //         ],
+    //     );
+    // }
 }

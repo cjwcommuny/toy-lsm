@@ -7,43 +7,40 @@ use std::task::{Context, Poll};
 use futures::{future, FutureExt};
 use futures::{stream, Stream, StreamExt};
 use pin_project::pin_project;
-use tracing::info;
 
 use crate::block::BlockIterator;
-use crate::entry::Entry;
+use crate::entry::{Entry, InnerEntry};
 use crate::iterators::{iter_fut_iter_to_stream, split_first, MergeIterator, TwoMergeIterator};
-use crate::key::{KeyBytes, KeySlice};
+use crate::key::KeySlice;
 use crate::persistent::SstHandle;
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::concat::SstConcatIterator;
-use crate::sst::{bloom, BlockMeta, SsTable};
+use crate::sst::{BlockMeta, SsTable};
 
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
-type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<Entry>> + Send + 'a>>;
+type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<InnerEntry>> + Send + 'a>>;
 
 fn build_iter<'a, File>(
     table: &'a SsTable<File>,
-    lower: Bound<&'a [u8]>,
-    upper: Bound<&'a [u8]>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a
+    lower: Bound<KeySlice<'a>>,
+    upper: Bound<KeySlice<'a>>,
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + Send + 'a
 where
     File: SstHandle,
 {
-    let iter = match lower {
-        Bound::Included(key) => future::Either::Left(future::Either::Left(build_bounded_iter(
-            table,
-            KeySlice::from_slice(key),
-            upper,
-            |meta: &BlockMeta, key| meta.last_key.raw_ref() < key,
-        ))),
-        Bound::Excluded(key) => future::Either::Left(future::Either::Right(build_bounded_iter(
-            table,
-            KeySlice::from_slice(key),
-            upper,
-            |meta, key| meta.last_key.raw_ref() <= key,
-        ))),
-        Bound::Unbounded => future::Either::Right(build_unbounded_iter(table)),
-    };
+    let iter =
+        match lower {
+            Bound::Included(key) => future::Either::Left(future::Either::Left(build_bounded_iter(
+                table,
+                key,
+                upper,
+                |meta: &BlockMeta, key| meta.last_key() < key,
+            ))),
+            Bound::Excluded(key) => future::Either::Left(future::Either::Right(
+                build_bounded_iter(table, key, upper, |meta, key| meta.last_key() <= key),
+            )),
+            Bound::Unbounded => future::Either::Right(build_unbounded_iter(table)),
+        };
     match upper {
         Bound::Included(upper) => future::Either::Left(future::Either::Left(transform_stop_iter(
             iter,
@@ -60,37 +57,34 @@ where
 }
 
 fn transform_stop_iter<'a>(
-    iter: impl Stream<Item = anyhow::Result<Entry>> + 'a,
-    upper: &'a [u8],
-    f: for<'b> fn(&'b [u8], &'b [u8]) -> bool,
-) -> impl Stream<Item = anyhow::Result<Entry>> + 'a {
+    iter: impl Stream<Item = anyhow::Result<InnerEntry>> + 'a,
+    upper: KeySlice<'a>,
+    f: for<'b> fn(KeySlice<'b>, KeySlice<'b>) -> bool,
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + 'a {
     iter.take_while(move |entry| {
-        let condition = entry
+        let x = entry
             .as_ref()
-            .map(|entry| f(&entry.key, upper))
+            .map(|entry| f(entry.key.as_key_slice(), upper))
             .unwrap_or(true);
-        ready(condition)
+        ready(x)
     })
 }
 
 fn build_bounded_iter<'a, File>(
     table: &'a SsTable<File>,
     low: KeySlice<'a>,
-    upper: Bound<&'a [u8]>,
-    partition: impl for<'c> Fn(&'c BlockMeta, &'c [u8]) -> bool,
-) -> impl Stream<Item = anyhow::Result<Entry>> + 'a
+    upper: Bound<KeySlice<'a>>,
+    partition: impl for<'c> Fn(&'c BlockMeta, KeySlice<'c>) -> bool,
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + 'a
 where
     File: SstHandle,
 {
     let index = table
         .block_meta
         .as_slice()
-        .partition_point(|meta| partition(meta, low.raw_ref()));
+        .partition_point(|meta| partition(meta, low));
 
-    let metas = table.block_meta[index..]
-        .iter()
-        .map(BlockMeta::first_key)
-        .map(KeyBytes::raw_ref);
+    let metas = table.block_meta[index..].iter().map(BlockMeta::first_key);
     let metas = (index..).zip(metas);
 
     let Some(((head_index, _), tail)) = split_first(metas) else {
@@ -116,7 +110,7 @@ where
 
 fn build_unbounded_iter<File>(
     table: &SsTable<File>,
-) -> impl Stream<Item = anyhow::Result<Entry>> + '_
+) -> impl Stream<Item = anyhow::Result<InnerEntry>> + '_
 where
     File: SstHandle,
 {
@@ -133,8 +127,10 @@ pub struct SsTableIterator<'a, File> {
 }
 
 impl<'a, File> SsTableIterator<'a, File> {
-    pub fn may_contain(&self, key: &[u8]) -> bool {
-        bloom::may_contain(self.bloom, key)
+    pub fn may_contain(&self, _key: &[u8]) -> bool {
+        true
+        // todo
+        // bloom::may_contain(self.bloom, key)
     }
 }
 
@@ -145,18 +141,17 @@ where
     pub fn create_and_seek_to_first(table: &'a SsTable<File>) -> Self {
         Self::scan(table, Bound::Unbounded, Bound::Unbounded)
     }
-
-    // todo: 能不能删除
-    pub fn create_and_seek_to_key(table: &'a SsTable<File>, key: &'a [u8]) -> Self {
-        Self::scan(table, Bound::Included(key), Bound::Unbounded)
-    }
 }
 
 impl<'a, File> SsTableIterator<'a, File>
 where
     File: SstHandle,
 {
-    pub fn scan(table: &'a SsTable<File>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
+    pub fn scan(
+        table: &'a SsTable<File>,
+        lower: Bound<KeySlice<'a>>,
+        upper: Bound<KeySlice<'a>>,
+    ) -> Self {
         let iter = build_iter(table, lower, upper);
         let this = Self {
             table,
@@ -169,7 +164,7 @@ where
 
 // todo: 感觉没必要 impl Stream，使用 (Bloom, InnerIter) 比较好？
 impl<'a, File> Stream for SsTableIterator<'a, File> {
-    type Item = anyhow::Result<Entry>;
+    type Item = anyhow::Result<InnerEntry>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
@@ -179,7 +174,7 @@ impl<'a, File> Stream for SsTableIterator<'a, File> {
     }
 }
 
-pub type BlockFallibleIter = either::Either<BlockIterator, Once<anyhow::Result<Entry>>>;
+pub type BlockFallibleIter = either::Either<BlockIterator, Once<anyhow::Result<InnerEntry>>>;
 
 pub type MergedSstIterator<'a, File> = TwoMergeIterator<
     Entry,
@@ -196,7 +191,7 @@ mod tests {
     use nom::AsBytes;
     use tempfile::tempdir;
 
-    use crate::sst::builder::{generate_sst, key_of, num_of_keys, value_of};
+    use crate::sst::builder::test_util::{generate_sst, key_of, num_of_keys, value_of};
     use crate::sst::iterator::SsTableIterator;
 
     #[tokio::test]
@@ -209,7 +204,8 @@ mod tests {
                 .next()
                 .await
                 .unwrap()
-                .unwrap_or_else(|_| panic!("panic on {}", i));
+                .unwrap_or_else(|_| panic!("panic on {}", i))
+                .prune_ts();
             let key = entry.key.as_bytes();
             let value = entry.value.as_bytes();
             assert_eq!(

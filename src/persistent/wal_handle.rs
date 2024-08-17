@@ -1,5 +1,5 @@
 use derive_new::new;
-use std::future::Future;
+
 use std::io::Error;
 use std::pin::{pin, Pin};
 use std::task::{Context, Poll};

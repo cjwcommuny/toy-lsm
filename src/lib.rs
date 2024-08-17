@@ -1,4 +1,4 @@
-#![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 mod block;
 mod bound;
@@ -11,24 +11,9 @@ pub mod sst;
 pub mod state;
 mod wal;
 
-mod lsm;
+pub mod lsm;
 mod manifest;
+pub mod mvcc;
 mod test_utils;
+pub mod time;
 mod utils;
-
-pub async fn fibonacci(n: u64) -> u64 {
-    let mut a = 0;
-    let mut b = 1;
-
-    match n {
-        0 => b,
-        _ => {
-            for _ in 0..n {
-                let c = a + b;
-                a = b;
-                b = c;
-            }
-            b
-        }
-    }
-}

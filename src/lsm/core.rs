@@ -1,30 +1,27 @@
 use std::future::{ready, Future};
 use std::sync::Arc;
-use std::thread;
-use std::thread::sleep;
+
 use std::time::Duration;
 
 use bytes::Bytes;
-use futures::executor::block_on;
-use futures::{ready, FutureExt, StreamExt};
+
+use crate::persistent::Persistent;
+use crate::sst::SstOptions;
+use crate::state::{LsmStorageState, Map};
+use futures::{FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
-use tokio::sync::MutexGuard;
-use tokio::task::{block_in_place, JoinHandle};
+use tokio::runtime::Handle;
+use tokio::task::JoinHandle;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-use crate::persistent::Persistent;
-use crate::sst::SstOptions;
-use crate::state::{LsmStorageState, Map};
-use crate::utils::func::do_nothing;
-
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
     cancel_token: CancellationToken,
     flush_handle: Option<JoinHandle<()>>,
-    compaction_handle: Option<JoinHandle<()>>,
+    spawn_handle: Option<JoinHandle<()>>,
 }
 
 impl<P: Persistent> Lsm<P> {
@@ -32,19 +29,18 @@ impl<P: Persistent> Lsm<P> {
         let state = Arc::new(LsmStorageState::new(options, persistent).await?);
         let cancel_token = CancellationToken::new();
         let flush_handle = Self::spawn_flush(state.clone(), cancel_token.clone());
-        let compaction_handle = Self::spawn_compaction(state.clone(), cancel_token.clone());
+        let spawn_handle = Self::spawn_compaction(state.clone(), cancel_token.clone());
         let this = Self {
             state,
             cancel_token,
             flush_handle: Some(flush_handle),
-            compaction_handle: Some(compaction_handle),
+            spawn_handle: Some(spawn_handle),
         };
         Ok(this)
     }
 
     pub async fn sync(&self) -> anyhow::Result<()> {
-        // todo
-        Ok(())
+        self.state.sync_wal().await
     }
 
     fn spawn_flush(
@@ -82,7 +78,6 @@ impl<P: Persistent> Lsm<P> {
                 .take_while(|signal| ready(matches!(signal, Trigger)))
                 .for_each(|_| async {
                     let lock = state.state_lock().lock().await;
-                    // println!("trigger compaction");
                     state
                         .force_compact(&lock)
                         .await
@@ -123,6 +118,19 @@ where
 impl<P: Persistent> Drop for Lsm<P> {
     fn drop(&mut self) {
         self.cancel_token.cancel();
+        let flush_handle = self.flush_handle.take();
+        let spawn_handle = self.spawn_handle.take();
+
+        tokio::task::block_in_place(|| {
+            Handle::current().block_on(async {
+                if let Some(flush_handle) = flush_handle {
+                    flush_handle.await.inspect_err(|e| error!(error = ?e)).ok();
+                }
+                if let Some(spawn_handle) = spawn_handle {
+                    spawn_handle.await.inspect_err(|e| error!(error = ?e)).ok();
+                }
+            })
+        });
     }
 }
 
@@ -146,13 +154,11 @@ enum Signal {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use nom::AsBytes;
+
+    use std::time::Duration;
     use tempfile::{tempdir, TempDir};
     use tokio::time::sleep;
-    use tracing_futures::Instrument;
-    use tracing_subscriber::fmt::format::FmtSpan;
 
     use crate::lsm::core::Lsm;
     use crate::persistent::{LocalFs, Persistent};
@@ -192,6 +198,7 @@ mod tests {
     //         .is_empty());
     // }
 
+    #[allow(dead_code)]
     async fn build_lsm(dir: &TempDir) -> anyhow::Result<Lsm<impl Persistent>> {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let options = SstOptions::builder()
@@ -204,7 +211,7 @@ mod tests {
         Lsm::new(options, persistent).await
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_auto_compaction() {
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
@@ -219,6 +226,7 @@ mod tests {
             .num_memtable_limit(1000)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
+            .enable_mvcc(true)
             .build();
         let lsm = Lsm::new(options, persistent).await.unwrap();
         for i in 0..10 {
@@ -226,7 +234,6 @@ mod tests {
             insert_sst(&lsm, begin..begin + 100).await.unwrap();
         }
         sleep(Duration::from_secs(2)).await;
-        dbg!(&lsm.state);
 
         for i in 0..10 {
             let begin = i * 100;
@@ -240,7 +247,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_wal_integration() {
         let compaction_options = LeveledCompactionOptions::builder()
             .max_levels(3)
@@ -253,6 +260,7 @@ mod tests {
             .num_memtable_limit(10)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(true)
+            .enable_mvcc(true)
             .build();
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
@@ -271,12 +279,12 @@ mod tests {
             let persistent = LocalFs::new(dir.path().to_path_buf());
             let lsm = Lsm::new(options, persistent).await.unwrap();
             assert_eq!(
-                &lsm.get(b"key-0").await.unwrap().unwrap()[..],
-                b"value-1024".as_slice()
+                std::str::from_utf8(&lsm.get(b"key-0").await.unwrap().unwrap()[..]).unwrap(),
+                "value-1024",
             );
             assert_eq!(
-                &lsm.get(b"key-1").await.unwrap().unwrap()[..],
-                b"value-1024".as_slice()
+                std::str::from_utf8(&lsm.get(b"key-1").await.unwrap().unwrap()[..]).unwrap(),
+                "value-1024",
             );
             assert_eq!(lsm.get(b"key-2").await.unwrap(), None);
         }

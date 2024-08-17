@@ -1,6 +1,8 @@
-use crate::key::{KeySlice, KeyVec};
-use bytes::BufMut;
 use std::iter;
+
+use bytes::BufMut;
+
+use crate::key::{KeySlice, KeyVec};
 
 use super::Block;
 
@@ -74,8 +76,7 @@ impl BlockBuilder {
             compress_key(first_key, key, &mut self.data);
         } else {
             // first key
-            self.data.extend((key.len() as u16).to_be_bytes());
-            self.data.extend(key.raw_ref());
+            encode_key(key, &mut self.data);
         }
 
         self.data.extend((value.len() as u16).to_be_bytes());
@@ -91,6 +92,7 @@ impl BlockBuilder {
 
 fn compress_key(first_key: &KeyVec, key: KeySlice, buffer: &mut Vec<u8>) {
     let first_key = first_key.raw_ref();
+    let timestamp = key.timestamp();
     let key = key.raw_ref();
 
     let common_prefix = iter::zip(first_key.iter(), key.iter())
@@ -102,15 +104,25 @@ fn compress_key(first_key: &KeyVec, key: KeySlice, buffer: &mut Vec<u8>) {
     if postfix > 0 {
         buffer.extend_from_slice(&key[common_prefix..]);
     }
+    buffer.put_u64(timestamp);
+}
+
+// todo: 太多的 encoding 方法了，需要统一
+fn encode_key(key: KeySlice, buffer: &mut Vec<u8>) {
+    buffer.put_u16(key.len() as u16);
+    buffer.extend(key.raw_ref());
+    buffer.put_u64(key.timestamp());
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::block::{Block, BlockBuilder, BlockIterator};
-    use crate::key::{KeySlice, KeyVec};
+    use std::sync::Arc;
+
     use bytes::Bytes;
     use nom::AsBytes;
-    use std::sync::Arc;
+
+    use crate::block::{Block, BlockBuilder, BlockIterator};
+    use crate::key::{KeySlice, KeyVec};
 
     #[test]
     fn test_block_build_single_key() {
@@ -199,7 +211,7 @@ mod tests {
         for _ in 0..5 {
             let mut iter = BlockIterator::create_and_seek_to_first(block.clone());
             for i in 0..num_of_keys() {
-                let entry = iter.next().unwrap().unwrap();
+                let entry = iter.next().unwrap().unwrap().prune_ts();
                 let key = entry.key.as_bytes();
                 let value = entry.value.as_bytes();
                 assert_eq!(
@@ -226,7 +238,7 @@ mod tests {
         let mut iter = BlockIterator::create_and_seek_to_key(block, key_of(0).as_key_slice());
         for offset in 1..=5 {
             for i in 0..num_of_keys() {
-                let entry = iter.next().unwrap().unwrap();
+                let entry = iter.next().unwrap().unwrap().prune_ts();
                 let key = entry.key.as_bytes();
                 let value = entry.value.as_bytes();
                 assert_eq!(

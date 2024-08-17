@@ -1,6 +1,3 @@
-use crate::sst::Sstables;
-use itertools::Itertools;
-
 #[derive(Debug, Clone)]
 pub struct SimpleLeveledCompactionOptions {
     pub size_ratio_percent: usize,

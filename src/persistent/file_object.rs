@@ -1,20 +1,18 @@
 use anyhow::Context;
-use bytes::Bytes;
-use std::fs::{File, OpenOptions};
-use std::future::Future;
-use std::io::Write;
+
+use std::fs::File;
+
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use derive_new::new;
-use nom::AsBytes;
+
 use tokio::io::BufWriter;
-use tokio::spawn;
+
 use tokio::task::spawn_blocking;
 use tracing::Instrument;
 
-use crate::persistent::interface::WalHandle;
 use crate::persistent::manifest_handle::ManifestFile;
 use crate::persistent::wal_handle::WalFile;
 use crate::persistent::{Persistent, SstHandle};
@@ -45,7 +43,6 @@ impl Persistent for LocalFs {
 
     /// Create a new file object (day 2) and write the file to the disk (day 4).
     async fn create_sst(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::SstHandle> {
-        println!("create sst {}", id);
         let size = data.len().try_into()?;
         let path = self.build_sst_path(id);
         let file = spawn_blocking(move || {
@@ -77,7 +74,6 @@ impl Persistent for LocalFs {
     }
 
     async fn open_wal_handle(&self, id: usize) -> anyhow::Result<Self::WalHandle> {
-        println!("open wal {}", id);
         let path = self.build_wal_path(id);
         let file = tokio::fs::OpenOptions::new()
             .create(true)

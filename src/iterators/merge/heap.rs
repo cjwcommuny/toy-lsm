@@ -1,7 +1,7 @@
 use crate::iterators::NonEmptyStream;
 use std::cmp;
 
-pub(super) struct HeapWrapper<Item, I> {
+pub struct HeapWrapper<Item, I> {
     pub index: usize,
     pub iter: NonEmptyStream<Item, I>,
 }

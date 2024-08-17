@@ -1,44 +1,71 @@
+use futures::stream::unfold;
+use futures::Stream;
 use std::fmt::Debug;
 use std::future::Future;
-
-use futures::stream::unfold;
-use futures::{Stream, StreamExt};
 
 use crate::iterators::no_duplication::{new_no_duplication, NoDuplication};
 use crate::iterators::{MaybeEmptyStream, NonEmptyStream};
 
 // Merges two iterators of different types into one. If the two iterators have the same key, only
 /// produce the key once and prefer the entry from A.
-pub type TwoMergeIterator<Item, A, B> = NoDuplication<TwoMergeIterInner<Item, A, B>>;
+pub type TwoMergeIterator<Item, A, B> =
+    NoDuplication<<TwoMergeIterImpl as TwoMergeIter>::MyTwoMergeIterInner<Item, A, B>>;
 
 pub async fn create_two_merge_iter<Item, A, B>(
     a: A,
     b: B,
-) -> anyhow::Result<NoDuplication<TwoMergeIterInner<Item, A, B>>>
+) -> anyhow::Result<
+    NoDuplication<<TwoMergeIterImpl as TwoMergeIter>::MyTwoMergeIterInner<Item, A, B>>,
+>
 where
     Item: Ord + Debug + Unpin,
     A: Stream<Item = anyhow::Result<Item>> + Unpin,
     B: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    let inner = create_inner(a, b).await?;
+    let inner = TwoMergeIterImpl::create_inner(a, b).await?;
     Ok(new_no_duplication(inner))
 }
 
-pub type TwoMergeIterInner<
-    Item: Ord + Debug + Unpin,
-    A: Stream<Item = anyhow::Result<Item>> + Unpin,
-    B: Stream<Item = anyhow::Result<Item>> + Unpin,
-> = impl Stream<Item = anyhow::Result<Item>> + Unpin;
-pub async fn create_inner<A, B, Item>(a: A, b: B) -> anyhow::Result<TwoMergeIterInner<Item, A, B>>
-where
-    Item: Ord + Debug + Unpin,
-    A: Stream<Item = anyhow::Result<Item>> + Unpin,
-    B: Stream<Item = anyhow::Result<Item>> + Unpin,
-{
-    let a = NonEmptyStream::try_new(a).await?;
-    let b = NonEmptyStream::try_new(b).await?;
-    let x = unfold((a, b), unfold_fn);
-    Ok(Box::pin(x))
+pub trait TwoMergeIter {
+    type MyTwoMergeIterInner<
+        Item: Ord + Debug + Unpin,
+        A: Stream<Item = anyhow::Result<Item>> + Unpin,
+        B: Stream<Item = anyhow::Result<Item>> + Unpin,
+    >: Stream<Item = anyhow::Result<Item>> + Unpin;
+
+    fn create_inner<Item, A, B>(
+        a: A,
+        b: B,
+    ) -> impl Future<Output = anyhow::Result<Self::MyTwoMergeIterInner<Item, A, B>>>
+    where
+        Item: Ord + Debug + Unpin,
+        A: Stream<Item = anyhow::Result<Item>> + Unpin,
+        B: Stream<Item = anyhow::Result<Item>> + Unpin;
+}
+
+pub struct TwoMergeIterImpl;
+
+impl TwoMergeIter for TwoMergeIterImpl {
+    type MyTwoMergeIterInner<
+        Item: Ord + Debug + Unpin,
+        A: Stream<Item = anyhow::Result<Item>> + Unpin,
+        B: Stream<Item = anyhow::Result<Item>> + Unpin,
+    > = impl Stream<Item = anyhow::Result<Item>> + Unpin;
+
+    async fn create_inner<Item, A, B>(
+        a: A,
+        b: B,
+    ) -> anyhow::Result<Self::MyTwoMergeIterInner<Item, A, B>>
+    where
+        Item: Ord + Debug + Unpin,
+        A: Stream<Item = anyhow::Result<Item>> + Unpin,
+        B: Stream<Item = anyhow::Result<Item>> + Unpin,
+    {
+        let a = NonEmptyStream::try_new(a).await?;
+        let b = NonEmptyStream::try_new(b).await?;
+        let x = unfold((a, b), unfold_fn);
+        Ok(Box::pin(x))
+    }
 }
 
 async fn unfold_fn<A, B, Item>(

@@ -46,8 +46,9 @@ tokio-util = "0.7.11"
 futures-concurrency = "7.6.1"
 ordered-float = "4.2.2"
 getset = "0.1.2"
-derive_more = "1.0.0"
+derive_more = { version = "1.0.0", features = ["full"] }
 tracing-futures = { version = "0.2.5", features = ["futures-03"] }
+num-traits = "0.2.19"
 
 [dev-dependencies]
 tempfile = "3"
@@ -56,7 +57,6 @@ criterion = { version = "0.5.1", features = ["async_tokio"] }
 maplit = "1.0.2"
 
 [lints.rust]
-unused = "allow"
 unsafe_code = "forbid"
 
 [[bench]]

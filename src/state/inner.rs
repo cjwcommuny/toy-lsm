@@ -1,20 +1,25 @@
-use crossbeam_skiplist::SkipMap;
-use std::cmp::max;
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
-
+use bytes::Bytes;
 use derive_getters::Getters;
 use futures::stream;
 use futures::stream::{StreamExt, TryStreamExt};
+use std::cmp::max;
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 use typed_builder::TypedBuilder;
 
 use crate::block::BlockCache;
-use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
+use crate::key::KeyBytes;
+use crate::manifest::{Compaction, Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
 use crate::sst::sstables::fold_flush_manifest;
 use crate::sst::{SsTable, SstOptions, Sstables};
-use crate::wal::Wal;
+
+pub struct RecoveredState<P: Persistent> {
+    pub state: LsmStorageStateInner<P>,
+    pub next_sst_id: usize,
+    pub initial_ts: u64,
+}
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {
@@ -24,13 +29,21 @@ pub struct LsmStorageStateInner<P: Persistent> {
 }
 
 impl<P: Persistent> LsmStorageStateInner<P> {
+    pub async fn put(&self, key: KeyBytes, value: impl Into<Bytes> + Send) -> anyhow::Result<()> {
+        self.memtable().put_with_ts(key, value.into()).await?;
+        // self.try_freeze_memtable(&snapshot)
+        //     .await?;
+        // todo
+        Ok(())
+    }
+
     pub async fn recover(
         options: &SstOptions,
         manifest: &Manifest<P::ManifestHandle>,
         manifest_records: Vec<ManifestRecord>,
         persistent: &P,
         block_cache: Option<Arc<BlockCache>>,
-    ) -> anyhow::Result<(Self, usize)> {
+    ) -> anyhow::Result<RecoveredState<P>> {
         let (imm_memtables, mut sstables_state) =
             build_state(options, manifest_records, persistent).await?;
         // todo: split sst_ids & sst hashmap
@@ -66,12 +79,31 @@ impl<P: Persistent> LsmStorageStateInner<P> {
 
         let memtable = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
 
+        let max_ts = {
+            let memtable_max_ts = imm_memtables
+                .iter()
+                .flat_map(|table| table.iter().map(|entry| entry.key().timestamp()));
+            let sst_max_ts = sstables_state.sstables().values().map(|sst| sst.max_ts);
+            memtable_max_ts.chain(sst_max_ts).reduce(max).unwrap_or(0)
+        };
+
         let this = Self {
             memtable: Arc::new(memtable),
             imm_memtables,
             sstables_state: Arc::new(sstables_state),
         };
-        Ok((this, next_sst_id + 1))
+
+        let recovered = RecoveredState {
+            state: this,
+            next_sst_id: next_sst_id + 1,
+            initial_ts: max_ts,
+        };
+
+        Ok(recovered)
+    }
+
+    pub async fn sync_wal(&self) -> anyhow::Result<()> {
+        self.memtable.sync_wal().await
     }
 }
 
@@ -121,18 +153,15 @@ async fn build_state<P: Persistent>(
             |(mut imm_memtables, mut sstables), manifest| async {
                 match manifest {
                     ManifestRecord::Flush(record) => {
-                        let flush = &record;
                         fold_flush_manifest(&mut imm_memtables, &mut sstables, record)?;
                         Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::NewMemtable(record) => {
-                        let new_mem = &record;
                         fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                         Ok((imm_memtables, sstables))
                     }
-                    ManifestRecord::Compaction(record) => {
-                        let compact = &record;
-                        sstables.fold_compaction_manifest(record);
+                    ManifestRecord::Compaction(Compaction(task, new_sst_ids)) => {
+                        sstables.apply_compaction_sst_ids(&task, new_sst_ids);
                         Ok((imm_memtables, sstables))
                     }
                 }
@@ -145,7 +174,7 @@ async fn build_state<P: Persistent>(
 mod tests {
     use crate::manifest::{Compaction, Flush, NewMemtable};
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::CompactionTask;
+    use crate::sst::compact::common::{CompactionTask, SourceIndex};
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
     use crate::state::inner::build_state;
@@ -178,11 +207,19 @@ mod tests {
             Flush(1).into(),
             NewMemtable(5).into(),
             Flush(2).into(),
-            Compaction(CompactionTask::new(0, 2, 1), vec![6]).into(),
+            Compaction(
+                CompactionTask::new(0, SourceIndex::Index { index: 2 }, 1),
+                vec![6],
+            )
+            .into(),
             NewMemtable(7).into(),
             NewMemtable(8).into(),
             Flush(3).into(),
-            Compaction(CompactionTask::new(0, 2, 1), vec![9, 10]).into(),
+            Compaction(
+                CompactionTask::new(0, SourceIndex::Index { index: 2 }, 1),
+                vec![9, 10],
+            )
+            .into(),
         ];
 
         let (imm, ssts) = build_state(&options, manifest_records, &persistent)

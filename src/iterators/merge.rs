@@ -1,15 +1,14 @@
 use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::future::ready;
-use std::future::Future;
-use std::marker::PhantomData;
+
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::stream::unfold;
 use futures::{pin_mut, FutureExt, Stream, StreamExt};
 use pin_project::pin_project;
-use tracing::{error, info, Instrument};
+use tracing::error;
 
 use crate::iterators::maybe_empty::NonEmptyStream;
 use crate::iterators::merge::heap::HeapWrapper;
@@ -45,7 +44,7 @@ where
     Item: Ord + Debug,
     I: Stream<Item = anyhow::Result<Item>> + Unpin,
 {
-    iters: Pin<Box<HeapStream<Item, I>>>,
+    iters: Pin<Box<<HeapStreamBuilderImpl as HeapStreamBuilder>::HeapStream<Item, I>>>,
 }
 
 impl<Item, I> MergeIteratorInner<Item, I>
@@ -68,7 +67,7 @@ where
             .collect()
             .await;
         Self {
-            iters: Box::pin(build_heap_stream(iters)),
+            iters: Box::pin(HeapStreamBuilderImpl::build_heap_stream(iters)),
         }
     }
 }
@@ -88,16 +87,46 @@ where
     }
 }
 
-type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
-    impl Stream<Item = anyhow::Result<Item>>;
+pub trait HeapStreamBuilder {
+    type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin>: Stream<
+        Item = anyhow::Result<Item>,
+    >;
 
-fn build_heap_stream<I, Item>(heap: BinaryHeap<HeapWrapper<Item, I>>) -> HeapStream<Item, I>
-where
-    I: Stream<Item = anyhow::Result<Item>> + Unpin,
-    Item: Ord + Debug,
-{
-    unfold(heap, unfold_fn)
+    fn build_heap_stream<I, Item>(
+        heap: BinaryHeap<HeapWrapper<Item, I>>,
+    ) -> Self::HeapStream<Item, I>
+    where
+        I: Stream<Item = anyhow::Result<Item>> + Unpin,
+        Item: Ord + Debug;
 }
+
+pub struct HeapStreamBuilderImpl;
+
+impl HeapStreamBuilder for HeapStreamBuilderImpl {
+    type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
+        impl Stream<Item = anyhow::Result<Item>>;
+
+    fn build_heap_stream<I, Item>(
+        heap: BinaryHeap<HeapWrapper<Item, I>>,
+    ) -> Self::HeapStream<Item, I>
+    where
+        I: Stream<Item = anyhow::Result<Item>> + Unpin,
+        Item: Ord + Debug,
+    {
+        unfold(heap, unfold_fn)
+    }
+}
+
+// type HeapStream<Item: Ord + Debug, I: Stream<Item = anyhow::Result<Item>> + Unpin> =
+//     impl Stream<Item = anyhow::Result<Item>>;
+//
+// fn build_heap_stream<I, Item>(heap: BinaryHeap<HeapWrapper<Item, I>>) -> HeapStream<Item, I>
+// where
+//     I: Stream<Item = anyhow::Result<Item>> + Unpin,
+//     Item: Ord + Debug,
+// {
+//     unfold(heap, unfold_fn)
+// }
 
 async fn unfold_fn<Item, I>(
     mut heap: BinaryHeap<HeapWrapper<Item, I>>,
@@ -133,7 +162,7 @@ mod test {
     use crate::entry::Entry;
     use crate::iterators::create_merge_iter;
     use crate::iterators::merge::MergeIteratorInner;
-    use crate::iterators::utils::{assert_stream_eq, build_stream, build_tuple_stream};
+    use crate::iterators::utils::test_utils::{assert_stream_eq, build_stream, build_tuple_stream};
 
     #[tokio::test]
     async fn test_empty() {

@@ -1,12 +1,13 @@
-use std::error::Error;
+#[cfg(test)]
 use std::ops::Range;
 
-use crate::persistent::Persistent;
+#[cfg(test)]
 use crate::state::Map;
 
-mod command;
-mod map;
+#[cfg(test)]
+pub mod iterator;
 
+#[cfg(test)]
 pub async fn insert_sst<M: Map<Error = anyhow::Error>>(
     state: &M,
     range: Range<u64>,

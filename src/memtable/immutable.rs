@@ -1,11 +1,12 @@
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 
+use crate::key::{KeyBytes, KeySlice};
 use bytemuck::TransparentWrapper;
 use bytes::Bytes;
 use crossbeam_skiplist::map;
-use deref_ext::DerefExt;
 use derive_new::new;
+
 use ref_cast::RefCast;
 
 use crate::memtable::iterator::MaybeEmptyMemTableIterRef;
@@ -35,6 +36,7 @@ impl<W> ImmutableMemTable<W> {
     }
 }
 
+// todo: remove it
 impl<W: WalHandle> ImmutableMemTable<W> {
     pub async fn scan<'a>(
         &'a self,
@@ -48,8 +50,22 @@ impl<W: WalHandle> ImmutableMemTable<W> {
         self.0.get(key)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = map::Entry<Bytes, Bytes>> {
+    pub fn iter(&self) -> impl Iterator<Item = map::Entry<KeyBytes, Bytes>> {
         self.0.map().iter()
+    }
+}
+
+impl<W: WalHandle> ImmutableMemTable<W> {
+    pub fn get_with_ts(&self, key: KeySlice) -> Option<Bytes> {
+        self.0.get_with_ts(key)
+    }
+
+    pub async fn scan_with_ts(
+        &self,
+        lower: Bound<KeyBytes>,
+        upper: Bound<KeyBytes>,
+    ) -> anyhow::Result<MaybeEmptyMemTableIterRef<'_>> {
+        self.0.scan_with_ts(lower, upper).await
     }
 }
 

@@ -1,7 +1,7 @@
-use crate::key::KeyBytes;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 
-use crate::entry::Entry;
+use crate::entry::InnerEntry;
+use crate::key::{KeyBytes, KeySlice};
 
 /// A block is the smallest unit of read and caching in LSM tree. It is a collection of sorted key-value pairs.
 #[derive(Debug)]
@@ -51,7 +51,7 @@ impl Block {
         self.offsets.len()
     }
 
-    pub fn get_entry_ref(&self, index: usize) -> (&[u8], &[u8]) {
+    pub fn get_entry_ref(&self, index: usize) -> (KeySlice, &[u8]) {
         // get key
         let (data, key) = self.parse_key_ref(index);
 
@@ -67,27 +67,33 @@ impl Block {
         (data, key, value)
     }
 
-    fn parse_key_ref(&self, index: usize) -> (&[u8], &[u8]) {
+    fn parse_key_ref(&self, index: usize) -> (&[u8], KeySlice) {
         let data = &self.data[self.offsets[index] as usize..];
 
         if index == 0 {
             Self::get_uncompressed_key_ref(data)
         } else {
             let first_key = self.first_key_ref();
-            Self::get_compressed_key_ref(first_key, data)
+            Self::get_compressed_key_ref(first_key.raw_ref(), data)
         }
     }
 
-    fn get_uncompressed_key_ref(data: &[u8]) -> (&[u8], &[u8]) {
-        get_value(data)
+    fn get_uncompressed_key_ref(data: &[u8]) -> (&[u8], KeySlice) {
+        let (data, raw_key) = get_value(data);
+        let (data, timestamp) = get_u64(data);
+        let output = KeySlice::new(raw_key, timestamp);
+        (data, output)
     }
 
-    fn get_compressed_key_ref<'b>(first_key: &[u8], data: &'b [u8]) -> (&'b [u8], &'b [u8]) {
+    // structure: [common_prefix_len, postfix_len, postfix, timestamp]
+    fn get_compressed_key_ref<'b>(first_key: &[u8], data: &'b [u8]) -> (&'b [u8], KeySlice<'b>) {
         let (data, common_prefix_len) = get_u16(data);
         let prefix = &first_key[..common_prefix_len];
 
         let (data, postfix_len) = get_u16(data);
         let (data, postfix) = get_data_by_len(data, postfix_len);
+
+        let (data, timestamp) = get_u64(data);
 
         // todo: 这里需要能把 (prefix: &[u8], postfix: &[u8]) 当作 &[u8] 的相关数据结构 (tuple of slices)
         let key = prefix
@@ -97,29 +103,30 @@ impl Block {
             .collect::<Vec<_>>()
             .leak();
 
+        let key = KeySlice::new(key, timestamp);
+
         (data, key)
     }
 
-    pub fn get_entry(&self, index: usize) -> Entry {
+    pub fn get_entry(&self, index: usize) -> InnerEntry {
         let (key, value) = self.get_entry_ref(index);
-        let key = Bytes::copy_from_slice(key);
+        let key = key.copy_to_key_bytes();
         let value = Bytes::copy_from_slice(value);
-        Entry { key, value }
+        InnerEntry { key, value }
     }
 
     pub fn first_key(&self) -> KeyBytes {
-        let key = self.first_key_ref();
-        KeyBytes::from_bytes(Bytes::copy_from_slice(key))
+        self.first_key_ref().copy_to_key_bytes()
     }
 
-    fn first_key_ref(&self) -> &[u8] {
+    fn first_key_ref(&self) -> KeySlice {
         let (_, key) = self.parse_key_ref(0);
         key
     }
 
     pub fn last_key(&self) -> KeyBytes {
         let (_, key) = self.parse_key_ref(self.offsets.len() - 1);
-        KeyBytes::from_bytes(Bytes::copy_from_slice(key))
+        key.copy_to_key_bytes()
     }
 }
 
@@ -132,6 +139,12 @@ fn get_value(data: &[u8]) -> (&[u8], &[u8]) {
 fn get_u16(data: &[u8]) -> (&[u8], usize) {
     let new_data = &data[2..];
     let value = u16::from_be_bytes([data[0], data[1]]) as usize;
+    (new_data, value)
+}
+
+fn get_u64(data: &[u8]) -> (&[u8], u64) {
+    let new_data = &data[8..];
+    let value = (&data[..8]).get_u64();
     (new_data, value)
 }
 

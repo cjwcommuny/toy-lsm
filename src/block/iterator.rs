@@ -1,8 +1,7 @@
 use crate::block::blocks::Block;
-use crate::entry::Entry;
-use crate::key::{Key, KeySlice};
+use crate::entry::InnerEntry;
+use crate::key::KeySlice;
 use std::sync::Arc;
-use tracing::info;
 
 // Iterates on a block.
 pub struct BlockIterator {
@@ -36,7 +35,6 @@ impl BlockIterator {
         let mut current = self.block.len();
         for index in 0..self.block.len() {
             let (this_key, _) = self.block.get_entry_ref(index);
-            let this_key = Key::from_slice(this_key);
             if this_key >= key {
                 current = index;
                 break;
@@ -47,7 +45,7 @@ impl BlockIterator {
 }
 
 impl Iterator for BlockIterator {
-    type Item = anyhow::Result<Entry>;
+    type Item = anyhow::Result<InnerEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx >= self.block.len() {

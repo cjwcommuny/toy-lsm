@@ -1,21 +1,19 @@
 use std::cmp::max;
-use std::future::{ready, Future};
 use std::iter;
-use std::sync::Arc;
 
 use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use derive_new::new;
 use getset::CopyGetters;
-use ordered_float::NotNan;
-use tokio::sync::MutexGuard;
-use tracing::{info, trace};
+
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{Persistent, SstHandle};
-use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst, CompactionTask};
-use crate::sst::compact::CompactionOptions::Leveled;
-use crate::sst::{SsTable, SstOptions, Sstables};
+use crate::sst::compact::common::{compact_generate_new_sst, CompactionTask, SourceIndex};
+use crate::sst::compact::full::generate_full_compaction_task;
+use crate::sst::compact::CompactionOptions::{Full, Leveled, NoCompaction};
+use crate::sst::{SstOptions, Sstables};
 use crate::utils::num::power_of_2;
+use crate::utils::send::assert_send;
 
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
 #[getset(get_copy = "pub")]
@@ -44,18 +42,33 @@ impl LeveledCompactionOptions {
     }
 }
 
+// todo: move this function out of leveled.rs
 pub async fn force_compact<P: Persistent>(
     sstables: &mut Sstables<P::SstHandle>,
     next_sst_id: impl Fn() -> usize + Send + Sync,
     options: &SstOptions,
     persistent: &P,
     manifest: Option<&Manifest<P::ManifestHandle>>,
+    watermark: Option<u64>,
 ) -> anyhow::Result<()> {
-    let Some(task) = generate_task(sstables, options) else {
+    // todo: 这个可以提到外面，就不用 clone state 了
+    let Some(task) = (match options.compaction_option() {
+        Leveled(options) => generate_task(options, sstables),
+        Full => generate_full_compaction_task(sstables),
+        NoCompaction => None,
+    }) else {
         return Ok(());
     };
 
-    let new_sst_ids = compact_with_task(sstables, next_sst_id, options, persistent, &task).await?;
+    let new_sst_ids = assert_send(compact_with_task(
+        sstables,
+        next_sst_id,
+        options,
+        persistent,
+        &task,
+        watermark,
+    ))
+    .await?;
 
     if let Some(manifest) = manifest {
         let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
@@ -71,31 +84,38 @@ pub async fn compact_with_task<P: Persistent>(
     options: &SstOptions,
     persistent: &P,
     task: &CompactionTask,
+    watermark: Option<u64>,
 ) -> anyhow::Result<Vec<usize>> {
     let source = task.source();
-    let source_index = task.source_index();
-    let source_id = *sstables.table_ids(source).get(source_index).unwrap();
-    let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+    let source_level: Vec<_> = match task.source_index() {
+        SourceIndex::Index { index } => {
+            let source_id = *sstables.table_ids(source).get(index).unwrap();
+            let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+            let source = iter::once(source_level);
+            source.collect()
+        }
+        SourceIndex::Full { .. } => {
+            let source = sstables.tables(source);
+            source.collect()
+        }
+    };
+
     let destination = task.destination();
 
-    let new_sst = compact_generate_new_sst(
-        iter::once(source_level),
+    let new_sst = assert_send(compact_generate_new_sst(
+        source_level,
         sstables.tables(destination),
         next_sst_id,
         options,
         persistent,
-    )
+        watermark,
+    ))
     .await?;
 
     let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
 
-    apply_compaction(
-        sstables,
-        source_index..source_index + 1,
-        source,
-        destination,
-        new_sst,
-    );
+    sstables.apply_compaction_sst(new_sst, task);
+    sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
 
     Ok(new_sst_ids)
 }
@@ -118,7 +138,6 @@ fn select_level_source(
             *level_size as f64 / denominator as f64
         })
         .collect();
-    // println!("max_bytes_for_level_base={}, scores={:?}", max_bytes_for_level_base, scores);
     let source = scores
         .iter()
         .enumerate()
@@ -178,14 +197,9 @@ fn compute_target_sizes(last_level_size: u64, options: &LeveledCompactionOptions
 }
 
 pub fn generate_task<File: SstHandle>(
+    compact_options: &LeveledCompactionOptions,
     sstables: &Sstables<File>,
-    options: &SstOptions,
 ) -> Option<CompactionTask> {
-    let Leveled(compact_options) = options.compaction_option() else {
-        trace!("skip force compaction");
-        return None;
-    };
-
     let level_sizes = compute_level_sizes(sstables);
     let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
 
@@ -204,7 +218,13 @@ pub fn generate_task<File: SstHandle>(
         .enumerate()
         .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id))?;
 
-    let task = CompactionTask::new(source, source_index, destination);
+    let task = CompactionTask::new(
+        source,
+        SourceIndex::Index {
+            index: source_index,
+        },
+        destination,
+    );
 
     Some(task)
 }
@@ -219,7 +239,7 @@ mod tests {
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::CompactionTask;
+    use crate::sst::compact::common::{CompactionTask, SourceIndex};
     use crate::sst::compact::leveled::{
         compact_with_task, force_compact, select_level_destination, select_level_source,
     };
@@ -277,7 +297,8 @@ mod tests {
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            &CompactionTask::new(0, 4, 1),
+            &CompactionTask::new(0, SourceIndex::Index { index: 4 }, 1),
+            None,
         )
         .await
         .unwrap();
@@ -293,15 +314,16 @@ mod tests {
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            &CompactionTask::new(0, 3, 1),
+            &CompactionTask::new(0, SourceIndex::Index { index: 3 }, 1),
+            None,
         )
         .await
         .unwrap();
 
         {
             assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-            assert_eq!(sstables.levels, vec![vec![12, 13, 14], vec![], vec![]]);
-            assert_eq!(sstables.sstables.len(), 6);
+            assert_eq!(sstables.levels, vec![vec![12, 13, 14, 15], vec![], vec![]]);
+            assert_eq!(sstables.sstables.len(), 7);
         }
 
         compact_with_task(
@@ -309,15 +331,16 @@ mod tests {
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            &CompactionTask::new(1, 0, 2),
+            &CompactionTask::new(1, SourceIndex::Index { index: 0 }, 2),
+            None,
         )
         .await
         .unwrap();
 
         {
             assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-            assert_eq!(sstables.levels, vec![vec![13, 14], vec![16], vec![]]);
-            assert_eq!(sstables.sstables.len(), 6);
+            assert_eq!(sstables.levels, vec![vec![13, 14, 15], vec![17], vec![]]);
+            assert_eq!(sstables.sstables.len(), 7);
         }
     }
 
@@ -330,6 +353,7 @@ mod tests {
             || state.next_sst_id(),
             &state.options,
             &state.persistent,
+            None,
             None,
         )
         .await
@@ -365,9 +389,10 @@ mod tests {
             .num_memtable_limit(1000)
             .compaction_option(CompactionOptions::Leveled(compaction_options))
             .enable_wal(false)
+            .enable_mvcc(true)
             .build();
-        let mut state = LsmStorageState::new(options, persistent).await.unwrap();
-        let next_sst_id = AtomicUsize::default();
+        let state = LsmStorageState::new(options, persistent).await.unwrap();
+        let _next_sst_id = AtomicUsize::default();
         let state_lock = Mutex::default();
 
         for i in 0..5 {
