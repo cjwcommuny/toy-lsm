@@ -9,7 +9,7 @@ use typed_builder::TypedBuilder;
 
 use crate::block::BlockCache;
 use crate::key::KeyBytes;
-use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
+use crate::manifest::{Compaction, Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
 use crate::sst::sstables::fold_flush_manifest;
@@ -160,8 +160,8 @@ async fn build_state<P: Persistent>(
                         fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                         Ok((imm_memtables, sstables))
                     }
-                    ManifestRecord::Compaction(record) => {
-                        sstables.fold_compaction_manifest(record);
+                    ManifestRecord::Compaction(Compaction(task, new_sst_ids)) => {
+                        sstables.apply_compaction_sst_ids(&task, new_sst_ids);
                         Ok((imm_memtables, sstables))
                     }
                 }
@@ -174,7 +174,7 @@ async fn build_state<P: Persistent>(
 mod tests {
     use crate::manifest::{Compaction, Flush, NewMemtable};
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::CompactionTask;
+    use crate::sst::compact::common::{CompactionTask, SourceIndex};
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::SstOptions;
     use crate::state::inner::build_state;
@@ -207,11 +207,19 @@ mod tests {
             Flush(1).into(),
             NewMemtable(5).into(),
             Flush(2).into(),
-            Compaction(CompactionTask::new(0, 2, 1), vec![6]).into(),
+            Compaction(
+                CompactionTask::new(0, SourceIndex::Index { index: 2 }, 1),
+                vec![6],
+            )
+            .into(),
             NewMemtable(7).into(),
             NewMemtable(8).into(),
             Flush(3).into(),
-            Compaction(CompactionTask::new(0, 2, 1), vec![9, 10]).into(),
+            Compaction(
+                CompactionTask::new(0, SourceIndex::Index { index: 2 }, 1),
+                vec![9, 10],
+            )
+            .into(),
         ];
 
         let (imm, ssts) = build_state(&options, manifest_records, &persistent)

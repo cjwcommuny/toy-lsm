@@ -131,6 +131,7 @@ impl WatermarkGcIter for WatermarkGcIterImpl {
     where
         S: Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin,
     {
+        dbg!("build_watermark_gc_iter");
         let result = s
             .scan(None, move |state: &mut Option<KeyBytes>, entry| {
                 let item = match entry {
@@ -155,7 +156,10 @@ impl WatermarkGcIter for WatermarkGcIterImpl {
                 };
                 ready(item)
             })
-            .filter_map(|entry| async { entry });
+            .filter_map(|entry| async { entry })
+            .inspect(|entry| {
+                dbg!(entry);
+            });
 
         // todo: remove Box::pin?
         Box::pin(result)
@@ -257,6 +261,7 @@ mod tests {
         test_watermark_gc_helper([("a", 0), ("b", 0)], 5, [("a", 0), ("b", 0)]).await;
         test_watermark_gc_helper([("a", 3), ("a", 2), ("b", 0)], 2, [("a", 3), ("b", 0)]).await;
         test_watermark_gc_helper([("a", 3), ("a", 2), ("b", 5)], 2, [("a", 3), ("b", 5)]).await;
+        test_watermark_gc_helper([("a", 2), ("a", 1), ("b", 5)], 3, [("a", 2), ("b", 5)]).await;
     }
 
     async fn test_watermark_gc_helper<S1, S2>(input: S1, watermark: u64, expected_output: S2)

@@ -5,12 +5,10 @@ use std::fmt::{Debug, Formatter};
 
 use std::iter::repeat;
 
-use std::mem;
+use futures::stream;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-
-use futures::stream;
 
 use tracing::error;
 
@@ -18,9 +16,10 @@ use crate::entry::InnerEntry;
 
 use crate::iterators::{create_merge_iter, create_two_merge_iter, MergeIterator};
 use crate::key::KeySlice;
-use crate::manifest::{Compaction, Flush};
+use crate::manifest::Flush;
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::SstHandle;
+use crate::sst::compact::common::CompactionTask;
 use crate::sst::compact::CompactionOptions;
 use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
@@ -97,6 +96,7 @@ impl<File> Sstables<File> {
                 repeat(Vec::new()).take(opt.max_levels() - 1).collect()
             }
             CompactionOptions::NoCompaction => Vec::new(),
+            CompactionOptions::Full => repeat(Vec::new()).take(1).collect(),
         };
         Self {
             l0_sstables: Vec::new(),
@@ -199,11 +199,38 @@ where
         todo!()
     }
 
-    pub fn fold_compaction_manifest(&mut self, Compaction(task, result_ids): Compaction) {
-        let source = self.table_ids_mut(task.source());
-        source.remove(task.source_index());
-        let destination = self.table_ids_mut(task.destination());
-        let _ = mem::replace(destination, result_ids);
+    pub fn apply_compaction_sst_ids(&mut self, task: &CompactionTask, new_sst_ids: Vec<usize>) {
+        let source_level = task.source();
+        let source_range = task.source_index().build_range();
+        self.table_ids_mut(source_level).splice(source_range, []);
+
+        let destination_level = task.destination();
+        self.table_ids_mut(destination_level)
+            .splice(.., new_sst_ids);
+    }
+
+    pub fn apply_compaction_sst(
+        &mut self,
+        new_sst: Vec<Arc<SsTable<File>>>,
+        task: &CompactionTask,
+    ) {
+        let source_level = task.source();
+        let source_range = task.source_index().build_range();
+        let source_ids = self.table_ids(source_level).clone();
+        let source_ids = &source_ids[source_range];
+        for id in source_ids {
+            self.sstables.remove(id);
+        }
+
+        let destination_level = task.destination();
+        let destination_ids = self.table_ids(destination_level).clone();
+        for id in &destination_ids {
+            self.sstables.remove(id);
+        }
+
+        for table in new_sst {
+            self.sstables.insert(*table.id(), table);
+        }
     }
 }
 

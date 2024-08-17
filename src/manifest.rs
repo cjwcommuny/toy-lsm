@@ -79,7 +79,7 @@ impl<File: ManifestHandle> Manifest<File> {
 mod tests {
     use crate::manifest::{Compaction, Flush, Manifest, ManifestRecord, NewMemtable};
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::CompactionTask;
+    use crate::sst::compact::common::{CompactionTask, SourceIndex};
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -92,7 +92,10 @@ mod tests {
         {
             let manifest = Manifest::create(&persistent).await.unwrap();
 
-            let record = Compaction(CompactionTask::new(1, 2, 3), vec![1, 2, 3]);
+            let record = Compaction(
+                CompactionTask::new(1, SourceIndex::Index { index: 2 }, 3),
+                vec![1, 2, 3],
+            );
             manifest
                 .add_record_when_init(R::Compaction(record))
                 .await
@@ -110,7 +113,10 @@ mod tests {
         {
             let (_manifest, records) = Manifest::recover(&persistent).await.unwrap();
 
-            let record = Compaction(CompactionTask::new(1, 2, 3), vec![1, 2, 3]);
+            let record = Compaction(
+                CompactionTask::new(1, SourceIndex::Index { index: 2 }, 3),
+                vec![1, 2, 3],
+            );
 
             assert_eq!(
                 records,

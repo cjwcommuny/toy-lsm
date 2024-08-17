@@ -1,4 +1,5 @@
 pub mod common;
+pub mod full;
 pub mod leveled;
 mod option;
 mod simple_leveled;

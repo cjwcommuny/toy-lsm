@@ -1,19 +1,19 @@
 use std::cmp::max;
-
 use std::iter;
 
 use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use derive_new::new;
 use getset::CopyGetters;
 
-use tracing::trace;
 use typed_builder::TypedBuilder;
 
 use crate::persistent::{Persistent, SstHandle};
-use crate::sst::compact::common::{apply_compaction, compact_generate_new_sst, CompactionTask};
-use crate::sst::compact::CompactionOptions::Leveled;
+use crate::sst::compact::common::{compact_generate_new_sst, CompactionTask, SourceIndex};
+use crate::sst::compact::full::generate_full_compaction_task;
+use crate::sst::compact::CompactionOptions::{Full, Leveled, NoCompaction};
 use crate::sst::{SstOptions, Sstables};
 use crate::utils::num::power_of_2;
+use crate::utils::send::assert_send;
 
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
 #[getset(get_copy = "pub")]
@@ -42,6 +42,7 @@ impl LeveledCompactionOptions {
     }
 }
 
+// todo: move this function out of leveled.rs
 pub async fn force_compact<P: Persistent>(
     sstables: &mut Sstables<P::SstHandle>,
     next_sst_id: impl Fn() -> usize + Send + Sync,
@@ -50,12 +51,27 @@ pub async fn force_compact<P: Persistent>(
     manifest: Option<&Manifest<P::ManifestHandle>>,
     watermark: Option<u64>,
 ) -> anyhow::Result<()> {
-    let Some(task) = generate_task(sstables, options) else {
+    // todo: 这个可以提到外面，就不用 clone state 了
+    let Some(task) = (match options.compaction_option() {
+        Leveled(options) => generate_task(options, sstables),
+        Full => generate_full_compaction_task(sstables),
+        NoCompaction => None,
+    }) else {
+        println!("not compact");
         return Ok(());
     };
 
-    let new_sst_ids =
-        compact_with_task(sstables, next_sst_id, options, persistent, &task, watermark).await?;
+    dbg!(&task);
+
+    let new_sst_ids = assert_send(compact_with_task(
+        sstables,
+        next_sst_id,
+        options,
+        persistent,
+        &task,
+        watermark,
+    ))
+    .await?;
 
     if let Some(manifest) = manifest {
         let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
@@ -74,30 +90,35 @@ pub async fn compact_with_task<P: Persistent>(
     watermark: Option<u64>,
 ) -> anyhow::Result<Vec<usize>> {
     let source = task.source();
-    let source_index = task.source_index();
-    let source_id = *sstables.table_ids(source).get(source_index).unwrap();
-    let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+    let source_level: Vec<_> = match task.source_index() {
+        SourceIndex::Index { index } => {
+            let source_id = *sstables.table_ids(source).get(index).unwrap();
+            let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+            let source = iter::once(source_level);
+            source.collect()
+        }
+        SourceIndex::Full { .. } => {
+            let source = sstables.tables(source);
+            source.collect()
+        }
+    };
+
     let destination = task.destination();
 
-    let new_sst = compact_generate_new_sst(
-        iter::once(source_level),
+    let new_sst = assert_send(compact_generate_new_sst(
+        source_level,
         sstables.tables(destination),
         next_sst_id,
         options,
         persistent,
         watermark,
-    )
+    ))
     .await?;
 
     let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
 
-    apply_compaction(
-        sstables,
-        source_index..source_index + 1,
-        source,
-        destination,
-        new_sst,
-    );
+    sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
+    sstables.apply_compaction_sst(new_sst, task);
 
     Ok(new_sst_ids)
 }
@@ -131,6 +152,7 @@ fn select_level_source(
             // todo: make it looking better...
         })?
         .0;
+    dbg!(source);
     if source == level_sizes.len() - 1 {
         None
     } else {
@@ -180,16 +202,13 @@ fn compute_target_sizes(last_level_size: u64, options: &LeveledCompactionOptions
 }
 
 pub fn generate_task<File: SstHandle>(
+    compact_options: &LeveledCompactionOptions,
     sstables: &Sstables<File>,
-    options: &SstOptions,
 ) -> Option<CompactionTask> {
-    let Leveled(compact_options) = options.compaction_option() else {
-        trace!("skip force compaction");
-        return None;
-    };
-
     let level_sizes = compute_level_sizes(sstables);
     let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
+    dbg!(&level_sizes);
+    dbg!(&target_sizes);
 
     // todo: only select one source sst
     let source = select_level_source(
@@ -206,7 +225,13 @@ pub fn generate_task<File: SstHandle>(
         .enumerate()
         .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id))?;
 
-    let task = CompactionTask::new(source, source_index, destination);
+    let task = CompactionTask::new(
+        source,
+        SourceIndex::Index {
+            index: source_index,
+        },
+        destination,
+    );
 
     Some(task)
 }
@@ -221,7 +246,7 @@ mod tests {
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::CompactionTask;
+    use crate::sst::compact::common::{CompactionTask, SourceIndex};
     use crate::sst::compact::leveled::{
         compact_with_task, force_compact, select_level_destination, select_level_source,
     };
@@ -279,7 +304,7 @@ mod tests {
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            &CompactionTask::new(0, 4, 1),
+            &CompactionTask::new(0, SourceIndex::Index { index: 4 }, 1),
             None,
         )
         .await
@@ -296,7 +321,7 @@ mod tests {
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            &CompactionTask::new(0, 3, 1),
+            &CompactionTask::new(0, SourceIndex::Index { index: 3 }, 1),
             None,
         )
         .await
@@ -313,7 +338,7 @@ mod tests {
             build_next_sst_id(&state.sst_id),
             &state.options,
             &state.persistent,
-            &CompactionTask::new(1, 0, 2),
+            &CompactionTask::new(1, SourceIndex::Index { index: 0 }, 2),
             None,
         )
         .await

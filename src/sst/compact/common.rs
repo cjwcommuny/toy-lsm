@@ -11,6 +11,7 @@ use crate::mvcc::iterator::{WatermarkGcIter, WatermarkGcIterImpl};
 use crate::persistent::{Persistent, SstHandle};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
+use crate::utils::send::assert_send;
 use futures::future::Either;
 use std::ops::Range;
 use std::sync::Arc;
@@ -20,8 +21,23 @@ use tracing::error;
 #[getset(get_copy = "pub")]
 pub struct CompactionTask {
     source: usize,
-    source_index: usize,
+    source_index: SourceIndex,
     destination: usize,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
+pub enum SourceIndex {
+    Index { index: usize },
+    Full { len: usize },
+}
+
+impl SourceIndex {
+    pub fn build_range(self) -> Range<usize> {
+        match self {
+            SourceIndex::Index { index } => index..index + 1,
+            SourceIndex::Full { len } => 0..len,
+        }
+    }
 }
 
 pub fn apply_compaction<File: SstHandle>(
@@ -115,10 +131,6 @@ where
     Ok(s)
 }
 
-fn assert_send<T: Send>(x: T) -> T {
-    x
-}
-
 async fn batch<I, P>(
     iter: &mut I,
     sst_id: usize,
@@ -139,9 +151,9 @@ where
         };
 
         // 被删除的 entry 不再添加
-        if entry.value.is_empty() {
-            continue;
-        }
+        // if entry.value.is_empty() {
+        //     continue;
+        // }
 
         let key = entry.key.as_key_slice();
         let value = entry.value.as_ref();

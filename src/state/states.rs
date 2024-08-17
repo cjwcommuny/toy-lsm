@@ -356,13 +356,14 @@ mod test {
     use tempfile::{tempdir, TempDir};
 
     use crate::entry::{Entry, InnerEntry};
-    use crate::iterators::create_merge_iter;
+    use crate::iterators::merge::MergeIteratorInner;
     use crate::iterators::utils::test_utils::{
         assert_stream_eq, build_stream, build_tuple_stream, eq,
     };
     use crate::mvcc::transaction::Transaction;
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
+    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::iterator::SsTableIterator;
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
@@ -953,11 +954,17 @@ mod test {
     async fn test_task3_mvcc_compaction() {
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
+        let compaction_option = LeveledCompactionOptions::builder()
+            .level_size_multiplier_2_exponent(2)
+            .max_levels(2)
+            .max_bytes_for_level_base(1)
+            .build();
+        let compaction_option = CompactionOptions::Leveled(compaction_option);
         let options = SstOptions::builder()
             .target_sst_size(1024)
             .block_size(4096)
             .num_memtable_limit(1000)
-            .compaction_option(Default::default())
+            .compaction_option(compaction_option)
             .enable_wal(true)
             .enable_mvcc(true)
             .build();
@@ -976,18 +983,22 @@ mod test {
          */
 
         let snapshot0 = storage.new_txn().unwrap();
+        dbg!(snapshot0.read_ts);
         storage.put_for_test(b"a", b"1").await.unwrap();
         storage.put_for_test(b"b", b"1").await.unwrap();
 
         let snapshot1 = storage.new_txn().unwrap();
+        dbg!(snapshot1.read_ts);
         storage.put_for_test(b"a", b"2").await.unwrap();
         storage.put_for_test(b"d", b"2").await.unwrap();
 
         let snapshot2 = storage.new_txn().unwrap();
+        dbg!(snapshot2.read_ts);
         storage.put_for_test(b"a", b"3").await.unwrap();
         storage.delete_for_test(b"d").await.unwrap();
 
         let snapshot3 = storage.new_txn().unwrap();
+        dbg!(snapshot3.read_ts);
         storage.put_for_test(b"c", b"4").await.unwrap();
         storage.delete_for_test(b"a").await.unwrap();
 
@@ -996,6 +1007,17 @@ mod test {
             storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
             storage.force_compact(&guard).await.unwrap();
+        }
+
+        {
+            for sst in storage.inner.load().sstables_state.sstables().values() {
+                let it = SsTableIterator::scan(sst.as_ref(), Unbounded, Unbounded);
+                it.for_each(|x| async {
+                    let x = x.unwrap();
+                    dbg!(x);
+                })
+                .await;
+            }
         }
 
         {
@@ -1018,6 +1040,11 @@ mod test {
         }
 
         drop(snapshot0);
+        {
+            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
+            let watermark = guard.1.watermark();
+            dbg!(watermark);
+        }
         {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();
@@ -1044,6 +1071,11 @@ mod test {
 
         drop(snapshot1);
         {
+            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
+            let watermark = guard.1.watermark();
+            dbg!(watermark);
+        }
+        {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();
         }
@@ -1068,6 +1100,11 @@ mod test {
 
         drop(snapshot2);
         {
+            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
+            let watermark = guard.1.watermark();
+            dbg!(watermark);
+        }
+        {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();
         }
@@ -1080,6 +1117,11 @@ mod test {
         }
 
         drop(snapshot3);
+        {
+            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
+            let watermark = guard.1.watermark();
+            dbg!(watermark);
+        }
         {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();
@@ -1095,14 +1137,19 @@ mod test {
     async fn construct_test_mvcc_compaction_iter<P: Persistent>(
         storage: &LsmStorageStateInner<P>,
     ) -> impl Stream<Item = anyhow::Result<InnerEntry>> + '_ {
-        let iter = storage
+        let l0 = storage.sstables_state.l0_sstables().iter();
+        let level_other = storage
             .sstables_state
-            .sstables()
-            .values()
+            .levels()
+            .iter()
+            .flat_map(|v| v.iter());
+        let iter = l0
+            .chain(level_other)
+            .map(|id| storage.sstables_state.sstables().get(id).unwrap())
             .map(|sst| SsTableIterator::scan(sst.as_ref(), Unbounded, Unbounded));
         let iter = stream::iter(iter);
 
-        create_merge_iter(iter).await
+        MergeIteratorInner::create(iter).await
     }
 
     #[tokio::test]
