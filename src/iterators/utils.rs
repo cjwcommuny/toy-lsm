@@ -115,7 +115,6 @@ pub mod test_utils {
             match (s1.next().await, s2.next().await) {
                 (Some(x1), Some(x2)) => {
                     if x1 != x2 {
-                        dbg!((x1, x2));
                         return false;
                     }
                 }

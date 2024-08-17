@@ -20,6 +20,7 @@ use crate::persistent::Persistent;
 use crate::sst::compact::leveled::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::{LsmStorageStateInner, RecoveredState};
+use crate::state::write_batch::WriteBatchRecord;
 use crate::state::Map;
 use crate::utils::vec::pop;
 
@@ -138,6 +139,12 @@ impl<P> LsmStorageState<P>
 where
     P: Persistent,
 {
+    pub async fn put_batch(&self, batch: &[WriteBatchRecord]) -> anyhow::Result<()> {
+        let txn = self.new_txn()?;
+        txn.write_batch(batch);
+        txn.commit().await
+    }
+
     pub async fn write_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
         let guard = self.inner.load();
         guard.memtable.put_batch(entries, timestamp).await?;
@@ -363,7 +370,7 @@ mod test {
     use crate::mvcc::transaction::Transaction;
     use crate::persistent::file_object::LocalFs;
     use crate::persistent::Persistent;
-    use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
+    use crate::sst::compact::CompactionOptions;
     use crate::sst::iterator::SsTableIterator;
     use crate::sst::SstOptions;
     use crate::state::states::LsmStorageState;
@@ -952,14 +959,11 @@ mod test {
     // todo: add test
     #[tokio::test]
     async fn test_task3_mvcc_compaction() {
+        use crate::state::write_batch::WriteBatchRecord::{Del, Put};
+
         let dir = tempdir().unwrap();
         let persistent = LocalFs::new(dir.path().to_path_buf());
-        let compaction_option = LeveledCompactionOptions::builder()
-            .level_size_multiplier_2_exponent(2)
-            .max_levels(2)
-            .max_bytes_for_level_base(1)
-            .build();
-        let compaction_option = CompactionOptions::Leveled(compaction_option);
+        let compaction_option = CompactionOptions::Full;
         let options = SstOptions::builder()
             .target_sst_size(1024)
             .block_size(4096)
@@ -983,41 +987,46 @@ mod test {
          */
 
         let snapshot0 = storage.new_txn().unwrap();
-        dbg!(snapshot0.read_ts);
-        storage.put_for_test(b"a", b"1").await.unwrap();
-        storage.put_for_test(b"b", b"1").await.unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"a"), Bytes::copy_from_slice(b"1")),
+                Put(Bytes::copy_from_slice(b"b"), Bytes::copy_from_slice(b"1")),
+            ])
+            .await
+            .unwrap();
 
         let snapshot1 = storage.new_txn().unwrap();
-        dbg!(snapshot1.read_ts);
-        storage.put_for_test(b"a", b"2").await.unwrap();
-        storage.put_for_test(b"d", b"2").await.unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"a"), Bytes::copy_from_slice(b"2")),
+                Put(Bytes::copy_from_slice(b"d"), Bytes::copy_from_slice(b"2")),
+            ])
+            .await
+            .unwrap();
 
         let snapshot2 = storage.new_txn().unwrap();
-        dbg!(snapshot2.read_ts);
-        storage.put_for_test(b"a", b"3").await.unwrap();
-        storage.delete_for_test(b"d").await.unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"a"), Bytes::copy_from_slice(b"3")),
+                Del(Bytes::copy_from_slice(b"d")),
+            ])
+            .await
+            .unwrap();
 
         let snapshot3 = storage.new_txn().unwrap();
-        dbg!(snapshot3.read_ts);
-        storage.put_for_test(b"c", b"4").await.unwrap();
-        storage.delete_for_test(b"a").await.unwrap();
+        storage
+            .put_batch(&[
+                Put(Bytes::copy_from_slice(b"c"), Bytes::copy_from_slice(b"4")),
+                Del(Bytes::copy_from_slice(b"a")),
+            ])
+            .await
+            .unwrap();
 
         {
             let guard = storage.state_lock.lock().await;
             storage.force_freeze_memtable(&guard).await.unwrap();
             storage.force_flush_imm_memtable(&guard).await.unwrap();
             storage.force_compact(&guard).await.unwrap();
-        }
-
-        {
-            for sst in storage.inner.load().sstables_state.sstables().values() {
-                let it = SsTableIterator::scan(sst.as_ref(), Unbounded, Unbounded);
-                it.for_each(|x| async {
-                    let x = x.unwrap();
-                    dbg!(x);
-                })
-                .await;
-            }
         }
 
         {
@@ -1040,11 +1049,6 @@ mod test {
         }
 
         drop(snapshot0);
-        {
-            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
-            let watermark = guard.1.watermark();
-            dbg!(watermark);
-        }
         {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();
@@ -1071,11 +1075,6 @@ mod test {
 
         drop(snapshot1);
         {
-            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
-            let watermark = guard.1.watermark();
-            dbg!(watermark);
-        }
-        {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();
         }
@@ -1100,11 +1099,6 @@ mod test {
 
         drop(snapshot2);
         {
-            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
-            let watermark = guard.1.watermark();
-            dbg!(watermark);
-        }
-        {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();
         }
@@ -1117,11 +1111,6 @@ mod test {
         }
 
         drop(snapshot3);
-        {
-            let guard = storage.mvcc.as_ref().unwrap().ts.lock();
-            let watermark = guard.1.watermark();
-            dbg!(watermark);
-        }
         {
             let guard = storage.state_lock.lock().await;
             storage.force_compact(&guard).await.unwrap();

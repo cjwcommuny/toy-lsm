@@ -57,11 +57,8 @@ pub async fn force_compact<P: Persistent>(
         Full => generate_full_compaction_task(sstables),
         NoCompaction => None,
     }) else {
-        println!("not compact");
         return Ok(());
     };
-
-    dbg!(&task);
 
     let new_sst_ids = assert_send(compact_with_task(
         sstables,
@@ -117,8 +114,8 @@ pub async fn compact_with_task<P: Persistent>(
 
     let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
 
-    sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
     sstables.apply_compaction_sst(new_sst, task);
+    sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
 
     Ok(new_sst_ids)
 }
@@ -141,7 +138,6 @@ fn select_level_source(
             *level_size as f64 / denominator as f64
         })
         .collect();
-    // println!("max_bytes_for_level_base={}, scores={:?}", max_bytes_for_level_base, scores);
     let source = scores
         .iter()
         .enumerate()
@@ -152,7 +148,6 @@ fn select_level_source(
             // todo: make it looking better...
         })?
         .0;
-    dbg!(source);
     if source == level_sizes.len() - 1 {
         None
     } else {
@@ -207,8 +202,6 @@ pub fn generate_task<File: SstHandle>(
 ) -> Option<CompactionTask> {
     let level_sizes = compute_level_sizes(sstables);
     let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
-    dbg!(&level_sizes);
-    dbg!(&target_sizes);
 
     // todo: only select one source sst
     let source = select_level_source(

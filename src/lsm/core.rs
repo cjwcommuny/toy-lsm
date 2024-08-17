@@ -231,7 +231,6 @@ mod tests {
             insert_sst(&lsm, begin..begin + 100).await.unwrap();
         }
         sleep(Duration::from_secs(2)).await;
-        dbg!(&lsm.state);
 
         for i in 0..10 {
             let begin = i * 100;

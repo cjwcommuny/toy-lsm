@@ -3,6 +3,7 @@ use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use std::collections::{Bound, HashSet};
 use std::ops::Bound::Excluded;
+use std::slice;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
@@ -11,6 +12,7 @@ use crate::iterators::LockedLsmIter;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
 use crate::mvcc::iterator::LockedTxnIter;
 use crate::persistent::Persistent;
+use crate::state::write_batch::WriteBatchRecord;
 use crate::state::{LsmStorageState, Map};
 use crate::utils::scoped::ScopedMutex;
 
@@ -44,6 +46,7 @@ pub struct Transaction<'a, P: Persistent> {
     mvcc: Arc<LsmMvccInner>,
 }
 
+// todo: no need for async
 impl<'a, P: Persistent> Map for Transaction<'a, P> {
     type Error = anyhow::Error;
 
@@ -68,10 +71,9 @@ impl<'a, P: Persistent> Map for Transaction<'a, P> {
         value: impl Into<Bytes> + Send,
     ) -> Result<(), Self::Error> {
         let key = key.into();
-        self.local_storage.insert(key.clone(), value.into());
-        if let Some(key_hashes) = self.key_hashes.as_ref() {
-            key_hashes.lock_with(|mut set| set.add_write_key(key.as_ref()));
-        }
+        let value = value.into();
+        let record = WriteBatchRecord::Put(key, value);
+        self.write_batch(slice::from_ref(&record));
         Ok(())
     }
 
@@ -104,6 +106,21 @@ impl<'a, P: Persistent> Transaction<'a, P> {
         }
     }
 
+    pub fn write_batch(&self, batch: &[WriteBatchRecord]) {
+        if let Some(key_hashes) = self.key_hashes.as_ref() {
+            key_hashes.lock_with(|mut set| {
+                for record in batch {
+                    set.add_write_key(record.get_key().as_ref());
+                }
+            });
+        }
+
+        for record in batch {
+            let pair = record.clone().into_keyed();
+            self.local_storage.insert(pair.key, pair.value);
+        }
+    }
+
     // todo: no need for Result?
     pub fn scan(&'a self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedTxnIter<'a, P> {
         let inner = self.state.inner.load_full();
@@ -125,10 +142,6 @@ impl<'a, P: Persistent> Transaction<'a, P> {
         let conflict = if let Some(key_hashes) = key_hashes.as_ref() {
             let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
             let read_set = &key_hashes.read_set;
-            println!("====");
-            dbg!(key_hashes);
-            dbg!(&commit_guard);
-            println!("====");
             commit_guard
                 .range(range)
                 .any(|(_, data)| !data.key_hashes.is_disjoint(read_set))
