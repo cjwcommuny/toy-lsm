@@ -41,24 +41,24 @@ mod test {
     use crate::entry::Entry;
     use crate::iterators::create_merge_iter_from_non_empty_iters;
     use crate::memtable::MemTable;
-    use crate::persistent::interface::WalHandle;
+
     use crate::persistent::wal_handle::WalFile;
     use crate::test_utils::iterator::unwrap_ts_stream;
 
     #[tokio::test]
     async fn test_task1_memtable_iter() {
         use std::ops::Bound;
-        let memtable: MemTable<WalFile> = MemTable::create(0);
+        let memtable = MemTable::create(0);
         memtable
-            .for_testing_put_slice(b"key1", b"value1")
+            .for_testing_put_slice::<WalFile>(None, b"key1", b"value1")
             .await
             .unwrap();
         memtable
-            .for_testing_put_slice(b"key2", b"value2")
+            .for_testing_put_slice::<WalFile>(None, b"key2", b"value2")
             .await
             .unwrap();
         memtable
-            .for_testing_put_slice(b"key3", b"value3")
+            .for_testing_put_slice::<WalFile>(None, b"key3", b"value3")
             .await
             .unwrap();
 
@@ -118,7 +118,7 @@ mod test {
     #[tokio::test]
     async fn test_task1_empty_memtable_iter() {
         use std::ops::Bound;
-        let memtable: MemTable<WalFile> = MemTable::create(0);
+        let memtable = MemTable::create(0);
 
         let _ = memtable
             .for_testing_scan_slice(Bound::Excluded(b"key1"), Bound::Excluded(b"key3"))
@@ -134,8 +134,8 @@ mod test {
             .unwrap();
     }
 
-    async fn get_memtable_iter<'a, W: WalHandle>(
-        memtable: &'a MemTable<W>,
+    async fn get_memtable_iter<'a>(
+        memtable: &'a MemTable,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> impl Stream<Item = anyhow::Result<Entry>> + Send + 'a {

@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use derive_getters::Getters;
 use futures::stream;
 use futures::stream::{StreamExt, TryStreamExt};
@@ -8,7 +7,6 @@ use std::sync::Arc;
 use typed_builder::TypedBuilder;
 
 use crate::block::BlockCache;
-use crate::key::KeyBytes;
 use crate::manifest::{Compaction, Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::{ImmutableMemTable, MemTable};
 use crate::persistent::Persistent;
@@ -23,20 +21,12 @@ pub struct RecoveredState<P: Persistent> {
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {
-    pub(crate) memtable: Arc<MemTable<P::WalHandle>>,
-    pub(crate) imm_memtables: Vec<Arc<ImmutableMemTable<P::WalHandle>>>,
+    pub(crate) memtable: Arc<MemTable>,
+    pub(crate) imm_memtables: Vec<Arc<ImmutableMemTable>>,
     pub(crate) sstables_state: Arc<Sstables<P::SstHandle>>,
 }
 
 impl<P: Persistent> LsmStorageStateInner<P> {
-    pub async fn put(&self, key: KeyBytes, value: impl Into<Bytes> + Send) -> anyhow::Result<()> {
-        self.memtable().put_with_ts(key, value.into()).await?;
-        // self.try_freeze_memtable(&snapshot)
-        //     .await?;
-        // todo
-        Ok(())
-    }
-
     pub async fn recover(
         options: &SstOptions,
         manifest: &Manifest<P::ManifestHandle>,
@@ -77,7 +67,7 @@ impl<P: Persistent> LsmStorageStateInner<P> {
             max_mem_table_id.map(|id| id + 1).unwrap_or(0),
         );
 
-        let memtable = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
+        let memtable = MemTable::create_with_wal(next_sst_id, manifest).await?;
 
         let max_ts = {
             let memtable_max_ts = imm_memtables
@@ -100,10 +90,6 @@ impl<P: Persistent> LsmStorageStateInner<P> {
         };
 
         Ok(recovered)
-    }
-
-    pub async fn sync_wal(&self) -> anyhow::Result<()> {
-        self.memtable.sync_wal().await
     }
 }
 
@@ -128,7 +114,7 @@ impl<P: Persistent> Debug for LsmStorageStateInner<P> {
 }
 
 async fn fold_new_imm_memtable<P: Persistent>(
-    imm_memtables: &mut Vec<Arc<ImmutableMemTable<P::WalHandle>>>,
+    imm_memtables: &mut Vec<Arc<ImmutableMemTable>>,
     persistent: &P,
     NewMemtable(id): NewMemtable,
 ) -> anyhow::Result<()> {
@@ -142,10 +128,7 @@ async fn build_state<P: Persistent>(
     options: &SstOptions,
     manifest_records: Vec<ManifestRecord>,
     persistent: &P,
-) -> anyhow::Result<(
-    Vec<Arc<ImmutableMemTable<P::WalHandle>>>,
-    Sstables<P::SstHandle>,
-)> {
+) -> anyhow::Result<(Vec<Arc<ImmutableMemTable>>, Sstables<P::SstHandle>)> {
     stream::iter(manifest_records.into_iter())
         .map(Ok::<_, anyhow::Error>)
         .try_fold(

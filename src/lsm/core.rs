@@ -39,10 +39,6 @@ impl<P: Persistent> Lsm<P> {
         Ok(this)
     }
 
-    pub async fn sync(&self) -> anyhow::Result<()> {
-        self.state.sync_wal().await
-    }
-
     fn spawn_flush(
         state: Arc<LsmStorageState<P>>,
         cancel_token: CancellationToken,
@@ -267,7 +263,6 @@ mod tests {
         add_data(&lsm).await.unwrap();
         sleep(Duration::from_secs(2)).await;
 
-        lsm.sync().await.unwrap();
         // ensure some SSTs are not flushed
         let inner = lsm.state.inner.load();
 

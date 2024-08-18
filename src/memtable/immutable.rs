@@ -11,19 +11,18 @@ use ref_cast::RefCast;
 
 use crate::memtable::iterator::MaybeEmptyMemTableIterRef;
 use crate::memtable::mutable::MemTable;
-use crate::persistent::interface::WalHandle;
 
 #[derive(RefCast, TransparentWrapper, new)]
 #[repr(transparent)]
-pub struct ImmutableMemTable<W>(MemTable<W>);
+pub struct ImmutableMemTable(MemTable);
 
-impl<W> Debug for ImmutableMemTable<W> {
+impl Debug for ImmutableMemTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl<W> ImmutableMemTable<W> {
+impl ImmutableMemTable {
     pub fn approximate_size(&self) -> usize {
         self.0.approximate_size()
     }
@@ -37,7 +36,7 @@ impl<W> ImmutableMemTable<W> {
 }
 
 // todo: remove it
-impl<W: WalHandle> ImmutableMemTable<W> {
+impl ImmutableMemTable {
     pub async fn scan<'a>(
         &'a self,
         lower: Bound<&'a [u8]>,
@@ -55,7 +54,7 @@ impl<W: WalHandle> ImmutableMemTable<W> {
     }
 }
 
-impl<W: WalHandle> ImmutableMemTable<W> {
+impl ImmutableMemTable {
     pub fn get_with_ts(&self, key: KeySlice) -> Option<Bytes> {
         self.0.get_with_ts(key)
     }
@@ -69,8 +68,8 @@ impl<W: WalHandle> ImmutableMemTable<W> {
     }
 }
 
-impl<W> From<MemTable<W>> for ImmutableMemTable<W> {
-    fn from(table: MemTable<W>) -> Self {
+impl From<MemTable> for ImmutableMemTable {
+    fn from(table: MemTable) -> Self {
         Self::new(table)
     }
 }

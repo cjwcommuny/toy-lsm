@@ -16,6 +16,19 @@ pub struct Wal<File> {
 }
 
 impl<File: WalHandle> Wal<File> {
+    pub async fn replace_new<P: Persistent<WalHandle = File>>(
+        &self,
+        id: usize,
+        persistent: &P,
+    ) -> anyhow::Result<()> {
+        let file = persistent.open_wal_handle(id).await?;
+        let mut guard = self.file.lock().await;
+        *guard = file;
+        Ok(())
+    }
+
+    // todo: add async close
+
     pub async fn create<P: Persistent<WalHandle = File>>(
         id: usize,
         persistent: &P,
