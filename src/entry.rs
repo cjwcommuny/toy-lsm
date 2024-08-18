@@ -13,6 +13,25 @@ pub struct Keyed<K, V> {
     pub value: V,
 }
 
+// todo: use generics
+// impl<K: AsRef<A>, V: AsRef<B>> Keyed<K, V> {
+//     pub fn as_ref<A: ?Sized, B: ?Sized>(&self) -> Keyed<&A, &B> {
+//         Keyed {
+//             key: self.key.as_ref(),
+//             value: self.value.as_ref(),
+//         }
+//     }
+// }
+
+impl Keyed<Bytes, Bytes> {
+    pub fn as_ref(&self) -> Keyed<&[u8], &[u8]> {
+        Keyed {
+            key: self.key.as_ref(),
+            value: self.value.as_ref(),
+        }
+    }
+}
+
 // todo: use Derivative for auto deriving
 impl<K: Eq, V> Eq for Keyed<K, V> {}
 

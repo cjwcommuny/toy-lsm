@@ -1,14 +1,3 @@
-use anyhow::anyhow;
-use arc_swap::ArcSwap;
-use bytes::Bytes;
-use derive_getters::Getters;
-use std::collections::Bound;
-use std::fmt::{Debug, Formatter};
-use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use tokio::sync::{Mutex, MutexGuard};
-
 use crate::block::BlockCache;
 use crate::entry::Entry;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
@@ -23,6 +12,17 @@ use crate::state::inner::{LsmStorageStateInner, RecoveredState};
 use crate::state::write_batch::WriteBatchRecord;
 use crate::state::Map;
 use crate::utils::vec::pop;
+use crate::wal::Wal;
+use anyhow::anyhow;
+use arc_swap::ArcSwap;
+use bytes::Bytes;
+use derive_getters::Getters;
+use std::collections::Bound;
+use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use tokio::sync::{Mutex, MutexGuard};
 
 #[derive(Getters)]
 pub struct LsmStorageState<P: Persistent> {
@@ -35,6 +35,7 @@ pub struct LsmStorageState<P: Persistent> {
     pub(crate) options: SstOptions,
     pub(crate) sst_id: AtomicUsize,
     mvcc: Option<Arc<LsmMvccInner>>,
+    wal: Option<Wal<P::WalHandle>>,
 }
 
 impl<P> Debug for LsmStorageState<P>
@@ -78,6 +79,8 @@ where
             None
         };
 
+        let wal = Wal::create(*inner.memtable.id(), &persistent).await?;
+
         let this = Self {
             inner: ArcSwap::new(Arc::new(inner)),
             block_cache: Arc::new(BlockCache::new(1024)),
@@ -88,6 +91,7 @@ where
             options,
             sst_id,
             mvcc,
+            wal: Some(wal),
         };
         Ok(this)
     }
@@ -97,10 +101,6 @@ where
         let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;
         let tx = mvcc.new_txn(self, *self.options.serializable());
         Ok(tx)
-    }
-
-    pub async fn sync_wal(&self) -> anyhow::Result<()> {
-        self.inner.load().sync_wal().await
     }
 }
 
@@ -147,7 +147,10 @@ where
 
     pub async fn write_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
         let guard = self.inner.load();
-        guard.memtable.put_batch(entries, timestamp).await?;
+        guard
+            .memtable
+            .put_batch(self.wal.as_ref(), entries, timestamp)
+            .await?;
         self.try_freeze_memtable(guard.as_ref()).await?;
         Ok(())
     }
@@ -182,7 +185,7 @@ where
         Ok(())
     }
 
-    fn exceed_memtable_size_limit<W>(&self, memtable: &impl Deref<Target = MemTable<W>>) -> bool {
+    fn exceed_memtable_size_limit(&self, memtable: &impl Deref<Target = MemTable>) -> bool {
         memtable.deref().approximate_size() > *self.options.target_sst_size()
     }
 
@@ -197,6 +200,7 @@ where
             self.next_sst_id(),
             &self.persistent,
             &self.manifest,
+            self.wal.as_ref(),
         )
         .await?;
         self.inner.store(new);
@@ -265,11 +269,18 @@ async fn freeze_memtable<P: Persistent>(
     next_sst_id: usize,
     persistent: &P,
     manifest: &Manifest<P::ManifestHandle>,
+    wal: Option<&Wal<P::WalHandle>>,
 ) -> anyhow::Result<Arc<LsmStorageStateInner<P>>> {
+    // todo: wal 应该放在 LsmStorageStateInner 中？
+    if let Some(wal) = wal {
+        wal.replace_new(next_sst_id, persistent).await?;
+    }
+
     let new_memtable = {
-        let table = MemTable::create_with_wal(next_sst_id, persistent, manifest).await?;
+        let table = MemTable::create_with_wal(next_sst_id, manifest).await?;
         Arc::new(table)
     };
+
     let new_imm_memtables = {
         let old_memtable = old.memtable().clone().into_imm().await?;
 
@@ -284,6 +295,7 @@ async fn freeze_memtable<P: Persistent>(
         .imm_memtables(new_imm_memtables)
         .sstables_state(old.sstables_state().clone())
         .build();
+
     Ok(Arc::new(new_state))
 }
 

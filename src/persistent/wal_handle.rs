@@ -13,6 +13,7 @@ use crate::persistent::interface::WalHandle;
 #[derive(new)]
 #[pin_project]
 pub struct WalFile(#[pin] BufWriter<File>);
+// todo: manual handle drop to handle potential errors?
 
 impl AsyncWrite for WalFile {
     fn poll_write(

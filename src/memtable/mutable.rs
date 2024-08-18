@@ -10,16 +10,15 @@ use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use derive_getters::Getters;
 use ref_cast::RefCast;
-use tracing_futures::Instrument;
 
 use crate::bound::BytesBound;
-use crate::entry::{Entry, Keyed};
+use crate::entry::Entry;
 use crate::iterators::NonEmptyStream;
 use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
-use crate::persistent::interface::WalHandle;
+use crate::persistent::interface::{ManifestHandle, WalHandle};
 use crate::persistent::Persistent;
 use crate::wal::Wal;
 
@@ -28,17 +27,17 @@ use crate::wal::Wal;
 /// An initial implementation of memtable is part of week 1, day 1. It will be incrementally implemented in other
 /// chapters of week 1 and week 2.
 /// todo: MemTable 本质是 Map，可以抽象为 trait
+/// todo: memtable 和 wal 捆绑在一起
 #[derive(Getters)]
-pub struct MemTable<W> {
+pub struct MemTable {
     pub(self) map: SkipMap<KeyBytes, Bytes>,
-    wal: Option<Wal<W>>,
     id: usize,
 
     #[getter(skip)]
     approximate_size: Arc<AtomicUsize>,
 }
 
-impl<W> Debug for MemTable<W> {
+impl Debug for MemTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let first = self.map.iter().next();
         let first = first.as_ref().map(|entry| entry.key());
@@ -54,39 +53,33 @@ impl<W> Debug for MemTable<W> {
     }
 }
 
-impl<W> MemTable<W> {
+impl MemTable {
     /// Create a new mem-table.
     #[cfg(test)]
     pub fn create(id: usize) -> Self {
-        Self::new(id, SkipMap::new(), None)
+        Self::new(id, SkipMap::new())
     }
 
-    fn new(id: usize, map: SkipMap<KeyBytes, Bytes>, wal: impl Into<Option<Wal<W>>>) -> Self {
+    fn new(id: usize, map: SkipMap<KeyBytes, Bytes>) -> Self {
         Self {
             map,
-            wal: wal.into(),
             id,
             approximate_size: Arc::default(),
         }
     }
 
-    pub fn as_immutable_ref(&self) -> &ImmutableMemTable<W> {
+    pub fn as_immutable_ref(&self) -> &ImmutableMemTable {
         ImmutableMemTable::ref_cast(self)
-    }
-
-    pub fn reset_wal(&mut self) {
-        self.wal = None;
     }
 }
 
-impl<W: WalHandle> MemTable<W> {
-    pub async fn create_with_wal<P: Persistent<WalHandle = W>>(
+impl MemTable {
+    // todo: rename
+    pub async fn create_with_wal<File: ManifestHandle>(
         id: usize,
-        persistent: &P,
-        manifest: &Manifest<P::ManifestHandle>,
+        manifest: &Manifest<File>,
     ) -> anyhow::Result<Self> {
-        let wal = Wal::create(id, persistent).await?;
-        let this = Self::new(id, SkipMap::new(), wal);
+        let this = Self::new(id, SkipMap::new());
 
         {
             let manifest_record = ManifestRecord::NewMemtable(NewMemtable(id));
@@ -97,12 +90,13 @@ impl<W: WalHandle> MemTable<W> {
     }
 
     /// Create a memtable from WAL
-    pub async fn recover_from_wal<P: Persistent<WalHandle = W>>(
+    pub async fn recover_from_wal<P: Persistent>(
         id: usize,
         persistent: &P,
     ) -> anyhow::Result<Self> {
-        let (wal, map) = Wal::recover(id, persistent).await?;
-        let this = Self::new(id, map, wal);
+        // todo: last memtable should be put to mutable memtable
+        let (_, map) = Wal::recover(id, persistent).await?;
+        let this = Self::new(id, map);
         Ok(this)
     }
 
@@ -112,15 +106,9 @@ impl<W: WalHandle> MemTable<W> {
         self.get_with_ts(KeySlice::new(key, 0))
     }
 
-    pub async fn sync_wal(&self) -> anyhow::Result<()> {
-        if let Some(ref wal) = self.wal {
-            wal.sync().await?;
-        }
-        Ok(())
-    }
-
-    pub async fn into_imm(self: Arc<Self>) -> anyhow::Result<Arc<ImmutableMemTable<W>>> {
-        self.sync_wal().await?;
+    pub async fn into_imm(self: Arc<Self>) -> anyhow::Result<Arc<ImmutableMemTable>> {
+        // todo: into_imm 需不需要 sync?
+        // self.sync_wal().await?;
         Ok(TransparentWrapperAlloc::wrap_arc(self))
     }
 
@@ -140,29 +128,36 @@ impl<W: WalHandle> MemTable<W> {
 }
 
 // with transaction
-impl<W: WalHandle> MemTable<W> {
+impl MemTable {
     pub fn get_with_ts(&self, key: KeySlice) -> Option<Bytes> {
         // todo: 因为 rust 的 Borrow trait 不够 general，这里需要复制，如何避免？
         let key = key.map(Bytes::copy_from_slice);
         self.map.get(&key).map(|x| x.value().clone())
     }
 
-    pub async fn put_with_ts(&self, key: KeyBytes, value: Bytes) -> anyhow::Result<()> {
+    pub async fn put_with_ts<W: WalHandle>(
+        &self,
+        wal: Option<&Wal<W>>,
+        key: KeyBytes,
+        value: Bytes,
+    ) -> anyhow::Result<()> {
         let KeyBytes { key, timestamp } = key;
         let entry = Entry::new(key, value);
-        self.put_batch(slice::from_ref(&entry), timestamp).await
+        self.put_batch(wal, slice::from_ref(&entry), timestamp)
+            .await
     }
 
-    pub async fn put_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
-        // todo: entries 可以改成 iterator
-        if let Some(wal) = self.wal.as_ref() {
-            let entries = entries
-                .iter()
-                .map(|e| Keyed::new(e.key.as_ref(), e.value.as_ref()));
-            wal.put_batch(entries, timestamp)
-                .instrument(tracing::info_span!("wal_put"))
-                .await?;
+    pub async fn put_batch<W: WalHandle>(
+        &self,
+        wal: Option<&Wal<W>>,
+        entries: &[Entry],
+        timestamp: u64,
+    ) -> anyhow::Result<()> {
+        if let Some(wal) = wal {
+            let entries = entries.iter().map(Entry::as_ref);
+            wal.put_batch(entries, timestamp).await?;
         }
+
         let mut size = 0;
         for entry in entries {
             let Entry { key, value } = entry;
@@ -194,10 +189,19 @@ impl<W: WalHandle> MemTable<W> {
 }
 
 #[cfg(test)]
-impl<W: WalHandle> MemTable<W> {
-    pub async fn for_testing_put_slice(&self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
-        self.put(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value))
-            .await
+impl MemTable {
+    pub async fn for_testing_put_slice<W: WalHandle>(
+        &self,
+        wal: Option<&Wal<W>>,
+        key: &[u8],
+        value: &[u8],
+    ) -> anyhow::Result<()> {
+        self.put(
+            wal,
+            Bytes::copy_from_slice(key),
+            Bytes::copy_from_slice(value),
+        )
+        .await
     }
 
     pub fn for_testing_get_slice(&self, key: &[u8]) -> Option<Bytes> {
@@ -221,12 +225,17 @@ impl<W: WalHandle> MemTable<W> {
     /// In week 1, day 1, simply put the key-value pair into the skipmap.
     /// In week 2, day 6, also flush the data to WAL.
     /// todo: remote this method
-    pub async fn put(&self, key: Bytes, value: Bytes) -> anyhow::Result<()> {
-        self.put_with_ts(KeyBytes::new(key, 0), value).await
+    pub async fn put<W: WalHandle>(
+        &self,
+        wal: Option<&Wal<W>>,
+        key: Bytes,
+        value: Bytes,
+    ) -> anyhow::Result<()> {
+        self.put_with_ts(wal, KeyBytes::new(key, 0), value).await
     }
 }
 
-impl<W> MemTable<W> {
+impl MemTable {
     pub fn approximate_size(&self) -> usize {
         self.approximate_size.load(Ordering::Relaxed)
     }
@@ -248,6 +257,7 @@ mod test {
     use crate::mvcc::iterator::transform_bound;
     use crate::persistent::LocalFs;
     use crate::time::{TimeIncrement, TimeProvider};
+    use crate::wal::Wal;
     use bytes::Bytes;
     use std::ops::Bound::Included;
     use tempfile::tempdir;
@@ -259,24 +269,21 @@ mod test {
         let manifest = Manifest::create(&persistent).await.unwrap();
         let id = 123;
 
+        let wal = Wal::create(id, &persistent).await.unwrap();
         {
-            let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
+            let memtable = MemTable::create_with_wal(id, &manifest).await.unwrap();
+            memtable
+                .for_testing_put_slice(Some(&wal), b"key1", b"value1")
                 .await
                 .unwrap();
             memtable
-                .for_testing_put_slice(b"key1", b"value1")
+                .for_testing_put_slice(Some(&wal), b"key2", b"value2")
                 .await
                 .unwrap();
             memtable
-                .for_testing_put_slice(b"key2", b"value2")
+                .for_testing_put_slice(Some(&wal), b"key3", b"value3")
                 .await
                 .unwrap();
-            memtable
-                .for_testing_put_slice(b"key3", b"value3")
-                .await
-                .unwrap();
-
-            memtable.sync_wal().await.unwrap();
         }
 
         {
@@ -302,37 +309,34 @@ mod test {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let manifest = Manifest::create(&persistent).await.unwrap();
         let id = 123;
+        let wal = Wal::create(id, &persistent).await.unwrap();
 
         {
-            let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
+            let memtable = MemTable::create_with_wal(id, &manifest).await.unwrap();
+            memtable
+                .for_testing_put_slice(Some(&wal), b"key1", b"value1")
                 .await
                 .unwrap();
             memtable
-                .for_testing_put_slice(b"key1", b"value1")
+                .for_testing_put_slice(Some(&wal), b"key2", b"value2")
                 .await
                 .unwrap();
             memtable
-                .for_testing_put_slice(b"key2", b"value2")
+                .for_testing_put_slice(Some(&wal), b"key3", b"value3")
                 .await
                 .unwrap();
             memtable
-                .for_testing_put_slice(b"key3", b"value3")
+                .for_testing_put_slice(Some(&wal), b"key1", b"value11")
                 .await
                 .unwrap();
             memtable
-                .for_testing_put_slice(b"key1", b"value11")
+                .for_testing_put_slice(Some(&wal), b"key2", b"value22")
                 .await
                 .unwrap();
             memtable
-                .for_testing_put_slice(b"key2", b"value22")
+                .for_testing_put_slice(Some(&wal), b"key3", b"value33")
                 .await
                 .unwrap();
-            memtable
-                .for_testing_put_slice(b"key3", b"value33")
-                .await
-                .unwrap();
-
-            memtable.sync_wal().await.unwrap();
         }
 
         {
@@ -358,14 +362,14 @@ mod test {
         let persistent = LocalFs::new(dir.path().to_path_buf());
         let manifest = Manifest::create(&persistent).await.unwrap();
         let id = 123;
+        let wal = Wal::create(id, &persistent).await.unwrap();
 
-        let memtable = MemTable::create_with_wal(id, &persistent, &manifest)
-            .await
-            .unwrap();
+        let memtable = MemTable::create_with_wal(id, &manifest).await.unwrap();
         let time_provider = Box::<TimeIncrement>::default();
 
         memtable
             .put_with_ts(
+                Some(&wal),
                 Key::new(Bytes::copy_from_slice(b"key1"), time_provider.now()),
                 Bytes::copy_from_slice(b"value1"),
             )

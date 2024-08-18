@@ -253,8 +253,8 @@ pub fn build_next_sst_id(a: &AtomicUsize) -> impl Fn() -> usize + Sized + '_ {
     || a.fetch_add(1, Relaxed)
 }
 
-pub fn fold_flush_manifest<W, File>(
-    imm_memtables: &mut Vec<Arc<ImmutableMemTable<W>>>,
+pub fn fold_flush_manifest<File>(
+    imm_memtables: &mut Vec<Arc<ImmutableMemTable>>,
     sstables: &mut Sstables<File>,
     Flush(id): Flush,
 ) -> anyhow::Result<()> {

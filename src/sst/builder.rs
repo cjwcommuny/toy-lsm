@@ -8,7 +8,6 @@ use nom::AsBytes;
 use crate::block::{BlockBuilder, BlockCache};
 use crate::key::KeySlice;
 use crate::memtable::ImmutableMemTable;
-use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
 use crate::sst::bloom::Bloom;
 use crate::sst::{BlockMeta, SsTable};
@@ -146,7 +145,7 @@ impl SsTableBuilder {
         self.data.len() == 0 && self.builder.is_empty()
     }
 
-    pub fn flush<W: WalHandle>(&mut self, memtable: &ImmutableMemTable<W>) {
+    pub fn flush(&mut self, memtable: &ImmutableMemTable) {
         for entry in memtable.iter() {
             self.add(entry.key().as_key_slice(), entry.value().as_bytes());
         }
