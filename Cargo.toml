@@ -15,7 +15,7 @@ crossbeam-skiplist = "0.1"
 parking_lot = "0.12"
 ouroboros = "0.18"
 moka = { version = "0.12", features = ["future"] }
-clap = { version = "4.5.15", features = ["derive"] }
+clap = { version = "4.5.16", features = ["derive"] }
 rand = "0.8.5"
 crossbeam-channel = "0.5.13"
 serde_json = { version = "1.0" }
@@ -32,7 +32,7 @@ deref_ext = { git = "https://github.com/cjwcommuny/deref_ext", rev = "2b14702" }
 async-iter-ext = { git = "https://github.com/cjwcommuny/async-iter-ext", rev = "38cf62b" }
 typed-builder = "0.19.1"
 derive-getters = "0.5.0"
-tokio = { version = "1.39.2", features = ["full"] }
+tokio = { version = "1.39.3", features = ["full"] }
 dashmap = "6.0.1"
 futures = "0.3.30"
 pin-project = "1.1.5"
