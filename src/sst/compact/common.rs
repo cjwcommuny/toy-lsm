@@ -22,6 +22,16 @@ use std::ops::Range;
 use std::sync::Arc;
 use tracing::error;
 
+
+#[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
+#[getset(get_copy = "pub")]
+pub struct NewCompactionTask {
+    source_level: usize,
+    source_ids: Vec<usize>,
+    destination_level: usize,
+    destination_ids: Vec<usize>,
+}
+
 #[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
 #[getset(get_copy = "pub")]
 pub struct CompactionTask {

@@ -1,13 +1,15 @@
-use std::cmp::max;
+use std::cmp::{max, Ordering};
+use std::collections::HashSet;
 use std::iter;
-
+use bytes::Bytes;
 use derive_new::new;
 use getset::CopyGetters;
-
+use itertools::Itertools;
+use ordered_float::{NotNan, OrderedFloat};
 use typed_builder::TypedBuilder;
 
 use crate::persistent::SstHandle;
-use crate::sst::compact::common::{CompactionTask, SourceIndex};
+use crate::sst::compact::common::{CompactionTask, NewCompactionTask, SourceIndex};
 use crate::sst::Sstables;
 use crate::utils::num::power_of_2;
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
@@ -19,6 +21,10 @@ pub struct LeveledCompactionOptions {
     max_levels: usize,
 
     max_bytes_for_level_base: u64,
+    level0_file_num_compaction_trigger: usize,
+
+    #[builder(default=1)]
+    concurrency: usize,
 }
 
 impl LeveledCompactionOptions {
@@ -35,6 +41,31 @@ impl LeveledCompactionOptions {
         last_level_size
             / (power_of_2(self.level_size_multiplier_2_exponent * (last_level - current_level)))
     }
+}
+
+fn filter_and_sort_source_levels(
+    level_sizes: &[u64],
+    target_sizes: &[u64],
+    max_bytes_for_level_base: u64,
+) -> Vec<usize> {
+    let mut level_and_scores: Vec<_> = level_sizes
+        .iter()
+        .zip(target_sizes)
+        .enumerate()
+        .map(|(index, (level_size, target_size))| {
+            let denominator = if index == 0 {
+                max_bytes_for_level_base
+            } else {
+                *target_size
+            };
+            *level_size as f64 / denominator as f64
+        })
+        .enumerate()
+        .filter(|(_, priority)| *priority > 1.0)
+        .collect();
+
+    level_and_scores.sort_by_key(|(level, priority)| (*level != 0, OrderedFloat(-priority)));
+    level_and_scores.into_iter().map(|(level, _)| level).collect()
 }
 
 fn select_level_source(
@@ -113,6 +144,41 @@ fn compute_target_sizes(last_level_size: u64, options: &LeveledCompactionOptions
     target_sizes
 }
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum KeyRange {
+    Range { left: Bytes, right: Bytes },
+    Inf,
+    Empty,
+}
+
+pub fn generate_tasks<File: SstHandle>(
+    option: &LeveledCompactionOptions,
+    sstables: &Sstables<File>,
+    level0_file_num_compaction_trigger: usize,
+) -> Vec<NewCompactionTask> {
+    let level_sizes = compute_level_sizes(sstables);
+    let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), option);
+    let source_levels_sorted = filter_and_sort_source_levels(&level_sizes, &target_sizes, option.max_bytes_for_level_base());
+
+    let levels_range = Vec::<KeyRange>::new();
+    let tables_in_compaction = HashSet::<u64>::new();
+
+    let result = Vec::new();
+    for source_level in source_levels_sorted {
+        let destination_level = select_level_destination(option, source_level, &target_sizes);
+    }
+
+    result
+}
+
+fn generate_task_for_level(
+
+) {
+
+}
+
+
+
 pub fn generate_task<File: SstHandle>(
     compact_options: &LeveledCompactionOptions,
     sstables: &Sstables<File>,
@@ -180,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_select_level_destination() {
-        let options = LeveledCompactionOptions::new(1, 4, 300);
+        let options = LeveledCompactionOptions::new(1, 4, 300, 1, 1);
         assert_eq!(
             select_level_destination(&options, 0, &[120, 240, 480, 960]),
             1
