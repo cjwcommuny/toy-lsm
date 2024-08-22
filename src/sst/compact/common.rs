@@ -7,12 +7,17 @@ use futures::{stream, Stream, StreamExt};
 use getset::CopyGetters;
 use serde::{Deserialize, Serialize};
 
+use crate::manifest::{Compaction, Manifest, ManifestRecord};
 use crate::mvcc::iterator::{WatermarkGcIter, WatermarkGcIterImpl};
 use crate::persistent::{Persistent, SstHandle};
+use crate::sst::compact::full::generate_full_compaction_task;
+use crate::sst::compact::leveled;
+use crate::sst::compact::CompactionOptions::{Full, Leveled, NoCompaction};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 use crate::utils::send::assert_send;
 use futures::future::Either;
+use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 use tracing::error;
@@ -172,6 +177,84 @@ where
             .ok()?;
         Some(Arc::new(table))
     }
+}
+
+pub async fn compact_with_task<P: Persistent>(
+    sstables: &mut Sstables<P::SstHandle>,
+    next_sst_id: impl Fn() -> usize + Send + Sync,
+    options: &SstOptions,
+    persistent: &P,
+    task: &CompactionTask,
+    watermark: Option<u64>,
+) -> anyhow::Result<Vec<usize>> {
+    let source = task.source();
+    let source_level: Vec<_> = match task.source_index() {
+        SourceIndex::Index { index } => {
+            let source_id = *sstables.table_ids(source).get(index).unwrap();
+            let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+            let source = iter::once(source_level);
+            source.collect()
+        }
+        SourceIndex::Full { .. } => {
+            let source = sstables.tables(source);
+            source.collect()
+        }
+    };
+
+    let destination = task.destination();
+
+    let new_sst = assert_send(compact_generate_new_sst(
+        source_level,
+        sstables.tables(destination),
+        next_sst_id,
+        options,
+        persistent,
+        watermark,
+    ))
+    .await?;
+
+    let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
+
+    sstables.apply_compaction_sst(new_sst, task);
+    sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
+
+    Ok(new_sst_ids)
+}
+
+// todo: move this function out of leveled.rs
+pub async fn force_compact<P: Persistent>(
+    sstables: &mut Sstables<P::SstHandle>,
+    next_sst_id: impl Fn() -> usize + Send + Sync,
+    options: &SstOptions,
+    persistent: &P,
+    manifest: Option<&Manifest<P::ManifestHandle>>,
+    watermark: Option<u64>,
+) -> anyhow::Result<()> {
+    // todo: 这个可以提到外面，就不用 clone state 了
+    let Some(task) = (match options.compaction_option() {
+        Leveled(options) => leveled::generate_task(options, sstables),
+        Full => generate_full_compaction_task(sstables),
+        NoCompaction => None,
+    }) else {
+        return Ok(());
+    };
+
+    let new_sst_ids = assert_send(compact_with_task(
+        sstables,
+        next_sst_id,
+        options,
+        persistent,
+        &task,
+        watermark,
+    ))
+    .await?;
+
+    if let Some(manifest) = manifest {
+        let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
+        manifest.add_record(record).await?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ use crate::mvcc::core::LsmMvccInner;
 use crate::mvcc::iterator::LockedTxnIterWithTxn;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
-use crate::sst::compact::leveled::force_compact;
+use crate::sst::compact::common::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::{LsmStorageStateInner, RecoveredState};
 use crate::state::write_batch::WriteBatchRecord;
