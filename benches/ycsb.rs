@@ -59,7 +59,7 @@ fn ycsb_bench(c: &mut Criterion) {
     let dir = tempdir().unwrap();
     let persistent = LocalFs::new(dir.into_path());
     let options = SstOptions::builder()
-        .target_sst_size(1024)
+        .target_sst_size(1024 * 1024 * 2)
         .block_size(4096)
         .num_memtable_limit(1000)
         .compaction_option(Default::default())
