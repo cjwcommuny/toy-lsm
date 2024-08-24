@@ -13,6 +13,7 @@ use crate::persistent::{Persistent, SstHandle};
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::BlockFallibleIter;
 use crate::sst::BlockMeta;
+use crate::utils::range::MinMax;
 
 /// An SSTable.
 #[derive(TypedBuilder, Getters)]
@@ -44,6 +45,13 @@ impl<File: SstHandle> Debug for SsTable<File> {
 }
 
 impl<File: SstHandle> SsTable<File> {
+    pub fn get_key_range(&self) -> MinMax<KeyBytes> {
+        MinMax {
+            min: self.first_key.clone(),
+            max: self.last_key.clone(),
+        }
+    }
+
     /// Open SSTable from a file.
     /// todo: 避免使用 get_u32 这种会 panic 的
     /// todo: encoding 的格式可以考虑变一下，使用 parser combinator 库

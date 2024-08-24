@@ -22,9 +22,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use tracing::error;
 
-
-#[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
-#[getset(get_copy = "pub")]
+#[derive(Serialize, Deserialize, new, PartialEq, Debug)]
 pub struct NewCompactionTask {
     source_level: usize,
     source_ids: Vec<usize>,

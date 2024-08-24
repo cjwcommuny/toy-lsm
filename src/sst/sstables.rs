@@ -5,17 +5,17 @@ use std::fmt::{Debug, Formatter};
 
 use std::iter::repeat;
 
+use bytes::Bytes;
 use futures::stream;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-
 use tracing::error;
 
 use crate::entry::InnerEntry;
 
 use crate::iterators::{create_merge_iter, create_two_merge_iter, MergeIterator};
-use crate::key::KeySlice;
+use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::Flush;
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::SstHandle;
@@ -25,6 +25,7 @@ use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
 use crate::sst::option::SstOptions;
 use crate::sst::SsTable;
+use crate::utils::range::MinMax;
 
 #[derive(Default)]
 pub struct Sstables<File> {
@@ -110,6 +111,27 @@ impl<File> Sstables<File>
 where
     File: SstHandle,
 {
+    pub fn get_l0_key_minmax(&self) -> Option<MinMax<KeyBytes>> {
+        self.tables(0).fold(None, |range, table| {
+            let table_range = table.get_key_range();
+            let new_range = match range {
+                None => table_range,
+                Some(range) => range.union(table_range),
+            };
+            Some(new_range)
+        })
+    }
+
+    pub fn select_table_by_range<'a>(
+        &'a self,
+        level: usize,
+        range: &'a MinMax<KeyBytes>,
+    ) -> impl Iterator<Item = usize> + 'a {
+        self.tables(level)
+            .filter(|table| table.get_key_range().overlap(range))
+            .map(|table| *table.id())
+    }
+
     pub fn insert_sst(&mut self, table: Arc<SsTable<File>>) {
         self.l0_sstables.insert(0, *table.id());
         self.sstables.insert(*table.id(), table);
