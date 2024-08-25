@@ -24,10 +24,10 @@ use tracing::error;
 
 #[derive(Serialize, Deserialize, new, PartialEq, Debug)]
 pub struct NewCompactionTask {
-    source_level: usize,
-    source_ids: Vec<usize>,
-    destination_level: usize,
-    destination_ids: Vec<usize>,
+    pub source_level: usize,
+    pub source_ids: Vec<usize>,
+    pub destination_level: usize,
+    pub destination_ids: Vec<usize>,
 }
 
 #[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
@@ -90,6 +90,7 @@ pub fn apply_compaction<File: SstHandle>(
 }
 
 // todo: return Stream<Item = Arc<SsTable<File>>>
+// todo: replace it with compact_task
 pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
     upper_sstables: U,
     lower_sstables: L,

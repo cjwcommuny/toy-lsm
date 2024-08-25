@@ -1,17 +1,24 @@
+use crate::key::KeyBytes;
+use crate::persistent::{Persistent, SstHandle};
+use crate::sst::compact::common::{
+    compact_generate_new_sst, CompactionTask, NewCompactionTask, SourceIndex,
+};
+use crate::sst::{SsTable, SstOptions, Sstables};
+use crate::utils::num::power_of_2;
+use crate::utils::range::MinMax;
 use bytes::Bytes;
 use derive_new::new;
+use either::Either;
 use getset::CopyGetters;
 use itertools::Itertools;
+use nom::character::complete::tab;
 use ordered_float::{NotNan, OrderedFloat};
 use std::cmp::{max, Ordering};
 use std::collections::HashSet;
 use std::iter;
+use std::sync::Arc;
 use typed_builder::TypedBuilder;
 
-use crate::persistent::SstHandle;
-use crate::sst::compact::common::{CompactionTask, NewCompactionTask, SourceIndex};
-use crate::sst::Sstables;
-use crate::utils::num::power_of_2;
 #[derive(Debug, Clone, new, TypedBuilder, CopyGetters)]
 #[getset(get_copy = "pub")]
 pub struct LeveledCompactionOptions {
@@ -157,7 +164,6 @@ pub enum KeyRange {
 pub fn generate_tasks<File: SstHandle>(
     option: &LeveledCompactionOptions,
     sstables: &Sstables<File>,
-    level0_file_num_compaction_trigger: usize,
 ) -> Vec<NewCompactionTask> {
     let level_sizes = compute_level_sizes(sstables);
     let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), option);
@@ -167,80 +173,132 @@ pub fn generate_tasks<File: SstHandle>(
         option.max_bytes_for_level_base(),
     );
 
-    let levels_range = Vec::<KeyRange>::new();
-    let tables_in_compaction = HashSet::<usize>::new();
-
-    let result = Vec::new();
-    for source_level in source_levels_sorted {
-        let destination_level = select_level_destination(option, source_level, &target_sizes);
-    }
+    let result = {
+        let mut result = Vec::new();
+        let mut tables_in_compaction = HashSet::new();
+        for source_level in source_levels_sorted {
+            let tasks = generate_tasks_for_level(
+                source_level,
+                sstables,
+                &target_sizes,
+                &mut tables_in_compaction,
+                option,
+            );
+            result.extend(tasks)
+        }
+        result
+    };
 
     result
 }
 
-fn generate_task_for_level<File: SstHandle>(
+fn generate_tasks_for_level<'a, File: SstHandle>(
     source_level: usize,
-    sstables: &Sstables<File>,
+    sstables: &'a Sstables<File>,
     target_sizes: &[u64],
-    tables_in_compaction: &mut HashSet<usize>,
+    tables_in_compaction: &'a mut HashSet<usize>,
     option: &LeveledCompactionOptions,
-) -> Vec<(Vec<usize>, Vec<usize>)> {
+) -> impl Iterator<Item = NewCompactionTask> + 'a {
     if source_level == 0 {
         let l0_minmax = sstables.get_l0_key_minmax().unwrap();
         let destination_level = select_level_destination(option, 0, target_sizes);
-        let this_level_table_ids = sstables.levels[0].clone();
-        let next_level_table_ids: Vec<_> = sstables
-            .select_table_by_range(destination_level, &l0_minmax)
-            .scan(tables_in_compaction, |tables_in_compaction, id| {
-                let id = if tables_in_compaction.contains(&id) {
-                    None
-                } else {
-                    tables_in_compaction.insert(id);
-                    Some(id)
-                };
-                Some(id)
-            })
-            .flatten()
-            .collect();
-        vec![(this_level_table_ids, next_level_table_ids)]
+        let source_ids = sstables.levels[0].clone();
+        let destination_ids = generate_next_level_table_ids(
+            tables_in_compaction,
+            sstables,
+            &l0_minmax,
+            destination_level,
+        );
+        let task = NewCompactionTask {
+            source_level,
+            source_ids,
+            destination_level,
+            destination_ids,
+        };
+        let iter = iter::once(task);
+        Either::Left(iter)
     } else {
         // todo: by priority?
-        let x: Vec<_> = sstables
+        let iter = sstables
             .tables(source_level)
-            .scan(tables_in_compaction, |tables_in_compaction, table| {
+            .scan(tables_in_compaction, move |tables_in_compaction, table| {
                 let source_id = *table.id();
-                let x = if tables_in_compaction.contains(&source_id) {
+                let task = if tables_in_compaction.contains(&source_id) {
                     None
                 } else {
                     let minmax = table.get_key_range();
                     let destination_level = source_level + 1;
-                    let this_level_table_ids = vec![source_id];
-                    let next_level_table_ids: Vec<_> = sstables
-                        .select_table_by_range(destination_level, &minmax)
-                        .scan(tables_in_compaction, |tables_in_compaction, id| {
-                            let id = if tables_in_compaction.contains(&id) {
-                                None
-                            } else {
-                                tables_in_compaction.insert(id);
-                                Some(id)
-                            };
-                            Some(id)
-                        })
-                        .flatten()
-                        .collect();
-                    if next_level_table_ids.is_empty() {
+                    let source_ids = vec![source_id];
+                    let destination_ids = generate_next_level_table_ids(
+                        tables_in_compaction,
+                        sstables,
+                        &minmax,
+                        destination_level,
+                    );
+                    if destination_ids.is_empty() {
                         None
                     } else {
-                        Some((this_level_table_ids, next_level_table_ids))
+                        Some(NewCompactionTask {
+                            source_level,
+                            source_ids,
+                            destination_level,
+                            destination_ids,
+                        })
                     }
                 };
-                Some(x)
+                Some(task)
             })
-            .flatten()
-            .collect();
-
-        x
+            .flatten();
+        Either::Right(iter)
     }
+}
+
+async fn compact_task<'a, P: Persistent>(
+    sstables: &Sstables<P::SstHandle>,
+    task: NewCompactionTask,
+    next_sst_id: impl Fn() -> usize + Send + Sync + 'a,
+    options: &'a SstOptions,
+    persistent: &'a P,
+    watermark: Option<u64>,
+) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>> {
+    let upper_sstables = task
+        .destination_ids
+        .iter()
+        .map(|id| sstables.sstables.get(id).unwrap().as_ref());
+    let lower_sstables = task
+        .source_ids
+        .iter()
+        .map(|id| sstables.sstables.get(id).unwrap().as_ref());
+    compact_generate_new_sst(
+        upper_sstables,
+        lower_sstables,
+        next_sst_id,
+        options,
+        persistent,
+        watermark,
+    )
+    .await
+}
+
+fn generate_next_level_table_ids<File: SstHandle>(
+    tables_in_compaction: &mut HashSet<usize>,
+    sstables: &Sstables<File>,
+    source_key_range: &MinMax<KeyBytes>,
+    destination_level: usize,
+) -> Vec<usize> {
+    sstables
+        .select_table_by_range(destination_level, source_key_range)
+        .scan(tables_in_compaction, |tables_in_compaction, id| {
+            let id = if tables_in_compaction.contains(&id) {
+                None
+            } else {
+                tables_in_compaction.insert(id);
+                Some(id)
+            };
+            Some(id)
+        })
+        .flatten()
+        .collect()
 }
 
 // fn get_key_range_of_tables()
