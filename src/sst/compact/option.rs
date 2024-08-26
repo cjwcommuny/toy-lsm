@@ -10,3 +10,13 @@ pub enum CompactionOptions {
     #[default]
     NoCompaction,
 }
+
+impl CompactionOptions {
+    pub fn concurrency(&self) -> usize {
+        match self {
+            CompactionOptions::Leveled(options) => options.concurrency(),
+            CompactionOptions::Full => 1,
+            CompactionOptions::NoCompaction => 1, // todo: NoCompaction 不应该有 concurrency
+        }
+    }
+}

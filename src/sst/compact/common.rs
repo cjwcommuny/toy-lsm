@@ -20,7 +20,15 @@ use futures::future::Either;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tracing::error;
+use crate::sst::compact::leveled::compact_task;
+
+#[derive(Serialize, Deserialize, new, PartialEq, Debug)]
+pub struct NewCompactionRecord {
+    pub task: NewCompactionTask,
+    pub result_sst_ids: Vec<usize>,
+}
 
 #[derive(Serialize, Deserialize, new, PartialEq, Debug)]
 pub struct NewCompactionTask {
@@ -231,39 +239,83 @@ pub async fn compact_with_task<P: Persistent>(
 }
 
 // todo: move this function out of leveled.rs
-pub async fn force_compact<P: Persistent>(
+pub async fn force_compact<P: Persistent + Clone>(
+    old_sstables: Arc<Sstables<P::SstHandle>>,
     sstables: &mut Sstables<P::SstHandle>,
-    next_sst_id: impl Fn() -> usize + Send + Sync,
-    options: &SstOptions,
-    persistent: &P,
+    next_sst_id: impl Fn() -> usize + Send + Sync + Clone,
+    options: Arc<SstOptions>,
+    persistent: P,
     manifest: Option<&Manifest<P::ManifestHandle>>,
     watermark: Option<u64>,
 ) -> anyhow::Result<()> {
     // todo: 这个可以提到外面，就不用 clone state 了
-    let Some(task) = (match options.compaction_option() {
-        Leveled(options) => leveled::generate_task(options, sstables),
-        Full => generate_full_compaction_task(sstables),
-        NoCompaction => None,
-    }) else {
-        return Ok(());
+    use either::Either;
+
+    // todo: support other compaction
+    let tasks = match options.compaction_option() {
+        Leveled(options) => Either::Left(leveled::generate_tasks(options, sstables).into_iter()),
+        // Full => Either::Right(generate_full_compaction_task(sstables).into_iter()),
+        // NoCompaction => Either::Right(None.into_iter()),
+        _ => Either::Right(None.into_iter())
     };
 
-    let new_sst_ids = assert_send(compact_with_task(
-        sstables,
-        next_sst_id,
-        options,
-        persistent,
-        &task,
-        watermark,
-    ))
-    .await?;
+    let results = {
+        let concurrency = options.compaction_option().concurrency();
+        let semaphore = Arc::new(Semaphore::new(concurrency));
+        let mut results = Vec::new();
+        for task in tasks {
+            let permit = semaphore.acquire_owned().await?;
+            let old_sstables = old_sstables.clone();
+            let next_sst_id = next_sst_id.clone();
+            let options = options.clone();
+            let persistent = persistent.clone();
 
-    if let Some(manifest) = manifest {
-        let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
-        manifest.add_record(record).await?;
-    }
+            let result = tokio::spawn(async move {
+                let _permit = permit;
+
+                let new_ssts = compact_task(&old_sstables, &task, next_sst_id, &options, &persistent, watermark).await?;
+                let result_sst_ids = new_ssts.iter().map(|table| *table.id()).collect();
+                let record = NewCompactionRecord { task, result_sst_ids, };
+                Ok((record, new_ssts))
+            }).await??;
+
+            results.push(result);
+        }
+        results
+    };
+
+    // todo: add manifest
+
+    apply_compaction_v2();
+
+
+    // let tasks = tasks.into_iter();
+    //
+    // let new_sst_ids = assert_send(compact_with_task(
+    //     sstables,
+    //     next_sst_id,
+    //     options,
+    //     persistent,
+    //     &task,
+    //     watermark,
+    // ))
+    // .await?;
+    //
+    // if let Some(manifest) = manifest {
+    //     let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
+    //     manifest.add_record(record).await?;
+    // }
 
     Ok(())
+}
+
+pub fn apply_compaction_v2<File: SstHandle>(
+    new_ssts: Vec<Arc<SsTable<File>>>,
+    sstables: &mut Sstables<File>,
+) {
+    for sst in new_ssts {
+        sstables.sstables.insert(*sst.id(), sst);
+    }
 }
 
 #[cfg(test)]

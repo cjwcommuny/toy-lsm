@@ -253,9 +253,9 @@ fn generate_tasks_for_level<'a, File: SstHandle>(
     }
 }
 
-async fn compact_task<'a, P: Persistent>(
+pub async fn compact_task<'a, P: Persistent>(
     sstables: &Sstables<P::SstHandle>,
-    task: NewCompactionTask,
+    task: &NewCompactionTask,
     next_sst_id: impl Fn() -> usize + Send + Sync + 'a,
     options: &'a SstOptions,
     persistent: &'a P,
@@ -300,8 +300,6 @@ fn generate_next_level_table_ids<File: SstHandle>(
         .flatten()
         .collect()
 }
-
-// fn get_key_range_of_tables()
 
 pub fn generate_task<File: SstHandle>(
     compact_options: &LeveledCompactionOptions,
