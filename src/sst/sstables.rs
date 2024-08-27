@@ -19,7 +19,7 @@ use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::Flush;
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::SstHandle;
-use crate::sst::compact::common::CompactionTask;
+use crate::sst::compact::common::{CompactionTask, NewCompactionTask};
 use crate::sst::compact::CompactionOptions;
 use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
@@ -247,6 +247,20 @@ where
         let destination_level = task.destination();
         let destination_ids = self.table_ids(destination_level).clone();
         for id in &destination_ids {
+            self.sstables.remove(id);
+        }
+
+        for table in new_sst {
+            self.sstables.insert(*table.id(), table);
+        }
+    }
+
+    pub fn apply_compaction_sst_v2(
+        &mut self,
+        new_sst: Vec<Arc<SsTable<File>>>,
+        task: &NewCompactionTask,
+    ) {
+        for id in task.source_ids.iter().chain(&task.destination_ids) {
             self.sstables.remove(id);
         }
 

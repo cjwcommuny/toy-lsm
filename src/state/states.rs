@@ -32,7 +32,7 @@ pub struct LsmStorageState<P: Persistent> {
     pub(crate) state_lock: Mutex<()>,
     write_lock: Mutex<()>,
     pub(crate) persistent: P,
-    pub(crate) options: SstOptions,
+    pub(crate) options: Arc<SstOptions>,
     pub(crate) sst_id: AtomicUsize,
     mvcc: Option<Arc<LsmMvccInner>>,
     wal: Option<Wal<P::WalHandle>>,
@@ -88,7 +88,7 @@ where
             write_lock: Mutex::default(),
             state_lock: Mutex::default(),
             persistent,
-            options,
+            options: Arc::new(options),
             sst_id,
             mvcc,
             wal: Some(wal),
@@ -247,10 +247,11 @@ where
             let watermark = self.mvcc.as_ref().map(|mvcc| mvcc.watermark());
 
             force_compact(
+                new.sstables_state.clone(),
                 &mut new_sstables,
                 || self.next_sst_id(),
-                self.options(),
-                self.persistent(),
+                self.options().clone(),
+                self.persistent().clone(),
                 Some(&self.manifest),
                 watermark,
             )

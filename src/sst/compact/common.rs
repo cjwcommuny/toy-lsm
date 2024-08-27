@@ -12,17 +12,18 @@ use crate::mvcc::iterator::{WatermarkGcIter, WatermarkGcIterImpl};
 use crate::persistent::{Persistent, SstHandle};
 use crate::sst::compact::full::generate_full_compaction_task;
 use crate::sst::compact::leveled;
+use crate::sst::compact::leveled::compact_task;
 use crate::sst::compact::CompactionOptions::{Full, Leveled, NoCompaction};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
 use crate::utils::send::assert_send;
 use futures::future::Either;
+use itertools::Itertools;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::error;
-use crate::sst::compact::leveled::compact_task;
 
 #[derive(Serialize, Deserialize, new, PartialEq, Debug)]
 pub struct NewCompactionRecord {
@@ -242,7 +243,7 @@ pub async fn compact_with_task<P: Persistent>(
 pub async fn force_compact<P: Persistent + Clone>(
     old_sstables: Arc<Sstables<P::SstHandle>>,
     sstables: &mut Sstables<P::SstHandle>,
-    next_sst_id: impl Fn() -> usize + Send + Sync + Clone,
+    next_sst_id: impl Fn() -> usize + Send + Sync + Clone + 'static,
     options: Arc<SstOptions>,
     persistent: P,
     manifest: Option<&Manifest<P::ManifestHandle>>,
@@ -256,38 +257,68 @@ pub async fn force_compact<P: Persistent + Clone>(
         Leveled(options) => Either::Left(leveled::generate_tasks(options, sstables).into_iter()),
         // Full => Either::Right(generate_full_compaction_task(sstables).into_iter()),
         // NoCompaction => Either::Right(None.into_iter()),
-        _ => Either::Right(None.into_iter())
+        _ => Either::Right(None.into_iter()),
     };
 
-    let results = {
+    let (records, new_ssts) = {
         let concurrency = options.compaction_option().concurrency();
         let semaphore = Arc::new(Semaphore::new(concurrency));
-        let mut results = Vec::new();
+        let mut records = Vec::new();
+        let mut new_ssts = Vec::new();
         for task in tasks {
-            let permit = semaphore.acquire_owned().await?;
+            let permit = semaphore.clone().acquire_owned().await?;
             let old_sstables = old_sstables.clone();
             let next_sst_id = next_sst_id.clone();
             let options = options.clone();
             let persistent = persistent.clone();
 
-            let result = tokio::spawn(async move {
+            let (record, sst) = tokio::spawn(async move {
                 let _permit = permit;
 
-                let new_ssts = compact_task(&old_sstables, &task, next_sst_id, &options, &persistent, watermark).await?;
+                let new_ssts = compact_task(
+                    &old_sstables,
+                    &task,
+                    next_sst_id,
+                    &options,
+                    &persistent,
+                    watermark,
+                )
+                .await?;
                 let result_sst_ids = new_ssts.iter().map(|table| *table.id()).collect();
-                let record = NewCompactionRecord { task, result_sst_ids, };
-                Ok((record, new_ssts))
-            }).await??;
-
-            results.push(result);
+                let record = NewCompactionRecord {
+                    task,
+                    result_sst_ids,
+                };
+                Ok::<_, anyhow::Error>((record, new_ssts))
+            })
+            .await??;
+            records.push(record);
+            new_ssts.extend(sst);
         }
-        results
+        (records, new_ssts)
     };
 
     // todo: add manifest
 
-    apply_compaction_v2();
+    // remove old sst
+    for record in &records {
+        for old_id in record
+            .task
+            .source_ids
+            .iter()
+            .chain(record.task.destination_ids.iter())
+        {
+            sstables.sstables.remove(old_id);
+        }
+    }
 
+    // add new sst
+    for new_sst in new_ssts {
+        sstables.sstables.insert(*new_sst.id(), new_sst);
+    }
+
+    // modify ids
+    apply_compaction_v2(sstables, &records);
 
     // let tasks = tasks.into_iter();
     //
@@ -310,12 +341,34 @@ pub async fn force_compact<P: Persistent + Clone>(
 }
 
 pub fn apply_compaction_v2<File: SstHandle>(
-    new_ssts: Vec<Arc<SsTable<File>>>,
     sstables: &mut Sstables<File>,
+    records: &[NewCompactionRecord],
 ) {
-    for sst in new_ssts {
-        sstables.sstables.insert(*sst.id(), sst);
+    for record in records {
+        apply_compaction_v2_single(sstables, record);
     }
+}
+
+pub fn apply_compaction_v2_single<File: SstHandle>(
+    sstables: &mut Sstables<File>,
+    record: &NewCompactionRecord,
+) {
+    let source_level = sstables.table_ids_mut(record.task.source_level);
+    let (source_begin_index, _) = source_level
+        .iter()
+        .find_position(|id| **id == record.task.source_ids[0])
+        .unwrap();
+    source_level.drain(source_begin_index..source_begin_index + record.task.source_ids.len());
+
+    let destination_level = sstables.table_ids_mut(record.task.destination_level);
+    let (destination_begin_index, _) = destination_level
+        .iter()
+        .find_position(|id| **id == record.task.destination_ids[0])
+        .unwrap();
+    destination_level.splice(
+        destination_begin_index..destination_begin_index + record.task.destination_ids.len(),
+        record.result_sst_ids.iter().copied(),
+    );
 }
 
 #[cfg(test)]

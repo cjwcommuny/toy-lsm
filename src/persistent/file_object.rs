@@ -17,12 +17,16 @@ use crate::persistent::manifest_handle::ManifestFile;
 use crate::persistent::wal_handle::WalFile;
 use crate::persistent::{Persistent, SstHandle};
 
-#[derive(new)]
+#[derive(new, Clone)]
 pub struct LocalFs {
-    dir: PathBuf,
+    dir: Arc<PathBuf>,
 }
 
 impl LocalFs {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir: Arc::new(dir) }
+    }
+
     fn build_sst_path(&self, id: usize) -> PathBuf {
         self.dir.join(format!("{}.sst", id))
     }
