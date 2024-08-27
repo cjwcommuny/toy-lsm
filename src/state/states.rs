@@ -9,6 +9,7 @@ use crate::persistent::Persistent;
 use crate::sst::compact::common::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::{LsmStorageStateInner, RecoveredState};
+use crate::state::sst_id::{SstIdGenerator, SstIdGeneratorImpl};
 use crate::state::write_batch::WriteBatchRecord;
 use crate::state::Map;
 use crate::utils::vec::pop;
@@ -33,7 +34,7 @@ pub struct LsmStorageState<P: Persistent> {
     write_lock: Mutex<()>,
     pub(crate) persistent: P,
     pub(crate) options: Arc<SstOptions>,
-    pub(crate) sst_id: AtomicUsize,
+    pub(crate) sst_id: SstIdGeneratorImpl,
     mvcc: Option<Arc<LsmMvccInner>>,
     wal: Option<Wal<P::WalHandle>>,
 }
@@ -71,7 +72,7 @@ where
             Some(block_cache.clone()),
         )
         .await?;
-        let sst_id = AtomicUsize::new(next_sst_id);
+        let sst_id = SstIdGeneratorImpl::new(Arc::new(AtomicUsize::new(next_sst_id)));
 
         let mvcc = if *options.enable_mvcc() {
             Some(Arc::new(LsmMvccInner::new(initial_ts)))
@@ -155,8 +156,12 @@ where
         Ok(())
     }
 
+    pub fn sst_id_generator(&self) -> SstIdGeneratorImpl {
+        self.sst_id.clone()
+    }
+
     pub(crate) fn next_sst_id(&self) -> usize {
-        self.sst_id().fetch_add(1, Ordering::Relaxed)
+        self.sst_id.next_sst_id()
     }
 
     pub fn scan<'a>(
@@ -245,14 +250,15 @@ where
             let mut new = Clone::clone(self.inner.load().as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
             let watermark = self.mvcc.as_ref().map(|mvcc| mvcc.watermark());
+            let next_sst_id = self.sst_id_generator();
 
             force_compact(
                 new.sstables_state.clone(),
                 &mut new_sstables,
-                || self.next_sst_id(),
+                next_sst_id,
                 self.options().clone(),
                 self.persistent().clone(),
-                Some(&self.manifest),
+                Some(self.manifest.clone()),
                 watermark,
             )
             .await?;

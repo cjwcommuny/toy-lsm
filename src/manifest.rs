@@ -16,6 +16,14 @@ pub struct Manifest<File> {
     file: Arc<Mutex<File>>,
 }
 
+impl<File> Clone for Manifest<File> {
+    fn clone(&self) -> Self {
+        Self {
+            file: self.file.clone(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Debug, From)]
 pub enum ManifestRecord {
     Flush(Flush),

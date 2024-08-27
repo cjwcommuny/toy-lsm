@@ -4,8 +4,10 @@ use crate::sst::compact::common::{
     compact_generate_new_sst, CompactionTask, NewCompactionTask, SourceIndex,
 };
 use crate::sst::{SsTable, SstOptions, Sstables};
+use crate::state::sst_id::SstIdGeneratorImpl;
 use crate::utils::num::power_of_2;
 use crate::utils::range::MinMax;
+use crate::utils::send::assert_send;
 use bytes::Bytes;
 use derive_new::new;
 use either::Either;
@@ -15,6 +17,7 @@ use nom::character::complete::tab;
 use ordered_float::{NotNan, OrderedFloat};
 use std::cmp::{max, Ordering};
 use std::collections::HashSet;
+use std::future::Future;
 use std::iter;
 use std::sync::Arc;
 use typed_builder::TypedBuilder;
@@ -253,31 +256,35 @@ fn generate_tasks_for_level<'a, File: SstHandle>(
     }
 }
 
-pub async fn compact_task<'a, P: Persistent>(
-    sstables: &Sstables<P::SstHandle>,
-    task: &NewCompactionTask,
-    next_sst_id: impl Fn() -> usize + Send + Sync + 'a,
-    options: &'a SstOptions,
-    persistent: &'a P,
+pub fn compact_task<'a, P: Persistent>(
+    sstables: Arc<Sstables<P::SstHandle>>,
+    task: NewCompactionTask,
+    next_sst_id: SstIdGeneratorImpl,
+    options: Arc<SstOptions>,
+    persistent: P,
     watermark: Option<u64>,
-) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>> {
-    let upper_sstables = task
-        .destination_ids
-        .iter()
-        .map(|id| sstables.sstables.get(id).unwrap().as_ref());
-    let lower_sstables = task
-        .source_ids
-        .iter()
-        .map(|id| sstables.sstables.get(id).unwrap().as_ref());
-    compact_generate_new_sst(
-        upper_sstables,
-        lower_sstables,
-        next_sst_id,
-        options,
-        persistent,
-        watermark,
-    )
-    .await
+) -> impl Future<Output = anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>> {
+    async move {
+        let upper_sstables: Vec<_> = task
+            .destination_ids
+            .iter()
+            .map(|id| sstables.sstables.get(id).unwrap().as_ref())
+            .collect();
+        let lower_sstables: Vec<_> = task
+            .source_ids
+            .iter()
+            .map(|id| sstables.sstables.get(id).unwrap().as_ref())
+            .collect();
+        assert_send(compact_generate_new_sst(
+            upper_sstables,
+            lower_sstables,
+            next_sst_id,
+            options,
+            persistent,
+            watermark,
+        ))
+        .await
+    }
 }
 
 fn generate_next_level_table_ids<File: SstHandle>(
@@ -455,7 +462,7 @@ mod tests {
         let (state, mut sstables) = prepare_sstables(&dir).await;
         force_compact(
             &mut sstables,
-            || state.next_sst_id(),
+            state.sst_id_generator(),
             &state.options,
             &state.persistent,
             None,

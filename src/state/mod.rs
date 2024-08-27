@@ -1,6 +1,7 @@
 pub mod inner;
 mod map;
 mod mut_op;
+pub mod sst_id;
 mod states;
 pub mod write_batch;
 

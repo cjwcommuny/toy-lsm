@@ -16,6 +16,7 @@ use crate::sst::compact::leveled::compact_task;
 use crate::sst::compact::CompactionOptions::{Full, Leveled, NoCompaction};
 use crate::sst::iterator::{create_sst_concat_and_seek_to_first, SsTableIterator};
 use crate::sst::{SsTable, SsTableBuilder, SstOptions, Sstables};
+use crate::state::sst_id::{SstIdGenerator, SstIdGeneratorImpl};
 use crate::utils::send::assert_send;
 use futures::future::Either;
 use itertools::Itertools;
@@ -31,7 +32,7 @@ pub struct NewCompactionRecord {
     pub result_sst_ids: Vec<usize>,
 }
 
-#[derive(Serialize, Deserialize, new, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, new, PartialEq, Debug, Clone)]
 pub struct NewCompactionTask {
     pub source_level: usize,
     pub source_ids: Vec<usize>,
@@ -103,9 +104,9 @@ pub fn apply_compaction<File: SstHandle>(
 pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
     upper_sstables: U,
     lower_sstables: L,
-    next_sst_id: impl Fn() -> usize + Send + 'a + Sync,
-    options: &'a SstOptions,
-    persistent: &'a P,
+    next_sst_id: SstIdGeneratorImpl,
+    options: Arc<SstOptions>,
+    persistent: P,
     watermark: Option<u64>,
 ) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>
 where
@@ -137,13 +138,13 @@ where
     };
     let s: Vec<_> = assert_send(
         stream::unfold(iter, |mut iter| async {
-            let id = next_sst_id();
+            let id = next_sst_id.next_sst_id();
             let b = batch(
                 &mut iter,
                 id,
                 *options.block_size(),
                 *options.target_sst_size(),
-                persistent,
+                &persistent,
             )
             .await?;
             Some((b, iter))
@@ -197,56 +198,56 @@ where
     }
 }
 
-pub async fn compact_with_task<P: Persistent>(
-    sstables: &mut Sstables<P::SstHandle>,
-    next_sst_id: impl Fn() -> usize + Send + Sync,
-    options: &SstOptions,
-    persistent: &P,
-    task: &CompactionTask,
-    watermark: Option<u64>,
-) -> anyhow::Result<Vec<usize>> {
-    let source = task.source();
-    let source_level: Vec<_> = match task.source_index() {
-        SourceIndex::Index { index } => {
-            let source_id = *sstables.table_ids(source).get(index).unwrap();
-            let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
-            let source = iter::once(source_level);
-            source.collect()
-        }
-        SourceIndex::Full { .. } => {
-            let source = sstables.tables(source);
-            source.collect()
-        }
-    };
-
-    let destination = task.destination();
-
-    let new_sst = assert_send(compact_generate_new_sst(
-        source_level,
-        sstables.tables(destination),
-        next_sst_id,
-        options,
-        persistent,
-        watermark,
-    ))
-    .await?;
-
-    let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
-
-    sstables.apply_compaction_sst(new_sst, task);
-    sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
-
-    Ok(new_sst_ids)
-}
+// pub async fn compact_with_task<P: Persistent>(
+//     sstables: &mut Sstables<P::SstHandle>,
+//     next_sst_id: SstIdGeneratorImpl,
+//     options: Arc<SstOptions>,
+//     persistent: P,
+//     task: &CompactionTask,
+//     watermark: Option<u64>,
+// ) -> anyhow::Result<Vec<usize>> {
+//     let source = task.source();
+//     let source_level: Vec<_> = match task.source_index() {
+//         SourceIndex::Index { index } => {
+//             let source_id = *sstables.table_ids(source).get(index).unwrap();
+//             let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
+//             let source = iter::once(source_level);
+//             source.collect()
+//         }
+//         SourceIndex::Full { .. } => {
+//             let source = sstables.tables(source);
+//             source.collect()
+//         }
+//     };
+//
+//     let destination = task.destination();
+//
+//     let new_sst = assert_send(compact_generate_new_sst(
+//         source_level,
+//         sstables.tables(destination),
+//         next_sst_id,
+//         options,
+//         persistent,
+//         watermark,
+//     ))
+//     .await?;
+//
+//     let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
+//
+//     sstables.apply_compaction_sst(new_sst, task);
+//     sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
+//
+//     Ok(new_sst_ids)
+// }
 
 // todo: move this function out of leveled.rs
 pub async fn force_compact<P: Persistent + Clone>(
     old_sstables: Arc<Sstables<P::SstHandle>>,
     sstables: &mut Sstables<P::SstHandle>,
-    next_sst_id: impl Fn() -> usize + Send + Sync + Clone + 'static,
+    next_sst_id: SstIdGeneratorImpl,
     options: Arc<SstOptions>,
     persistent: P,
-    manifest: Option<&Manifest<P::ManifestHandle>>,
+    manifest: Option<Manifest<P::ManifestHandle>>,
     watermark: Option<u64>,
 ) -> anyhow::Result<()> {
     // todo: 这个可以提到外面，就不用 clone state 了
@@ -272,17 +273,17 @@ pub async fn force_compact<P: Persistent + Clone>(
             let options = options.clone();
             let persistent = persistent.clone();
 
-            let (record, sst) = tokio::spawn(async move {
+            let (record, sst) = tokio::spawn(assert_send(async move {
                 let _permit = permit;
 
-                let new_ssts = compact_task(
-                    &old_sstables,
-                    &task,
+                let new_ssts = assert_send(compact_task(
+                    old_sstables,
+                    task.clone(),
                     next_sst_id,
-                    &options,
-                    &persistent,
+                    options,
+                    persistent,
                     watermark,
-                )
+                ))
                 .await?;
                 let result_sst_ids = new_ssts.iter().map(|table| *table.id()).collect();
                 let record = NewCompactionRecord {
@@ -290,7 +291,7 @@ pub async fn force_compact<P: Persistent + Clone>(
                     result_sst_ids,
                 };
                 Ok::<_, anyhow::Error>((record, new_ssts))
-            })
+            }))
             .await??;
             records.push(record);
             new_ssts.extend(sst);
