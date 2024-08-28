@@ -143,8 +143,8 @@ async fn build_state<P: Persistent>(
                         fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
                         Ok((imm_memtables, sstables))
                     }
-                    ManifestRecord::Compaction(Compaction(task, new_sst_ids)) => {
-                        sstables.apply_compaction_sst_ids(&task, new_sst_ids);
+                    ManifestRecord::Compaction(Compaction(records)) => {
+                        sstables.apply_compaction_sst_ids(&records);
                         Ok((imm_memtables, sstables))
                     }
                 }

@@ -19,7 +19,9 @@ use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::Flush;
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::SstHandle;
-use crate::sst::compact::common::{CompactionTask, NewCompactionTask};
+use crate::sst::compact::common::{
+    apply_compaction_v2, CompactionTask, NewCompactionRecord, NewCompactionTask,
+};
 use crate::sst::compact::CompactionOptions;
 use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
@@ -221,14 +223,9 @@ where
         todo!()
     }
 
-    pub fn apply_compaction_sst_ids(&mut self, task: &CompactionTask, new_sst_ids: Vec<usize>) {
-        let source_level = task.source();
-        let source_range = task.source_index().build_range();
-        self.table_ids_mut(source_level).splice(source_range, []);
-
-        let destination_level = task.destination();
-        self.table_ids_mut(destination_level)
-            .splice(.., new_sst_ids);
+    // todo: 合并函数
+    pub fn apply_compaction_sst_ids(&mut self, records: &[NewCompactionRecord]) {
+        apply_compaction_v2(self, &records);
     }
 
     pub fn apply_compaction_sst(

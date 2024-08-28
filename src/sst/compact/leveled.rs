@@ -256,6 +256,7 @@ fn generate_tasks_for_level<'a, File: SstHandle>(
     }
 }
 
+// todo: use reference instead of Arc
 pub fn compact_task<'a, P: Persistent>(
     sstables: Arc<Sstables<P::SstHandle>>,
     task: NewCompactionTask,
@@ -265,16 +266,14 @@ pub fn compact_task<'a, P: Persistent>(
     watermark: Option<u64>,
 ) -> impl Future<Output = anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>> {
     async move {
-        let upper_sstables: Vec<_> = task
+        let upper_sstables = task
             .destination_ids
             .iter()
-            .map(|id| sstables.sstables.get(id).unwrap().as_ref())
-            .collect();
-        let lower_sstables: Vec<_> = task
+            .map(|id| sstables.sstables.get(id).unwrap().as_ref());
+        let lower_sstables = task
             .source_ids
             .iter()
-            .map(|id| sstables.sstables.get(id).unwrap().as_ref())
-            .collect();
+            .map(|id| sstables.sstables.get(id).unwrap().as_ref());
         assert_send(compact_generate_new_sst(
             upper_sstables,
             lower_sstables,

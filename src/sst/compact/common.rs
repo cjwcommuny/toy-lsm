@@ -110,10 +110,8 @@ pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
     watermark: Option<u64>,
 ) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>
 where
-    U: IntoIterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
-    U::IntoIter: Send,
-    L: IntoIterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
-    L::IntoIter: Send,
+    U: Iterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
+    L: Iterator<Item = &'a SsTable<P::SstHandle>> + Send + 'a,
 {
     // todo: non-zero level should use concat iterator
     let l0 = {
@@ -256,9 +254,8 @@ pub async fn force_compact<P: Persistent + Clone>(
     // todo: support other compaction
     let tasks = match options.compaction_option() {
         Leveled(options) => Either::Left(leveled::generate_tasks(options, sstables).into_iter()),
-        // Full => Either::Right(generate_full_compaction_task(sstables).into_iter()),
-        // NoCompaction => Either::Right(None.into_iter()),
-        _ => Either::Right(None.into_iter()),
+        Full => Either::Right(generate_full_compaction_task(sstables).into_iter()),
+        NoCompaction => Either::Right(None.into_iter()),
     };
 
     let (records, new_ssts) = {
@@ -299,8 +296,6 @@ pub async fn force_compact<P: Persistent + Clone>(
         (records, new_ssts)
     };
 
-    // todo: add manifest
-
     // remove old sst
     for record in &records {
         for old_id in record
@@ -321,22 +316,12 @@ pub async fn force_compact<P: Persistent + Clone>(
     // modify ids
     apply_compaction_v2(sstables, &records);
 
-    // let tasks = tasks.into_iter();
-    //
-    // let new_sst_ids = assert_send(compact_with_task(
-    //     sstables,
-    //     next_sst_id,
-    //     options,
-    //     persistent,
-    //     &task,
-    //     watermark,
-    // ))
-    // .await?;
-    //
-    // if let Some(manifest) = manifest {
-    //     let record = ManifestRecord::Compaction(Compaction(task, new_sst_ids));
-    //     manifest.add_record(record).await?;
-    // }
+    // todo: add manifest
+    // todo: guarantee atomicity?
+    if let Some(manifest) = manifest {
+        let record = ManifestRecord::Compaction(Compaction(records));
+        manifest.add_record(record).await?;
+    }
 
     Ok(())
 }

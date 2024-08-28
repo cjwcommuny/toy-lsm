@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 use crate::persistent::Persistent;
-use crate::sst::compact::common::CompactionTask;
+use crate::sst::compact::common::{CompactionTask, NewCompactionRecord};
 
 pub struct Manifest<File> {
     file: Arc<Mutex<File>>,
@@ -38,7 +38,7 @@ pub struct Flush(pub(crate) usize);
 pub struct NewMemtable(pub(crate) usize);
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct Compaction(pub(crate) CompactionTask, pub(crate) Vec<usize>);
+pub struct Compaction(pub(crate) Vec<NewCompactionRecord>);
 
 impl<File: ManifestHandle> Manifest<File> {
     pub async fn create<P: Persistent<ManifestHandle = File>>(persistent: &P) -> Result<Self> {
