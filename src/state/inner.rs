@@ -137,17 +137,15 @@ async fn build_state<P: Persistent>(
                 match manifest {
                     ManifestRecord::Flush(record) => {
                         fold_flush_manifest(&mut imm_memtables, &mut sstables, record)?;
-                        Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::NewMemtable(record) => {
                         fold_new_imm_memtable(&mut imm_memtables, persistent, record).await?;
-                        Ok((imm_memtables, sstables))
                     }
                     ManifestRecord::Compaction(Compaction(records)) => {
                         sstables.apply_compaction_sst_ids(&records);
-                        Ok((imm_memtables, sstables))
                     }
                 }
+                Ok((imm_memtables, sstables))
             },
         )
         .await

@@ -31,7 +31,7 @@ pub struct LeveledCompactionOptions {
     max_levels: usize,
 
     max_bytes_for_level_base: u64,
-    level0_file_num_compaction_trigger: usize,
+    // level0_file_num_compaction_trigger: usize,
 
     #[builder(default = 1)]
     concurrency: usize,
@@ -53,6 +53,7 @@ impl LeveledCompactionOptions {
     }
 }
 
+// todo: 怎么处理 last level？
 fn filter_and_sort_source_levels(
     level_sizes: &[u64],
     target_sizes: &[u64],
@@ -79,41 +80,6 @@ fn filter_and_sort_source_levels(
         .into_iter()
         .map(|(level, _)| level)
         .collect()
-}
-
-fn select_level_source(
-    level_sizes: &[u64],
-    target_sizes: &[u64],
-    max_bytes_for_level_base: u64,
-) -> Option<usize> {
-    let scores: Vec<_> = level_sizes
-        .iter()
-        .zip(target_sizes)
-        .enumerate()
-        .map(|(index, (level_size, target_size))| {
-            let denominator = if index == 0 {
-                max_bytes_for_level_base
-            } else {
-                *target_size
-            };
-            *level_size as f64 / denominator as f64
-        })
-        .collect();
-    let source = scores
-        .iter()
-        .enumerate()
-        .filter(|(_, &priority)| priority > 1.0) // 只有大于 1 才会 trigger compaction
-        .max_by(|(left_index, left), (right_index, right)| {
-            left.total_cmp(right)
-                .then_with(|| (-(*left_index as i64)).cmp(&-(*right_index as i64)))
-            // todo: make it looking better...
-        })?
-        .0;
-    if source == level_sizes.len() - 1 {
-        None
-    } else {
-        Some(source)
-    }
 }
 
 fn select_level_destination(
@@ -307,39 +273,6 @@ fn generate_next_level_table_ids<File: SstHandle>(
         .collect()
 }
 
-pub fn generate_task<File: SstHandle>(
-    compact_options: &LeveledCompactionOptions,
-    sstables: &Sstables<File>,
-) -> Option<CompactionTask> {
-    let level_sizes = compute_level_sizes(sstables);
-    let target_sizes = compute_target_sizes(*level_sizes.last().unwrap(), compact_options);
-
-    // todo: only select one source sst
-    let source = select_level_source(
-        &level_sizes,
-        &target_sizes,
-        compact_options.max_bytes_for_level_base(),
-    )?;
-    let destination = select_level_destination(compact_options, source, &target_sizes);
-
-    let (source_index, _) = sstables
-        .table_ids(source)
-        .iter()
-        .copied()
-        .enumerate()
-        .min_by(|(_, left_id), (_, right_id)| left_id.cmp(right_id))?;
-
-    let task = CompactionTask::new(
-        source,
-        SourceIndex::Index {
-            index: source_index,
-        },
-        destination,
-    );
-
-    Some(task)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
@@ -350,10 +283,8 @@ mod tests {
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::{
-        compact_with_task, force_compact, CompactionTask, SourceIndex,
-    };
-    use crate::sst::compact::leveled::{select_level_destination, select_level_source};
+    use crate::sst::compact::common::{force_compact, CompactionTask, SourceIndex};
+    use crate::sst::compact::leveled::{filter_and_sort_source_levels, generate_tasks_for_level, select_level_destination};
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
     use crate::sst::sstables::build_next_sst_id;
     use crate::sst::{SstOptions, Sstables};
@@ -361,20 +292,20 @@ mod tests {
     use crate::test_utils::insert_sst;
 
     #[test]
-    fn test_select_level_source() {
+    fn test_filter_and_sort_source_levels() {
         assert_eq!(
-            select_level_source(&[120, 301, 600], &[150, 300, 600], 300),
-            Some(1)
+            filter_and_sort_source_levels(&[120, 301, 599, 5000], &[100, 300, 600, 1000], 300),
+            vec![3, 1],
         );
         assert_eq!(
-            select_level_source(&[120, 300, 601], &[150, 300, 600], 300),
-            None
+            filter_and_sort_source_levels(&[120, 299, 1000], &[150, 300, 600], 100),
+            vec![2, 0]
         );
     }
 
     #[test]
     fn test_select_level_destination() {
-        let options = LeveledCompactionOptions::new(1, 4, 300, 1, 1);
+        let options = LeveledCompactionOptions::new(1, 4, 300, 1);
         assert_eq!(
             select_level_destination(&options, 0, &[120, 240, 480, 960]),
             1
@@ -387,6 +318,17 @@ mod tests {
             select_level_destination(&options, 2, &[75, 150, 300, 600]),
             3
         );
+    }
+
+    #[test]
+    fn test_generate_tasks() {
+        let option = LeveledCompactionOptions::builder()
+            .max_levels(4)
+            .max_bytes_for_level_base(2048)
+            .level_size_multiplier_2_exponent(1)
+            .concurrency(1)
+            .build();
+        generate_tasks_for_level()
     }
 
     #[tokio::test]
