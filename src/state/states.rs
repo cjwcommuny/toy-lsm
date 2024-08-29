@@ -21,7 +21,7 @@ use derive_getters::Getters;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 

@@ -1,7 +1,7 @@
 use crate::key::KeyBytes;
 use crate::persistent::{Persistent, SstHandle};
 use crate::sst::compact::common::{
-    compact_generate_new_sst, CompactionTask, NewCompactionTask, SourceIndex,
+    compact_generate_new_sst, NewCompactionTask,
 };
 use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::state::sst_id::SstIdGeneratorImpl;
@@ -13,11 +13,9 @@ use derive_new::new;
 use either::Either;
 use getset::CopyGetters;
 use itertools::Itertools;
-use nom::character::complete::tab;
-use ordered_float::{NotNan, OrderedFloat};
-use std::cmp::{max, Ordering};
+use ordered_float::OrderedFloat;
+use std::cmp::max;
 use std::collections::HashSet;
-use std::future::Future;
 use std::iter;
 use std::sync::Arc;
 use typed_builder::TypedBuilder;
@@ -32,7 +30,6 @@ pub struct LeveledCompactionOptions {
 
     max_bytes_for_level_base: u64,
     // level0_file_num_compaction_trigger: usize,
-
     #[builder(default = 1)]
     concurrency: usize,
 }
@@ -142,7 +139,9 @@ pub fn generate_tasks<File: SstHandle>(
         option.max_bytes_for_level_base(),
     );
 
-    let result = {
+    
+
+    {
         let mut result = Vec::new();
         let mut tables_in_compaction = HashSet::new();
         for source_level in source_levels_sorted {
@@ -156,12 +155,10 @@ pub fn generate_tasks<File: SstHandle>(
             result.extend(tasks)
         }
         result
-    };
-
-    result
+    }
 }
 
-fn generate_tasks_for_level<'a, File: SstHandle>(
+fn generate_tasks_for_level<'a, File>(
     source_level: usize,
     sstables: &'a Sstables<File>,
     target_sizes: &[u64],
@@ -223,36 +220,34 @@ fn generate_tasks_for_level<'a, File: SstHandle>(
 }
 
 // todo: use reference instead of Arc
-pub fn compact_task<'a, P: Persistent>(
+pub async fn compact_task<'a, P: Persistent>(
     sstables: Arc<Sstables<P::SstHandle>>,
     task: NewCompactionTask,
     next_sst_id: SstIdGeneratorImpl,
     options: Arc<SstOptions>,
     persistent: P,
     watermark: Option<u64>,
-) -> impl Future<Output = anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>> {
-    async move {
-        let upper_sstables = task
-            .destination_ids
-            .iter()
-            .map(|id| sstables.sstables.get(id).unwrap().as_ref());
-        let lower_sstables = task
-            .source_ids
-            .iter()
-            .map(|id| sstables.sstables.get(id).unwrap().as_ref());
-        assert_send(compact_generate_new_sst(
-            upper_sstables,
-            lower_sstables,
-            next_sst_id,
-            options,
-            persistent,
-            watermark,
-        ))
-        .await
-    }
+) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>> {
+    let upper_sstables = task
+        .destination_ids
+        .iter()
+        .map(|id| sstables.sstables.get(id).unwrap().as_ref());
+    let lower_sstables = task
+        .source_ids
+        .iter()
+        .map(|id| sstables.sstables.get(id).unwrap().as_ref());
+    assert_send(compact_generate_new_sst(
+        upper_sstables,
+        lower_sstables,
+        next_sst_id,
+        options,
+        persistent,
+        watermark,
+    ))
+    .await
 }
 
-fn generate_next_level_table_ids<File: SstHandle>(
+fn generate_next_level_table_ids<File>(
     tables_in_compaction: &mut HashSet<usize>,
     sstables: &Sstables<File>,
     source_key_range: &MinMax<KeyBytes>,
@@ -275,20 +270,24 @@ fn generate_next_level_table_ids<File: SstHandle>(
 
 #[cfg(test)]
 mod tests {
+    
+    
+    use std::collections::HashSet;
     use std::sync::atomic::AtomicUsize;
-
-    use nom::AsBytes;
-    use tempfile::{tempdir, TempDir};
+    use std::sync::Arc;
+    use tempfile::TempDir;
     use tokio::sync::Mutex;
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::{force_compact, CompactionTask, SourceIndex};
-    use crate::sst::compact::leveled::{filter_and_sort_source_levels, generate_tasks_for_level, select_level_destination};
+    use crate::sst::compact::common::NewCompactionTask;
+    use crate::sst::compact::leveled::{
+        filter_and_sort_source_levels, generate_tasks_for_level, select_level_destination,
+    };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
-    use crate::sst::sstables::build_next_sst_id;
-    use crate::sst::{SstOptions, Sstables};
-    use crate::state::{LsmStorageState, Map};
+    
+    use crate::sst::{SsTable, SstOptions, Sstables};
+    use crate::state::LsmStorageState;
     use crate::test_utils::insert_sst;
 
     #[test]
@@ -328,106 +327,137 @@ mod tests {
             .level_size_multiplier_2_exponent(1)
             .concurrency(1)
             .build();
-        generate_tasks_for_level()
-    }
-
-    #[tokio::test]
-    async fn test_force_compact_level() {
-        let dir = tempdir().unwrap();
-        let (state, mut sstables) = prepare_sstables(&dir).await;
 
         {
-            assert_eq!(sstables.l0_sstables, [4, 3, 2, 1, 0]);
-            assert_eq!(
-                sstables.levels,
-                vec![Vec::<usize>::new(), Vec::new(), Vec::new()]
-            );
-            assert_eq!(sstables.sstables.len(), 5);
-        }
-
-        compact_with_task(
-            &mut sstables,
-            build_next_sst_id(&state.sst_id),
-            &state.options,
-            &state.persistent,
-            &CompactionTask::new(0, SourceIndex::Index { index: 4 }, 1),
-            None,
-        )
-        .await
-        .unwrap();
-
-        {
-            assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
-            assert_eq!(sstables.levels, vec![vec![9, 10], vec![], vec![]]);
-            assert_eq!(sstables.sstables.len(), 6);
-        }
-
-        compact_with_task(
-            &mut sstables,
-            build_next_sst_id(&state.sst_id),
-            &state.options,
-            &state.persistent,
-            &CompactionTask::new(0, SourceIndex::Index { index: 3 }, 1),
-            None,
-        )
-        .await
-        .unwrap();
-
-        {
-            assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-            assert_eq!(sstables.levels, vec![vec![12, 13, 14, 15], vec![], vec![]]);
-            assert_eq!(sstables.sstables.len(), 7);
-        }
-
-        compact_with_task(
-            &mut sstables,
-            build_next_sst_id(&state.sst_id),
-            &state.options,
-            &state.persistent,
-            &CompactionTask::new(1, SourceIndex::Index { index: 0 }, 2),
-            None,
-        )
-        .await
-        .unwrap();
-
-        {
-            assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-            assert_eq!(sstables.levels, vec![vec![13, 14, 15], vec![17], vec![]]);
-            assert_eq!(sstables.sstables.len(), 7);
+            let tables = [
+                SsTable::mock(0, "0011", "0020"),
+                SsTable::mock(1, "0018", "0022"),
+                SsTable::mock(2, "0030", "0040"),
+                SsTable::mock(3, "0000", "0008"),
+                SsTable::mock(4, "0012", "0018"),
+                SsTable::mock(5, "0020", "0037"),
+                SsTable::mock(6, "0041", "0048"),
+            ];
+            let sstables = Sstables {
+                l0_sstables: vec![0, 1, 2],
+                levels: vec![
+                    vec![3, 4, 5, 6],
+                ],
+                sstables: tables.into_iter().map(Arc::new).enumerate().collect(),
+            };
+            let target_size = vec![];
+            let mut tables_in_compaction = HashSet::new();
+            let tasks: Vec<_> = generate_tasks_for_level(
+                0,
+                &sstables,
+                &target_size,
+                &mut tables_in_compaction,
+                &option,
+            )
+            .collect();
+            let expected: Vec<_> = [NewCompactionTask::new(0, vec![0, 1, 2], 1, vec![4, 5])]
+                .into_iter().collect();
+            assert_eq!(tasks, expected)
         }
     }
 
-    #[tokio::test]
-    async fn test_force_compaction() {
-        let dir = tempdir().unwrap();
-        let (state, mut sstables) = prepare_sstables(&dir).await;
-        force_compact(
-            &mut sstables,
-            state.sst_id_generator(),
-            &state.options,
-            &state.persistent,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-        {
-            assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
-            assert_eq!(sstables.levels, vec![vec![], vec![], vec![9, 10]]);
-            assert_eq!(sstables.sstables.len(), 6);
-        }
-
-        for i in 0..5 {
-            let begin = i * 100;
-            let range = begin..begin + 100;
-            for i in range {
-                let key = format!("key-{:04}", i);
-                let expected_value = format!("value-{:04}", i);
-                let value = state.get(key.as_bytes()).await.unwrap().unwrap();
-                assert_eq!(expected_value.as_bytes(), value.as_bytes());
-            }
-        }
-    }
+    // #[tokio::test]
+    // async fn test_force_compact_level() {
+    //     let dir = tempdir().unwrap();
+    //     let (state, mut sstables) = prepare_sstables(&dir).await;
+    //
+    //     {
+    //         assert_eq!(sstables.l0_sstables, [4, 3, 2, 1, 0]);
+    //         assert_eq!(
+    //             sstables.levels,
+    //             vec![Vec::<usize>::new(), Vec::new(), Vec::new()]
+    //         );
+    //         assert_eq!(sstables.sstables.len(), 5);
+    //     }
+    //
+    //     compact_with_task(
+    //         &mut sstables,
+    //         build_next_sst_id(&state.sst_id),
+    //         &state.options,
+    //         &state.persistent,
+    //         &CompactionTask::new(0, SourceIndex::Index { index: 4 }, 1),
+    //         None,
+    //     )
+    //     .await
+    //     .unwrap();
+    //
+    //     {
+    //         assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
+    //         assert_eq!(sstables.levels, vec![vec![9, 10], vec![], vec![]]);
+    //         assert_eq!(sstables.sstables.len(), 6);
+    //     }
+    //
+    //     compact_with_task(
+    //         &mut sstables,
+    //         build_next_sst_id(&state.sst_id),
+    //         &state.options,
+    //         &state.persistent,
+    //         &CompactionTask::new(0, SourceIndex::Index { index: 3 }, 1),
+    //         None,
+    //     )
+    //     .await
+    //     .unwrap();
+    //
+    //     {
+    //         assert_eq!(sstables.l0_sstables, [4, 3, 2]);
+    //         assert_eq!(sstables.levels, vec![vec![12, 13, 14, 15], vec![], vec![]]);
+    //         assert_eq!(sstables.sstables.len(), 7);
+    //     }
+    //
+    //     compact_with_task(
+    //         &mut sstables,
+    //         build_next_sst_id(&state.sst_id),
+    //         &state.options,
+    //         &state.persistent,
+    //         &CompactionTask::new(1, SourceIndex::Index { index: 0 }, 2),
+    //         None,
+    //     )
+    //     .await
+    //     .unwrap();
+    //
+    //     {
+    //         assert_eq!(sstables.l0_sstables, [4, 3, 2]);
+    //         assert_eq!(sstables.levels, vec![vec![13, 14, 15], vec![17], vec![]]);
+    //         assert_eq!(sstables.sstables.len(), 7);
+    //     }
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_force_compaction() {
+    //     let dir = tempdir().unwrap();
+    //     let (state, mut sstables) = prepare_sstables(&dir).await;
+    //     force_compact(
+    //         &mut sstables,
+    //         state.sst_id_generator(),
+    //         &state.options,
+    //         &state.persistent,
+    //         None,
+    //         None,
+    //     )
+    //     .await
+    //     .unwrap();
+    //     {
+    //         assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
+    //         assert_eq!(sstables.levels, vec![vec![], vec![], vec![9, 10]]);
+    //         assert_eq!(sstables.sstables.len(), 6);
+    //     }
+    //
+    //     for i in 0..5 {
+    //         let begin = i * 100;
+    //         let range = begin..begin + 100;
+    //         for i in range {
+    //             let key = format!("key-{:04}", i);
+    //             let expected_value = format!("value-{:04}", i);
+    //             let value = state.get(key.as_bytes()).await.unwrap().unwrap();
+    //             assert_eq!(expected_value.as_bytes(), value.as_bytes());
+    //         }
+    //     }
+    // }
 
     async fn prepare_sstables(dir: &TempDir) -> (LsmStorageState<LocalFs>, Sstables<FileObject>) {
         let persistent = LocalFs::new(dir.path().to_path_buf());

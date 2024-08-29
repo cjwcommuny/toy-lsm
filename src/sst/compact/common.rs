@@ -20,7 +20,6 @@ use crate::state::sst_id::{SstIdGenerator, SstIdGeneratorImpl};
 use crate::utils::send::assert_send;
 use futures::future::Either;
 use itertools::Itertools;
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 use tokio::sync::Semaphore;

@@ -6,7 +6,6 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use derive_new::new;
 
 use tokio::io::BufWriter;
 

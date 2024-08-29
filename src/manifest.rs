@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 use crate::persistent::Persistent;
-use crate::sst::compact::common::{CompactionTask, NewCompactionRecord};
+use crate::sst::compact::common::NewCompactionRecord;
 
 pub struct Manifest<File> {
     file: Arc<Mutex<File>>,
@@ -87,11 +87,12 @@ impl<File: ManifestHandle> Manifest<File> {
 mod tests {
     use crate::manifest::{Compaction, Flush, Manifest, ManifestRecord, NewMemtable};
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::{CompactionTask, SourceIndex};
+    use crate::sst::compact::common::{NewCompactionRecord, NewCompactionTask};
     use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_manifest() {
+        todo!();
         use ManifestRecord as R;
 
         let dir = tempdir().unwrap();
@@ -101,8 +102,7 @@ mod tests {
             let manifest = Manifest::create(&persistent).await.unwrap();
 
             let record = Compaction(
-                CompactionTask::new(1, SourceIndex::Index { index: 2 }, 3),
-                vec![1, 2, 3],
+                vec![NewCompactionRecord::new(NewCompactionTask::new(1, vec![2], 3, vec![]), vec![1, 2, 3])]
             );
             manifest
                 .add_record_when_init(R::Compaction(record))
@@ -122,8 +122,7 @@ mod tests {
             let (_manifest, records) = Manifest::recover(&persistent).await.unwrap();
 
             let record = Compaction(
-                CompactionTask::new(1, SourceIndex::Index { index: 2 }, 3),
-                vec![1, 2, 3],
+                vec![NewCompactionRecord::new(NewCompactionTask::new(1, vec![2], 3, vec![]), vec![1, 2, 3])]
             );
 
             assert_eq!(

@@ -5,7 +5,6 @@ use std::fmt::{Debug, Formatter};
 
 use std::iter::repeat;
 
-use bytes::Bytes;
 use futures::stream;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
@@ -109,10 +108,7 @@ impl<File> Sstables<File> {
     }
 }
 
-impl<File> Sstables<File>
-where
-    File: SstHandle,
-{
+impl<File> Sstables<File> {
     pub fn get_l0_key_minmax(&self) -> Option<MinMax<KeyBytes>> {
         self.tables(0).fold(None, |range, table| {
             let table_range = table.get_key_range();
@@ -133,7 +129,26 @@ where
             .filter(|table| table.get_key_range().overlap(range))
             .map(|table| *table.id())
     }
+    pub(super) fn tables(&self, level: usize) -> impl DoubleEndedIterator<Item = &SsTable<File>> {
+        self.table_ids(level)
+            .iter()
+            .map(|id| self.sstables.get(id).unwrap().as_ref())
+    }
 
+    pub(crate) fn table_ids(&self, level: usize) -> &Vec<usize> {
+        if level == 0 {
+            &self.l0_sstables
+        } else {
+            let ids = self.levels.get(level - 1).unwrap();
+            ids
+        }
+    }
+}
+
+impl<File> Sstables<File>
+where
+    File: SstHandle,
+{
     pub fn insert_sst(&mut self, table: Arc<SsTable<File>>) {
         self.l0_sstables.insert(0, *table.id());
         self.sstables.insert(*table.id(), table);
@@ -204,28 +219,13 @@ where
         }
     }
 
-    pub(crate) fn table_ids(&self, level: usize) -> &Vec<usize> {
-        if level == 0 {
-            &self.l0_sstables
-        } else {
-            let ids = self.levels.get(level - 1).unwrap();
-            ids
-        }
-    }
-
-    pub(super) fn tables(&self, level: usize) -> impl DoubleEndedIterator<Item = &SsTable<File>> {
-        self.table_ids(level)
-            .iter()
-            .map(|id| self.sstables.get(id).unwrap().as_ref())
-    }
-
     pub fn clean_up_files(_ids: impl IntoIterator<Item = usize>) {
         todo!()
     }
 
     // todo: 合并函数
     pub fn apply_compaction_sst_ids(&mut self, records: &[NewCompactionRecord]) {
-        apply_compaction_v2(self, &records);
+        apply_compaction_v2(self, records);
     }
 
     pub fn apply_compaction_sst(
