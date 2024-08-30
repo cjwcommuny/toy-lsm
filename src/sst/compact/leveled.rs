@@ -81,15 +81,19 @@ fn select_level_destination(
     options: &LeveledCompactionOptions,
     source: usize,
     target_sizes: &[u64],
-) -> usize {
-    assert!(source < target_sizes.len() - 1);
-    target_sizes
-        .iter()
-        .enumerate()
-        .skip(source + 2)
-        .find(|(_, &target_size)| target_size > options.max_bytes_for_level_base)
-        .map(|(level, _)| level - 1)
-        .unwrap_or(target_sizes.len() - 1)
+) -> Option<usize> {
+    if source == target_sizes.len() - 1 {
+        None
+    } else {
+        let result = target_sizes
+            .iter()
+            .enumerate()
+            .skip(source + 2)
+            .find(|(_, &target_size)| target_size > options.max_bytes_for_level_base)
+            .map(|(level, _)| level - 1)
+            .unwrap_or(target_sizes.len() - 1);
+        Some(result)
+    }
 }
 
 fn compute_level_sizes<File: SstHandle>(sstables: &Sstables<File>) -> Vec<u64> {
@@ -163,8 +167,10 @@ fn generate_tasks_for_level<'a, File>(
 ) -> impl Iterator<Item = NewCompactionTask> + 'a {
     if source_level == 0 {
         let l0_minmax = sstables.get_l0_key_minmax().unwrap();
-        let destination_level = select_level_destination(option, 0, target_sizes);
-        let source_ids = sstables.levels[0].clone();
+        let Some(destination_level) = select_level_destination(option, 0, target_sizes) else {
+            return Either::Left(iter::empty());
+        };
+        let source_ids = sstables.table_ids(0).clone();
         let destination_ids = generate_next_level_table_ids(
             tables_in_compaction,
             sstables,
@@ -178,7 +184,7 @@ fn generate_tasks_for_level<'a, File>(
             destination_ids,
         };
         let iter = iter::once(task);
-        Either::Left(iter)
+        Either::Right(Either::Left(iter))
     } else {
         // todo: by priority?
         let iter = sstables
@@ -211,7 +217,7 @@ fn generate_tasks_for_level<'a, File>(
                 Some(task)
             })
             .flatten();
-        Either::Right(iter)
+        Either::Right(Either::Right(iter))
     }
 }
 
@@ -302,20 +308,20 @@ mod tests {
         let options = LeveledCompactionOptions::new(1, 4, 300, 1);
         assert_eq!(
             select_level_destination(&options, 0, &[120, 240, 480, 960]),
-            1
+            Some(1)
         );
         assert_eq!(
             select_level_destination(&options, 0, &[75, 150, 300, 600]),
-            2
+            Some(2)
         );
         assert_eq!(
             select_level_destination(&options, 2, &[75, 150, 300, 600]),
-            3
+            Some(3)
         );
     }
 
     #[test]
-    fn test_generate_tasks() {
+    fn test_generate_tasks_l0() {
         let option = LeveledCompactionOptions::builder()
             .max_levels(4)
             .max_bytes_for_level_base(2048)
@@ -338,7 +344,7 @@ mod tests {
                 levels: vec![vec![3, 4, 5, 6]],
                 sstables: tables.into_iter().map(Arc::new).enumerate().collect(),
             };
-            let target_size = vec![];
+            let target_size = vec![1024, 1024];
             let mut tables_in_compaction = HashSet::new();
             let tasks: Vec<_> = generate_tasks_for_level(
                 0,
