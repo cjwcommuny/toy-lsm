@@ -10,7 +10,6 @@ use bytes::Bytes;
 use derive_new::new;
 use either::Either;
 use getset::CopyGetters;
-use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use std::cmp::max;
 use std::collections::HashSet;
@@ -145,80 +144,91 @@ pub fn generate_tasks<File: SstHandle>(
         let mut result = Vec::new();
         let mut tables_in_compaction = HashSet::new();
         for source_level in source_levels_sorted {
-            let tasks = generate_tasks_for_level(
-                source_level,
-                sstables,
-                &target_sizes,
-                &mut tables_in_compaction,
-                option,
-            );
-            result.extend(tasks)
+            if source_level == 0 {
+                let tasks = generate_task_for_l0(
+                    source_level,
+                    sstables,
+                    &target_sizes,
+                    &mut tables_in_compaction,
+                    option,
+                );
+                result.extend(tasks)
+            } else {
+                let tasks = generate_tasks_for_other_level(
+                    source_level,
+                    sstables,
+                    &mut tables_in_compaction,
+                );
+                result.extend(tasks)
+            }
         }
         result
     }
 }
 
-fn generate_tasks_for_level<'a, File>(
+fn generate_tasks_for_other_level<'a, File>(
+    source_level: usize,
+    sstables: &'a Sstables<File>,
+    tables_in_compaction: &'a mut HashSet<usize>,
+) -> impl Iterator<Item = NewCompactionTask> + 'a {
+    sstables
+        .tables(source_level)
+        .scan(tables_in_compaction, move |tables_in_compaction, table| {
+            let source_id = *table.id();
+            let task = if tables_in_compaction.contains(&source_id) {
+                None
+            } else {
+                let minmax = table.get_key_range();
+                let destination_level = source_level + 1;
+                let source_ids = vec![source_id];
+                let destination_ids = generate_next_level_table_ids(
+                    tables_in_compaction,
+                    sstables,
+                    &minmax,
+                    destination_level,
+                );
+                if destination_ids.is_empty() {
+                    None
+                } else {
+                    Some(NewCompactionTask {
+                        source_level,
+                        source_ids,
+                        destination_level,
+                        destination_ids,
+                    })
+                }
+            };
+            Some(task)
+        })
+        .flatten()
+}
+
+fn generate_task_for_l0<'a, File>(
     source_level: usize,
     sstables: &'a Sstables<File>,
     target_sizes: &[u64],
     tables_in_compaction: &'a mut HashSet<usize>,
     option: &LeveledCompactionOptions,
 ) -> impl Iterator<Item = NewCompactionTask> + 'a {
-    if source_level == 0 {
-        let l0_minmax = sstables.get_l0_key_minmax().unwrap();
-        let Some(destination_level) = select_level_destination(option, 0, target_sizes) else {
-            return Either::Left(iter::empty());
-        };
-        let source_ids = sstables.table_ids(0).clone();
-        let destination_ids = generate_next_level_table_ids(
-            tables_in_compaction,
-            sstables,
-            &l0_minmax,
-            destination_level,
-        );
-        let task = NewCompactionTask {
-            source_level,
-            source_ids,
-            destination_level,
-            destination_ids,
-        };
-        let iter = iter::once(task);
-        Either::Right(Either::Left(iter))
-    } else {
-        // todo: by priority?
-        let iter = sstables
-            .tables(source_level)
-            .scan(tables_in_compaction, move |tables_in_compaction, table| {
-                let source_id = *table.id();
-                let task = if tables_in_compaction.contains(&source_id) {
-                    None
-                } else {
-                    let minmax = table.get_key_range();
-                    let destination_level = source_level + 1;
-                    let source_ids = vec![source_id];
-                    let destination_ids = generate_next_level_table_ids(
-                        tables_in_compaction,
-                        sstables,
-                        &minmax,
-                        destination_level,
-                    );
-                    if destination_ids.is_empty() {
-                        None
-                    } else {
-                        Some(NewCompactionTask {
-                            source_level,
-                            source_ids,
-                            destination_level,
-                            destination_ids,
-                        })
-                    }
-                };
-                Some(task)
-            })
-            .flatten();
-        Either::Right(Either::Right(iter))
-    }
+    let l0_minmax = sstables.get_l0_key_minmax().unwrap();
+    let Some(destination_level) = select_level_destination(option, 0, target_sizes) else {
+        return Either::Left(iter::empty());
+    };
+    let source_ids = sstables.table_ids(0).clone();
+    let destination_ids = generate_next_level_table_ids(
+        tables_in_compaction,
+        sstables,
+        &l0_minmax,
+        destination_level,
+    );
+    let task = NewCompactionTask {
+        source_level,
+        source_ids,
+        destination_level,
+        destination_ids,
+    };
+    let iter = iter::once(task);
+    Either::Right(iter)
 }
 
 // todo: use reference instead of Arc
@@ -283,7 +293,7 @@ mod tests {
     use crate::persistent::LocalFs;
     use crate::sst::compact::common::NewCompactionTask;
     use crate::sst::compact::leveled::{
-        filter_and_sort_source_levels, generate_tasks_for_level, select_level_destination,
+        filter_and_sort_source_levels, generate_task_for_l0, select_level_destination,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
 
@@ -346,7 +356,7 @@ mod tests {
             };
             let target_size = vec![1024, 1024];
             let mut tables_in_compaction = HashSet::new();
-            let tasks: Vec<_> = generate_tasks_for_level(
+            let tasks: Vec<_> = generate_task_for_l0(
                 0,
                 &sstables,
                 &target_size,
