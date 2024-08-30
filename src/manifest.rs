@@ -101,7 +101,7 @@ mod tests {
             let manifest = Manifest::create(&persistent).await.unwrap();
 
             let record = Compaction(vec![NewCompactionRecord::new(
-                NewCompactionTask::new(1, vec![2], 3, vec![]),
+                NewCompactionTask::new(1, vec![2], 3, vec![7, 8, 9]),
                 vec![1, 2, 3],
             )]);
             manifest
@@ -122,7 +122,7 @@ mod tests {
             let (_manifest, records) = Manifest::recover(&persistent).await.unwrap();
 
             let record = Compaction(vec![NewCompactionRecord::new(
-                NewCompactionTask::new(1, vec![2], 3, vec![]),
+                NewCompactionTask::new(1, vec![2], 3, vec![7, 8, 9]),
                 vec![1, 2, 3],
             )]);
 
