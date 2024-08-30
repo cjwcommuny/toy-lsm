@@ -5,7 +5,6 @@ use crate::sst::Sstables;
 pub struct LeveledCompactionOptions;
 
 pub fn generate_full_compaction_task<File>(sstables: &Sstables<File>) -> Option<NewCompactionTask> {
-    let len = sstables.l0_sstables.len();
     let l0_minmax = sstables.get_l0_key_minmax().unwrap();
     let source_ids = sstables.levels[0].clone();
     let destination_level = 1;

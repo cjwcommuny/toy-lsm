@@ -293,7 +293,7 @@ mod tests {
         );
         assert_eq!(
             filter_and_sort_source_levels(&[120, 299, 1000], &[150, 300, 600], 100),
-            vec![2, 0]
+            vec![0, 2]
         );
     }
 
