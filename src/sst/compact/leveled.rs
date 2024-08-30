@@ -1,8 +1,6 @@
 use crate::key::KeyBytes;
 use crate::persistent::{Persistent, SstHandle};
-use crate::sst::compact::common::{
-    compact_generate_new_sst, NewCompactionTask,
-};
+use crate::sst::compact::common::{compact_generate_new_sst, NewCompactionTask};
 use crate::sst::{SsTable, SstOptions, Sstables};
 use crate::state::sst_id::SstIdGeneratorImpl;
 use crate::utils::num::power_of_2;
@@ -139,8 +137,6 @@ pub fn generate_tasks<File: SstHandle>(
         option.max_bytes_for_level_base(),
     );
 
-    
-
     {
         let mut result = Vec::new();
         let mut tables_in_compaction = HashSet::new();
@@ -270,8 +266,7 @@ fn generate_next_level_table_ids<File>(
 
 #[cfg(test)]
 mod tests {
-    
-    
+
     use std::collections::HashSet;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
@@ -285,7 +280,7 @@ mod tests {
         filter_and_sort_source_levels, generate_tasks_for_level, select_level_destination,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
-    
+
     use crate::sst::{SsTable, SstOptions, Sstables};
     use crate::state::LsmStorageState;
     use crate::test_utils::insert_sst;
@@ -340,9 +335,7 @@ mod tests {
             ];
             let sstables = Sstables {
                 l0_sstables: vec![0, 1, 2],
-                levels: vec![
-                    vec![3, 4, 5, 6],
-                ],
+                levels: vec![vec![3, 4, 5, 6]],
                 sstables: tables.into_iter().map(Arc::new).enumerate().collect(),
             };
             let target_size = vec![];
@@ -356,7 +349,8 @@ mod tests {
             )
             .collect();
             let expected: Vec<_> = [NewCompactionTask::new(0, vec![0, 1, 2], 1, vec![4, 5])]
-                .into_iter().collect();
+                .into_iter()
+                .collect();
             assert_eq!(tasks, expected)
         }
     }

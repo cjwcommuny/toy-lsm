@@ -153,13 +153,6 @@ async fn build_state<P: Persistent>(
 
 #[cfg(test)]
 mod tests {
-    
-    
-    
-    
-    
-    
-    
 
     // #[tokio::test]
     // async fn test_recover_state() {

@@ -92,7 +92,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_manifest() {
-        todo!();
         use ManifestRecord as R;
 
         let dir = tempdir().unwrap();
@@ -101,9 +100,10 @@ mod tests {
         {
             let manifest = Manifest::create(&persistent).await.unwrap();
 
-            let record = Compaction(
-                vec![NewCompactionRecord::new(NewCompactionTask::new(1, vec![2], 3, vec![]), vec![1, 2, 3])]
-            );
+            let record = Compaction(vec![NewCompactionRecord::new(
+                NewCompactionTask::new(1, vec![2], 3, vec![]),
+                vec![1, 2, 3],
+            )]);
             manifest
                 .add_record_when_init(R::Compaction(record))
                 .await
@@ -121,9 +121,10 @@ mod tests {
         {
             let (_manifest, records) = Manifest::recover(&persistent).await.unwrap();
 
-            let record = Compaction(
-                vec![NewCompactionRecord::new(NewCompactionTask::new(1, vec![2], 3, vec![]), vec![1, 2, 3])]
-            );
+            let record = Compaction(vec![NewCompactionRecord::new(
+                NewCompactionTask::new(1, vec![2], 3, vec![]),
+                vec![1, 2, 3],
+            )]);
 
             assert_eq!(
                 records,
