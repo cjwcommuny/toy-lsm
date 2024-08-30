@@ -293,7 +293,8 @@ mod tests {
     use crate::persistent::LocalFs;
     use crate::sst::compact::common::NewCompactionTask;
     use crate::sst::compact::leveled::{
-        filter_and_sort_source_levels, generate_task_for_l0, select_level_destination,
+        filter_and_sort_source_levels, generate_task_for_l0, generate_tasks_for_other_level,
+        select_level_destination,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
 
@@ -367,6 +368,48 @@ mod tests {
             let expected: Vec<_> = [NewCompactionTask::new(0, vec![0, 1, 2], 1, vec![4, 5])]
                 .into_iter()
                 .collect();
+            assert_eq!(tasks, expected)
+        }
+    }
+
+    #[test]
+    fn test_generate_tasks_other_level() {
+        let option = LeveledCompactionOptions::builder()
+            .max_levels(4)
+            .max_bytes_for_level_base(2048)
+            .level_size_multiplier_2_exponent(1)
+            .concurrency(1)
+            .build();
+
+        {
+            let tables = [
+                SsTable::mock(0, "0000", "0000"),
+                SsTable::mock(1, "0010", "0030"),
+                SsTable::mock(2, "0030", "0050"),
+                SsTable::mock(3, "0060", "0070"),
+                SsTable::mock(4, "0080", "0090"),
+                SsTable::mock(5, "0011", "0013"),
+                SsTable::mock(6, "0020", "0025"),
+                SsTable::mock(7, "0065", "0066"),
+                SsTable::mock(8, "0071", "0075"),
+                SsTable::mock(9, "0075", "0081"),
+                SsTable::mock(10, "0083", "0089"),
+            ];
+            let sstables = Sstables {
+                l0_sstables: vec![0, 0, 0], // not matter
+                levels: vec![vec![1, 2, 3, 4], vec![5, 6, 7, 8, 9, 10]],
+                sstables: tables.into_iter().map(Arc::new).enumerate().collect(),
+            };
+            let mut tables_in_compaction = HashSet::new();
+            let tasks: Vec<_> =
+                generate_tasks_for_other_level(1, &sstables, &mut tables_in_compaction).collect();
+            let expected: Vec<_> = [
+                NewCompactionTask::new(1, vec![1], 2, vec![5, 6]),
+                NewCompactionTask::new(1, vec![3], 2, vec![7]),
+                NewCompactionTask::new(1, vec![4], 2, vec![9, 10]),
+            ]
+            .into_iter()
+            .collect();
             assert_eq!(tasks, expected)
         }
     }
