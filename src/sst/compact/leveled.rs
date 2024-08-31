@@ -233,10 +233,10 @@ fn generate_task_for_l0<'a, File>(
 
 // todo: use reference instead of Arc
 pub async fn compact_task<'a, P: Persistent>(
-    sstables: Arc<Sstables<P::SstHandle>>,
+    sstables: &Sstables<P::SstHandle>,
     task: NewCompactionTask,
     next_sst_id: SstIdGeneratorImpl,
-    options: Arc<SstOptions>,
+    options: &SstOptions,
     persistent: P,
     watermark: Option<u64>,
 ) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>> {
@@ -286,15 +286,15 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
-    use tempfile::TempDir;
+    use tempfile::{tempdir, TempDir};
     use tokio::sync::Mutex;
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
     use crate::sst::compact::common::NewCompactionTask;
     use crate::sst::compact::leveled::{
-        filter_and_sort_source_levels, generate_task_for_l0, generate_tasks_for_other_level,
-        select_level_destination,
+        compact_task, filter_and_sort_source_levels, generate_task_for_l0,
+        generate_tasks_for_other_level, select_level_destination,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
 
@@ -428,7 +428,7 @@ mod tests {
     //         assert_eq!(sstables.sstables.len(), 5);
     //     }
     //
-    //     compact_with_task(
+    //     compact_task(
     //         &mut sstables,
     //         build_next_sst_id(&state.sst_id),
     //         &state.options,
@@ -445,7 +445,7 @@ mod tests {
     //         assert_eq!(sstables.sstables.len(), 6);
     //     }
     //
-    //     compact_with_task(
+    //     compact_task(
     //         &mut sstables,
     //         build_next_sst_id(&state.sst_id),
     //         &state.options,
@@ -462,7 +462,7 @@ mod tests {
     //         assert_eq!(sstables.sstables.len(), 7);
     //     }
     //
-    //     compact_with_task(
+    //     compact_task(
     //         &mut sstables,
     //         build_next_sst_id(&state.sst_id),
     //         &state.options,

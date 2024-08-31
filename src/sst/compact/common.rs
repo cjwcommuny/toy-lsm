@@ -104,7 +104,7 @@ pub async fn compact_generate_new_sst<'a, P: Persistent, U, L>(
     upper_sstables: U,
     lower_sstables: L,
     next_sst_id: SstIdGeneratorImpl,
-    options: Arc<SstOptions>,
+    options: &SstOptions,
     persistent: P,
     watermark: Option<u64>,
 ) -> anyhow::Result<Vec<Arc<SsTable<P::SstHandle>>>>
@@ -273,10 +273,10 @@ pub async fn force_compact<P: Persistent + Clone>(
                 let _permit = permit;
 
                 let new_ssts = assert_send(compact_task(
-                    old_sstables,
+                    old_sstables.as_ref(),
                     task.clone(),
                     next_sst_id,
-                    options,
+                    options.as_ref(),
                     persistent,
                     watermark,
                 ))
