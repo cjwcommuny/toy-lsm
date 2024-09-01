@@ -5,8 +5,8 @@ use crate::sst::Sstables;
 pub struct LeveledCompactionOptions;
 
 pub fn generate_full_compaction_task<File>(sstables: &Sstables<File>) -> Option<NewCompactionTask> {
-    let l0_minmax = sstables.get_l0_key_minmax().unwrap();
-    let source_ids = sstables.levels[0].clone();
+    let l0_minmax = sstables.get_l0_key_minmax()?;
+    let source_ids = sstables.table_ids(0).clone();
     let destination_level = 1;
     let destination_ids: Vec<_> = sstables
         .select_table_by_range(destination_level, &l0_minmax)

@@ -417,7 +417,7 @@ mod tests {
     // #[tokio::test]
     // async fn test_force_compact_level() {
     //     let dir = tempdir().unwrap();
-    //     let (state, mut sstables) = prepare_sstables(&dir).await;
+    //     let (state, sstables) = prepare_sstables(&dir).await;
     //
     //     {
     //         assert_eq!(sstables.l0_sstables, [4, 3, 2, 1, 0]);
@@ -428,58 +428,33 @@ mod tests {
     //         assert_eq!(sstables.sstables.len(), 5);
     //     }
     //
-    //     compact_task(
-    //         &mut sstables,
-    //         build_next_sst_id(&state.sst_id),
+    //     let result = compact_task(
+    //         &sstables,
+    //         NewCompactionTask{
+    //             source_level: 0,
+    //             source_ids: vec![0, 1, 2, 3, 4],
+    //             destination_level: 1,
+    //             destination_ids: vec![],
+    //         },
+    //         state.sst_id.clone(),
     //         &state.options,
-    //         &state.persistent,
-    //         &CompactionTask::new(0, SourceIndex::Index { index: 4 }, 1),
+    //         state.persistent.clone(),
     //         None,
     //     )
     //     .await
     //     .unwrap();
     //
-    //     {
-    //         assert_eq!(sstables.l0_sstables, [4, 3, 2, 1]);
-    //         assert_eq!(sstables.levels, vec![vec![9, 10], vec![], vec![]]);
-    //         assert_eq!(sstables.sstables.len(), 6);
-    //     }
-    //
-    //     compact_task(
-    //         &mut sstables,
-    //         build_next_sst_id(&state.sst_id),
-    //         &state.options,
-    //         &state.persistent,
-    //         &CompactionTask::new(0, SourceIndex::Index { index: 3 }, 1),
-    //         None,
-    //     )
-    //     .await
-    //     .unwrap();
+    //     let result_ids: Vec<_> = result.iter().map(|table| table.id).collect();
     //
     //     {
-    //         assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-    //         assert_eq!(sstables.levels, vec![vec![12, 13, 14, 15], vec![], vec![]]);
-    //         assert_eq!(sstables.sstables.len(), 7);
+    //         for table in result {
+    //
+    //         }
     //     }
     //
-    //     compact_task(
-    //         &mut sstables,
-    //         build_next_sst_id(&state.sst_id),
-    //         &state.options,
-    //         &state.persistent,
-    //         &CompactionTask::new(1, SourceIndex::Index { index: 0 }, 2),
-    //         None,
-    //     )
-    //     .await
-    //     .unwrap();
-    //
-    //     {
-    //         assert_eq!(sstables.l0_sstables, [4, 3, 2]);
-    //         assert_eq!(sstables.levels, vec![vec![13, 14, 15], vec![17], vec![]]);
-    //         assert_eq!(sstables.sstables.len(), 7);
-    //     }
+    //     assert_eq!(result_ids, Vec::<usize>::new());
     // }
-    //
+
     // #[tokio::test]
     // async fn test_force_compaction() {
     //     let dir = tempdir().unwrap();
@@ -528,7 +503,6 @@ mod tests {
             .enable_mvcc(true)
             .build();
         let state = LsmStorageState::new(options, persistent).await.unwrap();
-        let _next_sst_id = AtomicUsize::default();
         let state_lock = Mutex::default();
 
         for i in 0..5 {

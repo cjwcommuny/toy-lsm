@@ -135,10 +135,9 @@ where
     };
     let s: Vec<_> = assert_send(
         stream::unfold(iter, |mut iter| async {
-            let id = next_sst_id.next_sst_id();
             let b = batch(
                 &mut iter,
-                id,
+                &next_sst_id,
                 *options.block_size(),
                 *options.target_sst_size(),
                 &persistent,
@@ -154,7 +153,7 @@ where
 
 async fn batch<I, P>(
     iter: &mut I,
-    sst_id: usize,
+    next_sst_id: &SstIdGeneratorImpl,
     block_size: usize,
     target_sst_size: usize,
     persistent: &P,
@@ -187,7 +186,7 @@ where
         None
     } else {
         let table = builder
-            .build(sst_id, None, persistent)
+            .build(next_sst_id.next_sst_id(), None, persistent)
             .await
             .inspect_err(|err| error!(error = ?err))
             .ok()?;
@@ -309,6 +308,7 @@ pub async fn force_compact<P: Persistent + Clone>(
 
     // add new sst
     for new_sst in new_ssts {
+        dbg!(new_sst.id());
         sstables.sstables.insert(*new_sst.id(), new_sst);
     }
 
@@ -346,10 +346,11 @@ pub fn apply_compaction_v2_single<File: SstHandle>(
     source_level.drain(source_begin_index..source_begin_index + record.task.source_ids.len());
 
     let destination_level = sstables.table_ids_mut(record.task.destination_level);
-    let (destination_begin_index, _) = destination_level
+    let destination_begin_index = destination_level
         .iter()
         .find_position(|id| **id == record.task.destination_ids[0])
-        .unwrap();
+        .map(|(index, _)| index)
+        .unwrap_or(0);
     destination_level.splice(
         destination_begin_index..destination_begin_index + record.task.destination_ids.len(),
         record.result_sst_ids.iter().copied(),
