@@ -294,6 +294,7 @@ pub async fn force_compact<P: Persistent + Clone>(
         (records, new_ssts)
     };
 
+    dbg!(&records);
     // remove old sst
     for record in &records {
         for old_id in record
@@ -308,7 +309,6 @@ pub async fn force_compact<P: Persistent + Clone>(
 
     // add new sst
     for new_sst in new_ssts {
-        dbg!(new_sst.id());
         sstables.sstables.insert(*new_sst.id(), new_sst);
     }
 
@@ -339,11 +339,12 @@ pub fn apply_compaction_v2_single<File: SstHandle>(
     record: &NewCompactionRecord,
 ) {
     let source_level = sstables.table_ids_mut(record.task.source_level);
-    let (source_begin_index, _) = source_level
+    if let Some((source_begin_index, _)) = source_level
         .iter()
         .find_position(|id| **id == record.task.source_ids[0])
-        .unwrap();
-    source_level.drain(source_begin_index..source_begin_index + record.task.source_ids.len());
+    {
+        source_level.drain(source_begin_index..source_begin_index + record.task.source_ids.len());
+    }
 
     let destination_level = sstables.table_ids_mut(record.task.destination_level);
     let destination_begin_index = destination_level

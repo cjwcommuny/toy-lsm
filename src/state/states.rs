@@ -1050,7 +1050,6 @@ mod test {
 
         {
             let inner = storage.inner.load();
-            dbg!(&inner);
             let iter = construct_test_mvcc_compaction_iter(inner.as_ref()).await;
             assert_mvcc_compaction_iter(
                 iter,

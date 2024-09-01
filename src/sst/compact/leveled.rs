@@ -284,17 +284,17 @@ fn generate_next_level_table_ids<File>(
 mod tests {
 
     use std::collections::HashSet;
-    use std::sync::atomic::AtomicUsize;
+
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::TempDir;
     use tokio::sync::Mutex;
 
     use crate::persistent::file_object::FileObject;
     use crate::persistent::LocalFs;
     use crate::sst::compact::common::NewCompactionTask;
     use crate::sst::compact::leveled::{
-        compact_task, filter_and_sort_source_levels, generate_task_for_l0,
-        generate_tasks_for_other_level, select_level_destination,
+        filter_and_sort_source_levels, generate_task_for_l0, generate_tasks_for_other_level,
+        select_level_destination,
     };
     use crate::sst::compact::{CompactionOptions, LeveledCompactionOptions};
 
