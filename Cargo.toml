@@ -1,8 +1,10 @@
+cargo-features = ["edition2024"]
+
 [package]
 name = "better-mini-lsm"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.77"
+edition = "2024"
+rust-version = "1.83"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
