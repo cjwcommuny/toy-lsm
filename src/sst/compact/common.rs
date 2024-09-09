@@ -4,7 +4,6 @@ use crate::iterators::merge::MergeIteratorInner;
 
 use derive_new::new;
 use futures::{stream, Stream, StreamExt};
-use getset::CopyGetters;
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::{Compaction, Manifest, ManifestRecord};
@@ -20,7 +19,6 @@ use crate::state::sst_id::{SstIdGenerator, SstIdGeneratorImpl};
 use crate::utils::send::assert_send;
 use futures::future::Either;
 use itertools::Itertools;
-use std::ops::Range;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::error;
@@ -37,65 +35,6 @@ pub struct NewCompactionTask {
     pub source_ids: Vec<usize>,
     pub destination_level: usize,
     pub destination_ids: Vec<usize>,
-}
-
-#[derive(Serialize, Deserialize, new, CopyGetters, PartialEq, Debug)]
-#[getset(get_copy = "pub")]
-pub struct CompactionTask {
-    source: usize,
-    source_index: SourceIndex,
-    destination: usize,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
-pub enum SourceIndex {
-    Index { index: usize },
-    Full { len: usize },
-}
-
-impl SourceIndex {
-    pub fn build_range(self) -> Range<usize> {
-        match self {
-            SourceIndex::Index { index } => index..index + 1,
-            SourceIndex::Full { len } => 0..len,
-        }
-    }
-}
-
-pub fn apply_compaction<File: SstHandle>(
-    sstables: &mut Sstables<File>,
-    source: Range<usize>,
-    source_level: usize,
-    destination_level: usize,
-    new_sst: Vec<Arc<SsTable<File>>>,
-) {
-    // handle source
-    {
-        let source_ids = sstables.table_ids(source_level).clone();
-        let source_ids = &source_ids[source.clone()];
-
-        for id in source_ids {
-            sstables.sstables.remove(id);
-        }
-
-        sstables.table_ids_mut(source_level).splice(source, []);
-    }
-
-    // handle destination
-    {
-        let destination_ids = sstables.table_ids(destination_level).clone();
-        for id in &destination_ids {
-            sstables.sstables.remove(id);
-        }
-
-        sstables
-            .table_ids_mut(destination_level)
-            .splice(.., new_sst.iter().map(|table| *table.id()));
-
-        for table in new_sst {
-            sstables.sstables.insert(*table.id(), table);
-        }
-    }
 }
 
 // todo: return Stream<Item = Arc<SsTable<File>>>
@@ -236,7 +175,6 @@ where
 //     Ok(new_sst_ids)
 // }
 
-// todo: move this function out of leveled.rs
 pub async fn force_compact<P: Persistent + Clone>(
     old_sstables: Arc<Sstables<P::SstHandle>>,
     sstables: &mut Sstables<P::SstHandle>,

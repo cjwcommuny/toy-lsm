@@ -18,9 +18,7 @@ use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::Flush;
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::SstHandle;
-use crate::sst::compact::common::{
-    apply_compaction_v2, CompactionTask, NewCompactionRecord, NewCompactionTask,
-};
+use crate::sst::compact::common::{apply_compaction_v2, NewCompactionRecord, NewCompactionTask};
 use crate::sst::compact::CompactionOptions;
 use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
@@ -226,30 +224,6 @@ where
     // todo: 合并函数
     pub fn apply_compaction_sst_ids(&mut self, records: &[NewCompactionRecord]) {
         apply_compaction_v2(self, records);
-    }
-
-    pub fn apply_compaction_sst(
-        &mut self,
-        new_sst: Vec<Arc<SsTable<File>>>,
-        task: &CompactionTask,
-    ) {
-        let source_level = task.source();
-        let source_range = task.source_index().build_range();
-        let source_ids = self.table_ids(source_level).clone();
-        let source_ids = &source_ids[source_range];
-        for id in source_ids {
-            self.sstables.remove(id);
-        }
-
-        let destination_level = task.destination();
-        let destination_ids = self.table_ids(destination_level).clone();
-        for id in &destination_ids {
-            self.sstables.remove(id);
-        }
-
-        for table in new_sst {
-            self.sstables.insert(*table.id(), table);
-        }
     }
 
     pub fn apply_compaction_sst_v2(
