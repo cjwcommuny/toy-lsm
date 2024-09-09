@@ -6,8 +6,6 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use derive_new::new;
-
 use tokio::io::BufWriter;
 
 use tokio::task::spawn_blocking;
@@ -17,12 +15,16 @@ use crate::persistent::manifest_handle::ManifestFile;
 use crate::persistent::wal_handle::WalFile;
 use crate::persistent::{Persistent, SstHandle};
 
-#[derive(new)]
+#[derive(Clone)]
 pub struct LocalFs {
-    dir: PathBuf,
+    dir: Arc<PathBuf>,
 }
 
 impl LocalFs {
+    pub fn new(dir: impl Into<Arc<PathBuf>>) -> Self {
+        Self { dir: dir.into() }
+    }
+
     fn build_sst_path(&self, id: usize) -> PathBuf {
         self.dir.join(format!("{}.sst", id))
     }

@@ -1,8 +1,10 @@
+cargo-features = ["edition2024"]
+
 [package]
 name = "better-mini-lsm"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.77"
+edition = "2024"
+rust-version = "1.83"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -49,6 +51,7 @@ getset = "0.1.2"
 derive_more = { version = "1.0.0", features = ["full"] }
 tracing-futures = { version = "0.2.5", features = ["futures-03"] }
 num-traits = "0.2.19"
+maplit = "1.0.2"
 
 [dev-dependencies]
 tempfile = "3"

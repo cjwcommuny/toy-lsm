@@ -9,22 +9,22 @@ use futures::stream;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-
 use tracing::error;
 
 use crate::entry::InnerEntry;
 
 use crate::iterators::{create_merge_iter, create_two_merge_iter, MergeIterator};
-use crate::key::KeySlice;
+use crate::key::{KeyBytes, KeySlice};
 use crate::manifest::Flush;
 use crate::memtable::ImmutableMemTable;
 use crate::persistent::SstHandle;
-use crate::sst::compact::common::CompactionTask;
+use crate::sst::compact::common::{apply_compaction_v2, NewCompactionRecord, NewCompactionTask};
 use crate::sst::compact::CompactionOptions;
 use crate::sst::iterator::concat::SstConcatIterator;
 use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
 use crate::sst::option::SstOptions;
 use crate::sst::SsTable;
+use crate::utils::range::MinMax;
 
 #[derive(Default)]
 pub struct Sstables<File> {
@@ -106,6 +106,43 @@ impl<File> Sstables<File> {
     }
 }
 
+impl<File> Sstables<File> {
+    pub fn get_l0_key_minmax(&self) -> Option<MinMax<KeyBytes>> {
+        self.tables(0).fold(None, |range, table| {
+            let table_range = table.get_key_range();
+            let new_range = match range {
+                None => table_range,
+                Some(range) => range.union(table_range),
+            };
+            Some(new_range)
+        })
+    }
+
+    pub fn select_table_by_range<'a>(
+        &'a self,
+        level: usize,
+        range: &'a MinMax<KeyBytes>,
+    ) -> impl Iterator<Item = usize> + 'a {
+        self.tables(level)
+            .filter(|table| table.get_key_range().overlap(range))
+            .map(|table| *table.id())
+    }
+    pub(super) fn tables(&self, level: usize) -> impl DoubleEndedIterator<Item = &SsTable<File>> {
+        self.table_ids(level)
+            .iter()
+            .map(|id| self.sstables.get(id).unwrap().as_ref())
+    }
+
+    pub(crate) fn table_ids(&self, level: usize) -> &Vec<usize> {
+        if level == 0 {
+            &self.l0_sstables
+        } else {
+            let ids = self.levels.get(level - 1).unwrap();
+            ids
+        }
+    }
+}
+
 impl<File> Sstables<File>
 where
     File: SstHandle,
@@ -180,51 +217,21 @@ where
         }
     }
 
-    pub(crate) fn table_ids(&self, level: usize) -> &Vec<usize> {
-        if level == 0 {
-            &self.l0_sstables
-        } else {
-            let ids = self.levels.get(level - 1).unwrap();
-            ids
-        }
-    }
-
-    pub(super) fn tables(&self, level: usize) -> impl DoubleEndedIterator<Item = &SsTable<File>> {
-        self.table_ids(level)
-            .iter()
-            .map(|id| self.sstables.get(id).unwrap().as_ref())
-    }
-
     pub fn clean_up_files(_ids: impl IntoIterator<Item = usize>) {
         todo!()
     }
 
-    pub fn apply_compaction_sst_ids(&mut self, task: &CompactionTask, new_sst_ids: Vec<usize>) {
-        let source_level = task.source();
-        let source_range = task.source_index().build_range();
-        self.table_ids_mut(source_level).splice(source_range, []);
-
-        let destination_level = task.destination();
-        self.table_ids_mut(destination_level)
-            .splice(.., new_sst_ids);
+    // todo: 合并函数
+    pub fn apply_compaction_sst_ids(&mut self, records: &[NewCompactionRecord]) {
+        apply_compaction_v2(self, records);
     }
 
-    pub fn apply_compaction_sst(
+    pub fn apply_compaction_sst_v2(
         &mut self,
         new_sst: Vec<Arc<SsTable<File>>>,
-        task: &CompactionTask,
+        task: &NewCompactionTask,
     ) {
-        let source_level = task.source();
-        let source_range = task.source_index().build_range();
-        let source_ids = self.table_ids(source_level).clone();
-        let source_ids = &source_ids[source_range];
-        for id in source_ids {
-            self.sstables.remove(id);
-        }
-
-        let destination_level = task.destination();
-        let destination_ids = self.table_ids(destination_level).clone();
-        for id in &destination_ids {
+        for id in task.source_ids.iter().chain(&task.destination_ids) {
             self.sstables.remove(id);
         }
 

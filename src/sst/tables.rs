@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use bytes::Buf;
+use bytes::{Buf, Bytes};
 use derive_getters::Getters;
 use typed_builder::TypedBuilder;
 
@@ -13,6 +13,7 @@ use crate::persistent::{Persistent, SstHandle};
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::BlockFallibleIter;
 use crate::sst::BlockMeta;
+use crate::utils::range::MinMax;
 
 /// An SSTable.
 #[derive(TypedBuilder, Getters)]
@@ -23,13 +24,29 @@ pub struct SsTable<File> {
     pub(crate) block_meta: Vec<BlockMeta>,
     /// The offset that indicates the start point of meta blocks in `file`.
     pub(crate) block_meta_offset: usize,
-    id: usize,
-    block_cache: Option<Arc<BlockCache>>,
-    first_key: KeyBytes,
-    last_key: KeyBytes,
+    pub(crate) id: usize,
+    pub(crate) block_cache: Option<Arc<BlockCache>>,
+    pub(crate) first_key: KeyBytes,
+    pub(crate) last_key: KeyBytes,
     pub(crate) bloom: Option<Bloom>,
     /// The maximum timestamp stored in this SST, implemented in week 3.
     pub max_ts: u64, // todo: use Option?
+}
+
+impl SsTable<()> {
+    pub fn mock(id: usize, first_key: &str, last_key: &str) -> Self {
+        SsTable {
+            file: (),
+            block_meta: vec![],
+            block_meta_offset: 0,
+            id,
+            block_cache: None,
+            first_key: KeyBytes::new(Bytes::copy_from_slice(first_key.as_bytes()), 0),
+            last_key: KeyBytes::new(Bytes::copy_from_slice(last_key.as_bytes()), 0),
+            bloom: None,
+            max_ts: 0,
+        }
+    }
 }
 
 impl<File: SstHandle> Debug for SsTable<File> {
@@ -40,6 +57,15 @@ impl<File: SstHandle> Debug for SsTable<File> {
             .field("last_key", self.last_key())
             .field("size", &self.table_size())
             .finish()
+    }
+}
+
+impl<File> SsTable<File> {
+    pub fn get_key_range(&self) -> MinMax<KeyBytes> {
+        MinMax {
+            min: self.first_key.clone(),
+            max: self.last_key.clone(),
+        }
     }
 }
 

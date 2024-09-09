@@ -6,9 +6,10 @@ use crate::mvcc::core::LsmMvccInner;
 use crate::mvcc::iterator::LockedTxnIterWithTxn;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
-use crate::sst::compact::leveled::force_compact;
+use crate::sst::compact::common::force_compact;
 use crate::sst::{SsTableBuilder, SstOptions};
 use crate::state::inner::{LsmStorageStateInner, RecoveredState};
+use crate::state::sst_id::{SstIdGenerator, SstIdGeneratorImpl};
 use crate::state::write_batch::WriteBatchRecord;
 use crate::state::Map;
 use crate::utils::vec::pop;
@@ -20,7 +21,7 @@ use derive_getters::Getters;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -32,8 +33,8 @@ pub struct LsmStorageState<P: Persistent> {
     pub(crate) state_lock: Mutex<()>,
     write_lock: Mutex<()>,
     pub(crate) persistent: P,
-    pub(crate) options: SstOptions,
-    pub(crate) sst_id: AtomicUsize,
+    pub(crate) options: Arc<SstOptions>,
+    pub(crate) sst_id: SstIdGeneratorImpl,
     mvcc: Option<Arc<LsmMvccInner>>,
     wal: Option<Wal<P::WalHandle>>,
 }
@@ -71,7 +72,7 @@ where
             Some(block_cache.clone()),
         )
         .await?;
-        let sst_id = AtomicUsize::new(next_sst_id);
+        let sst_id = SstIdGeneratorImpl::new(Arc::new(AtomicUsize::new(next_sst_id)));
 
         let mvcc = if *options.enable_mvcc() {
             Some(Arc::new(LsmMvccInner::new(initial_ts)))
@@ -88,7 +89,7 @@ where
             write_lock: Mutex::default(),
             state_lock: Mutex::default(),
             persistent,
-            options,
+            options: Arc::new(options),
             sst_id,
             mvcc,
             wal: Some(wal),
@@ -155,8 +156,12 @@ where
         Ok(())
     }
 
+    pub fn sst_id_generator(&self) -> SstIdGeneratorImpl {
+        self.sst_id.clone()
+    }
+
     pub(crate) fn next_sst_id(&self) -> usize {
-        self.sst_id().fetch_add(1, Ordering::Relaxed)
+        self.sst_id.next_sst_id()
     }
 
     pub fn scan<'a>(
@@ -245,13 +250,15 @@ where
             let mut new = Clone::clone(self.inner.load().as_ref());
             let mut new_sstables = Clone::clone(new.sstables_state().as_ref());
             let watermark = self.mvcc.as_ref().map(|mvcc| mvcc.watermark());
+            let next_sst_id = self.sst_id_generator();
 
             force_compact(
+                new.sstables_state.clone(),
                 &mut new_sstables,
-                || self.next_sst_id(),
-                self.options(),
-                self.persistent(),
-                Some(&self.manifest),
+                next_sst_id,
+                self.options().clone(),
+                self.persistent().clone(),
+                Some(self.manifest.clone()),
                 watermark,
             )
             .await?;
@@ -968,7 +975,6 @@ mod test {
         );
     }
 
-    // todo: add test
     #[tokio::test]
     async fn test_task3_mvcc_compaction() {
         use crate::state::write_batch::WriteBatchRecord::{Del, Put};

@@ -15,7 +15,7 @@ use crate::key::KeySlice;
 use crate::persistent::SstHandle;
 use crate::sst::bloom::Bloom;
 use crate::sst::iterator::concat::SstConcatIterator;
-use crate::sst::{BlockMeta, SsTable};
+use crate::sst::{bloom, BlockMeta, SsTable};
 
 // 暂时用 box，目前 rust 不能够方便地在 struct 中存 closure
 type InnerIter<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<InnerEntry>> + Send + 'a>>;
@@ -127,10 +127,8 @@ pub struct SsTableIterator<'a, File> {
 }
 
 impl<'a, File> SsTableIterator<'a, File> {
-    pub fn may_contain(&self, _key: &[u8]) -> bool {
-        true
-        // todo
-        // bloom::may_contain(self.bloom, key)
+    pub fn may_contain(&self, key: &[u8]) -> bool {
+        bloom::may_contain(self.bloom, key)
     }
 }
 

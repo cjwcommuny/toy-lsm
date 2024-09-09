@@ -10,10 +10,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 use crate::persistent::Persistent;
-use crate::sst::compact::common::CompactionTask;
+use crate::sst::compact::common::NewCompactionRecord;
 
 pub struct Manifest<File> {
     file: Arc<Mutex<File>>,
+}
+
+impl<File> Clone for Manifest<File> {
+    fn clone(&self) -> Self {
+        Self {
+            file: self.file.clone(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, From)]
@@ -30,7 +38,7 @@ pub struct Flush(pub(crate) usize);
 pub struct NewMemtable(pub(crate) usize);
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct Compaction(pub(crate) CompactionTask, pub(crate) Vec<usize>);
+pub struct Compaction(pub(crate) Vec<NewCompactionRecord>);
 
 impl<File: ManifestHandle> Manifest<File> {
     pub async fn create<P: Persistent<ManifestHandle = File>>(persistent: &P) -> Result<Self> {
@@ -79,7 +87,7 @@ impl<File: ManifestHandle> Manifest<File> {
 mod tests {
     use crate::manifest::{Compaction, Flush, Manifest, ManifestRecord, NewMemtable};
     use crate::persistent::LocalFs;
-    use crate::sst::compact::common::{CompactionTask, SourceIndex};
+    use crate::sst::compact::common::{NewCompactionRecord, NewCompactionTask};
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -92,10 +100,10 @@ mod tests {
         {
             let manifest = Manifest::create(&persistent).await.unwrap();
 
-            let record = Compaction(
-                CompactionTask::new(1, SourceIndex::Index { index: 2 }, 3),
+            let record = Compaction(vec![NewCompactionRecord::new(
+                NewCompactionTask::new(1, vec![2], 3, vec![7, 8, 9]),
                 vec![1, 2, 3],
-            );
+            )]);
             manifest
                 .add_record_when_init(R::Compaction(record))
                 .await
@@ -113,10 +121,10 @@ mod tests {
         {
             let (_manifest, records) = Manifest::recover(&persistent).await.unwrap();
 
-            let record = Compaction(
-                CompactionTask::new(1, SourceIndex::Index { index: 2 }, 3),
+            let record = Compaction(vec![NewCompactionRecord::new(
+                NewCompactionTask::new(1, vec![2], 3, vec![7, 8, 9]),
                 vec![1, 2, 3],
-            );
+            )]);
 
             assert_eq!(
                 records,

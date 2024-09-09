@@ -2,7 +2,7 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub trait Persistent: Send + Sync + 'static {
+pub trait Persistent: Send + Sync + Clone + 'static {
     type SstHandle: SstHandle;
     type WalHandle: WalHandle;
     type ManifestHandle: ManifestHandle;
