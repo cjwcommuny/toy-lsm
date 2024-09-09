@@ -374,13 +374,6 @@ mod tests {
 
     #[test]
     fn test_generate_tasks_other_level() {
-        let option = LeveledCompactionOptions::builder()
-            .max_levels(4)
-            .max_bytes_for_level_base(2048)
-            .level_size_multiplier_2_exponent(1)
-            .concurrency(1)
-            .build();
-
         {
             let tables = [
                 SsTable::mock(0, "0000", "0000"),
@@ -414,6 +407,7 @@ mod tests {
         }
     }
 
+    // todo: add test
     // #[tokio::test]
     // async fn test_force_compact_level() {
     //     let dir = tempdir().unwrap();
