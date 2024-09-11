@@ -64,7 +64,7 @@ maplit = "1.0.2"
 unsafe_code = "forbid"
 
 [[bench]]
-name = "ycsb"
+name = "benches_agate_rocks"
 harness = false
 
 [profile.test]

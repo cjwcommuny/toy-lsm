@@ -2,10 +2,10 @@ mod common;
 
 use std::{
     ops::Add,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
+use crate::common::build_rocks_db;
 use common::{remove_files, rocks_iterate, rocks_populate, rocks_randread};
 use criterion::{criterion_group, criterion_main, Criterion};
 
@@ -34,7 +34,7 @@ fn bench_rocks(c: &mut Criterion) {
 
             (0..iters).for_each(|_| {
                 remove_files(dir_path);
-                let db = Arc::new(rocksdb::DB::open(&opts, &dir).unwrap());
+                let db = build_rocks_db(&opts, &dir);
 
                 let now = Instant::now();
                 rocks_populate(db, KEY_NUMS, CHUNK_SIZE, BATCH_SIZE, SMALL_VALUE_SIZE, true);
@@ -51,7 +51,7 @@ fn bench_rocks(c: &mut Criterion) {
 
             (0..iters).for_each(|_| {
                 remove_files(dir_path);
-                let db = Arc::new(rocksdb::DB::open(&opts, &dir).unwrap());
+                let db = build_rocks_db(&opts, &dir);
 
                 let now = Instant::now();
                 rocks_populate(
@@ -69,7 +69,7 @@ fn bench_rocks(c: &mut Criterion) {
         });
     });
 
-    let db = Arc::new(rocksdb::DB::open(&opts, &dir).unwrap());
+    let db = build_rocks_db(&opts, &dir);
 
     c.bench_function("rocks randread small value", |b| {
         b.iter(|| {
@@ -94,7 +94,7 @@ fn bench_rocks(c: &mut Criterion) {
 
             (0..iters).for_each(|_| {
                 remove_files(dir_path);
-                let db = Arc::new(rocksdb::DB::open(&opts, &dir).unwrap());
+                let db = build_rocks_db(&opts, &dir);
 
                 let now = Instant::now();
                 rocks_populate(db, KEY_NUMS, CHUNK_SIZE, BATCH_SIZE, LARGE_VALUE_SIZE, true);
@@ -111,7 +111,7 @@ fn bench_rocks(c: &mut Criterion) {
 
             (0..iters).for_each(|_| {
                 remove_files(dir_path);
-                let db = Arc::new(rocksdb::DB::open(&opts, &dir).unwrap());
+                let db = build_rocks_db(&opts, &dir);
 
                 let now = Instant::now();
                 rocks_populate(
@@ -129,7 +129,7 @@ fn bench_rocks(c: &mut Criterion) {
         });
     });
 
-    let db = Arc::new(rocksdb::DB::open(&opts, &dir).unwrap());
+    let db = build_rocks_db(&opts, &dir);
 
     c.bench_function("rocks randread large value", |b| {
         b.iter(|| {
