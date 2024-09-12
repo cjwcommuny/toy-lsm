@@ -135,7 +135,7 @@ pub fn build_rocks_db(opts: &rocksdb::Options, dir: impl AsRef<Path>) -> Arc<Roc
     Arc::new(RocksdbWithWriteOpt { db, write_options })
 }
 
-pub fn rocks_populate<D: Database>(
+pub fn populate<D: Database>(
     db: Arc<D>,
     key_nums: u64,
     chunk_size: u64,
@@ -177,7 +177,7 @@ pub fn rocks_populate<D: Database>(
         .for_each(|handle| handle.join().unwrap());
 }
 
-pub fn rocks_randread<D: Database>(db: Arc<D>, key_nums: u64, chunk_size: u64, value_size: usize) {
+pub fn randread<D: Database>(db: Arc<D>, key_nums: u64, chunk_size: u64, value_size: usize) {
     let mut handles = vec![];
 
     for chunk_start in (0..key_nums).step_by(chunk_size as usize) {
@@ -208,7 +208,7 @@ pub fn rocks_randread<D: Database>(db: Arc<D>, key_nums: u64, chunk_size: u64, v
         .for_each(|handle| handle.join().unwrap());
 }
 
-pub fn rocks_iterate<D: Database>(db: Arc<D>, key_nums: u64, chunk_size: u64, value_size: usize) {
+pub fn iterate<D: Database>(db: Arc<D>, key_nums: u64, chunk_size: u64, value_size: usize) {
     let mut handles = vec![];
 
     for chunk_start in (0..key_nums).step_by(chunk_size as usize) {
