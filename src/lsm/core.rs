@@ -1,4 +1,5 @@
 use std::future::{ready, Future};
+use std::ops::Bound;
 use std::sync::Arc;
 
 use std::time::Duration;
@@ -16,6 +17,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
+use crate::lsm::iter::LsmIter;
 use crate::state::write_batch::WriteBatchRecord;
 
 pub struct Lsm<P: Persistent> {
@@ -87,6 +89,15 @@ impl<P: Persistent> Lsm<P> {
 
     pub async fn put_batch(&self, batch: &[WriteBatchRecord]) -> anyhow::Result<()> {
         self.state.put_batch(batch).await
+    }
+
+    pub fn scan<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> LsmIter<'a, P> {
+        let iter = self.state.scan(lower, upper);
+        LsmIter::new(self, iter)
     }
 }
 
