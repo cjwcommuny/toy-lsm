@@ -8,6 +8,13 @@ use std::{
     sync::Arc,
     time::UNIX_EPOCH,
 };
+use std::collections::HashMap;
+use parking_lot::{Mutex, RwLock};
+use tokio::runtime::Runtime;
+use better_mini_lsm::lsm::core::Lsm;
+use better_mini_lsm::persistent::LocalFs;
+use better_mini_lsm::state::Map;
+use better_mini_lsm::state::write_batch::WriteBatchRecord;
 
 pub fn rand_value() -> String {
     let v = rand::thread_rng()
@@ -56,6 +63,76 @@ pub trait Database: Send + Sync + 'static {
         begin: impl AsRef<[u8]>,
     ) -> impl Iterator<Item = Result<(Bytes, Bytes), Self::Error>>;
 }
+
+pub struct MyDbWithRuntime {
+    db: Lsm<LocalFs>,
+    runtime: Runtime,
+}
+
+// impl Database for MyDbWithRuntime {
+//     type Error = ();
+//
+//     fn write_batch(&self, kvs: impl Iterator<Item=(Bytes, Bytes)>) -> Result<(), Self::Error> {
+//         todo!()
+//     }
+//
+//     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>, Self::Error> {
+//         todo!()
+//     }
+//
+//     fn iter(&self, begin: impl AsRef<[u8]>) -> impl Iterator<Item=Result<(Bytes, Bytes), Self::Error>> {
+//         todo!()
+//     }
+// }
+
+pub struct MyDbWithMap {
+    db: Lsm<LocalFs>,
+    map: RwLock<HashMap<Bytes, Bytes>>,
+    runtime: Runtime,
+}
+//
+// impl Database for MyDbWithMap {
+//     type Error = anyhow::Error;
+//
+//     fn write_batch(&self, kvs: impl Iterator<Item=(Bytes, Bytes)>) -> Result<(), Self::Error> {
+//         let batch: Vec<_> = kvs.into_iter().map(|(key, value)| WriteBatchRecord::Put(key, value)).collect();
+//
+//         self.runtime.block_on(async {
+//
+//             self.db.put(key.clone(), value.clone()).await
+//         })?;
+//
+//         // todo: use write batch
+//         for (key, value) in kvs {
+//             self.runtime.block_on(async {
+//
+//                 self.db.put(key.clone(), value.clone()).await
+//             })?;
+//             {
+//                 let mut guard = self.map.write();
+//                 guard.insert(key, value);
+//             }
+//         }
+//         Ok(())
+//     }
+//
+//     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>, Self::Error> {
+//         let key = key.as_ref();
+//         let value = self.runtime.block_on(async {
+//             self.db.get(key).await
+//         })?;
+//         let value_expected = {
+//             let guard = self.map.read();
+//             guard.get(key).map(|b| b.clone())
+//         };
+//         assert_eq!(value, value_expected);
+//         Ok(value.map(Into::into))
+//     }
+//
+//     fn iter(&self, begin: impl AsRef<[u8]>) -> impl Iterator<Item=Result<(Bytes, Bytes), Self::Error>> {
+//         todo!()
+//     }
+// }
 
 pub struct RocksdbWithWriteOpt {
     db: DB,

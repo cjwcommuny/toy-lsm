@@ -16,6 +16,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
+use crate::state::write_batch::WriteBatchRecord;
 
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
@@ -82,6 +83,10 @@ impl<P: Persistent> Lsm<P> {
                 })
                 .await;
         })
+    }
+
+    pub async fn put_batch(&self, batch: &[WriteBatchRecord]) -> anyhow::Result<()> {
+        self.state.put_batch(batch).await
     }
 }
 
