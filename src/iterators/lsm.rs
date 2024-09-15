@@ -3,10 +3,13 @@ use std::collections::Bound;
 
 use std::iter;
 use std::ops::Deref;
+use std::pin::Pin;
 use std::sync::Arc;
-
+use std::task::{Context, Poll};
 use derive_new::new;
 use futures::{stream, Stream, StreamExt};
+use num_traits::Bounded;
+use ouroboros::self_referencing;
 use tracing::error;
 
 use crate::entry::{Entry, InnerEntry, Keyed};
@@ -16,7 +19,7 @@ use crate::iterators::{
 };
 use crate::key::Key;
 use crate::memtable::MemTableIterator;
-use crate::mvcc::iterator::{build_time_dedup_iter, transform_bound};
+use crate::mvcc::iterator::{build_time_dedup_iter, transform_bound, TxnWithRange};
 use crate::persistent::Persistent;
 use crate::sst::iterator::MergedSstIterator;
 use crate::state::LsmStorageStateInner;
@@ -30,8 +33,52 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
     MergedSstIterator<'a, File>,
 >;
 
+#[self_referencing]
+pub struct LsmIterImpl<'a, P: Persistent> {
+    state: LsmWithRange<'a, P>,
+
+    #[borrows(state)]
+    #[covariant]
+    iter: LsmIterator<'this>,
+}
+
+impl<'a, P: Persistent> LsmIterImpl<'a, P> {
+    pub async fn try_build(
+        state: Arc<LsmStorageStateInner<P>>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+        timestamp: u64,
+    ) -> anyhow::Result<Self> {
+        let guard = LsmWithRange {
+            state,
+            lower,
+            upper,
+            timestamp,
+        };
+
+        LsmIterImpl::try_new_async(guard, |guard| Box::pin(guard.iter())).await
+    }
+}
+
+trait AssertUnpin: Unpin {}
+
+impl<'a, P: Persistent> AssertUnpin for LsmIterImpl<'a, P> {}
+
+impl<'a, P: Persistent> Stream for LsmIterImpl<'a, P> {
+    type Item = anyhow::Result<Entry>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = Pin::into_inner(self);
+        let result = this.with_iter_mut(|iter| {
+            let pinned = Pin::new(iter);
+            pinned.poll_next(cx)
+        });
+        result
+    }
+}
+
 #[derive(new)]
-pub struct LockedLsmIter<'a, P: Persistent> {
+pub struct LsmWithRange<'a, P: Persistent> {
     state: Arc<LsmStorageStateInner<P>>,
     pub(crate) lower: Bound<&'a [u8]>,
     pub(crate) upper: Bound<&'a [u8]>,
@@ -44,7 +91,7 @@ fn assert_tuple_stream(_s: &impl Stream<Item = anyhow::Result<(Keyed<Bytes, Byte
 
 fn assert_result_stream(_s: &impl Stream<Item = anyhow::Result<Keyed<Bytes, Bytes>>>) {}
 
-impl<'a, P> LockedLsmIter<'a, P>
+impl<'a, P> LsmWithRange<'a, P>
 where
     P: Persistent,
 {

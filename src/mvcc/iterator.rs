@@ -1,9 +1,9 @@
 use crate::bound::BoundRange;
 use crate::entry::{Entry, InnerEntry, Keyed};
 use crate::iterators::inspect::{InspectIter, InspectIterImpl};
-use crate::iterators::lsm::LsmIterator;
+use crate::iterators::lsm::{LsmIterImpl, LsmIterator};
 use crate::iterators::no_deleted::new_no_deleted_iter;
-use crate::iterators::{create_two_merge_iter, LockedLsmIter};
+use crate::iterators::{create_two_merge_iter, LsmWithRange};
 use crate::key::KeyBytes;
 use crate::mvcc::transaction::{RWSet, Transaction};
 use crate::persistent::Persistent;
@@ -25,12 +25,28 @@ struct TxnWithBound<'a, P: Persistent> {
 }
 
 #[self_referencing]
+pub struct TxnLsmIter<'a, P: Persistent> {
+    state: TxnWithRange2<'a, P>,
+
+    #[borrows(state)]
+    #[covariant]
+    iter: LsmIterator<'this>,
+}
+
+// impl<'a, P: Persistent> TxnLsmIter<'a, P> {
+//     pub async fn try_build(txn: Transaction<'a, P>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> anyhow::Result<Self> {
+//         let state = TxnWithRange2{txn, lower, upper};
+//         Self::try_new_async(state, |state| state.txn.scan(state.lower, state.upper))
+//     }
+// }
+
+#[self_referencing]
 pub struct LockedTxnIterWithTxn<'a, P: Persistent> {
     txn: TxnWithBound<'a, P>,
 
     #[borrows(txn)]
     #[covariant]
-    iter: LockedTxnIter<'this, P>,
+    iter: TxnWithRange<'this, P>,
 }
 
 impl<'a, P: Persistent> LockedTxnIterWithTxn<'a, P> {
@@ -45,14 +61,27 @@ impl<'a, P: Persistent> LockedTxnIterWithTxn<'a, P> {
     }
 }
 
+pub struct TxnWithRange2<'a, P: Persistent> {
+    txn: Transaction<'a, P>,
+    lower: Bound<&'a [u8]>,
+    upper: Bound<&'a [u8]>,
+}
+
+// impl<'a, P: Persistent> TxnWithRange2<'a, P> {
+//     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
+//         let lsm_iter = LsmIterImpl::try_build()
+//     }
+// }
+
+
 #[derive(new)]
-pub struct LockedTxnIter<'a, P: Persistent> {
+pub struct TxnWithRange<'a, P: Persistent> {
     local_storage: &'a SkipMap<Bytes, Bytes>,
-    lsm_iter: LockedLsmIter<'a, P>,
+    lsm_iter: LsmWithRange<'a, P>,
     key_hashes: Option<&'a ScopedMutex<RWSet>>,
 }
 
-impl<'a, P: Persistent> LockedTxnIter<'a, P> {
+impl<'a, P: Persistent> TxnWithRange<'a, P> {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
         let lsm_iter = self.lsm_iter.iter_with_delete().await?;
         let local_iter = txn_local_iterator(

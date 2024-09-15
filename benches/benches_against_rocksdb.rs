@@ -149,7 +149,7 @@ fn bench_rocks(c: &mut Criterion) {
     let mut opts = rocksdb::Options::default();
     opts.create_if_missing(true);
     opts.set_compression_type(rocksdb::DBCompressionType::None);
-    
+
     bench(c, "rocks", |dir| build_rocks_db(&opts, dir));
 }
 

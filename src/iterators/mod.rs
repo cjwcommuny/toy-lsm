@@ -8,7 +8,7 @@ mod ok_iter;
 pub mod two_merge;
 pub mod utils;
 
-pub use lsm::LockedLsmIter;
+pub use lsm::LsmWithRange;
 pub use maybe_empty::{MaybeEmptyStream, NonEmptyStream};
 pub use merge::{create_merge_iter, create_merge_iter_from_non_empty_iters, MergeIterator};
 

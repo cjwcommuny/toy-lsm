@@ -8,9 +8,10 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use crate::entry::Entry;
-use crate::iterators::LockedLsmIter;
+use crate::iterators::lsm::{LsmIterImpl, LsmIterator};
+use crate::iterators::LsmWithRange;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
-use crate::mvcc::iterator::LockedTxnIter;
+use crate::mvcc::iterator::TxnWithRange;
 use crate::persistent::Persistent;
 use crate::state::write_batch::WriteBatchRecord;
 use crate::state::{LsmStorageState, Map};
@@ -122,10 +123,10 @@ impl<'a, P: Persistent> Transaction<'a, P> {
     }
 
     // todo: no need for Result?
-    pub fn scan(&'a self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LockedTxnIter<'a, P> {
+    pub fn scan(&'a self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> TxnWithRange<'a, P> {
         let inner = self.state.inner.load_full();
-        let inner_iter = LockedLsmIter::new(inner, lower, upper, self.read_ts);
-        let guard = LockedTxnIter::new(&self.local_storage, inner_iter, self.key_hashes.as_ref());
+        let inner_iter = LsmWithRange::new(inner, lower, upper, self.read_ts);
+        let guard = TxnWithRange::new(&self.local_storage, inner_iter, self.key_hashes.as_ref());
         guard
     }
 
