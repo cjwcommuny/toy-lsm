@@ -3,6 +3,7 @@ use futures::stream;
 use futures::stream::{StreamExt, TryStreamExt};
 use std::cmp::max;
 use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
 use std::sync::Arc;
 use typed_builder::TypedBuilder;
 
@@ -18,6 +19,8 @@ pub struct RecoveredState<P: Persistent> {
     pub next_sst_id: usize,
     pub initial_ts: u64,
 }
+
+pub trait DerefLsmState<P: Persistent>: Deref<Target = LsmStorageStateInner<P>> + Sync {}
 
 #[derive(Getters, TypedBuilder)]
 pub struct LsmStorageStateInner<P: Persistent> {

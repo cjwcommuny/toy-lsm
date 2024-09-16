@@ -232,7 +232,6 @@ pub async fn force_compact<P: Persistent + Clone>(
         (records, new_ssts)
     };
 
-    dbg!(&records);
     // remove old sst
     for record in &records {
         for old_id in record

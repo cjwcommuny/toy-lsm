@@ -1,12 +1,15 @@
 use std::future::{ready, Future};
+use std::ops::Bound;
 use std::sync::Arc;
 
 use std::time::Duration;
 
 use bytes::Bytes;
 
+use crate::iterators::lsm::LsmIterator;
 use crate::persistent::Persistent;
 use crate::sst::SstOptions;
+use crate::state::write_batch::WriteBatchRecord;
 use crate::state::{LsmStorageState, Map};
 use futures::{FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
@@ -82,6 +85,18 @@ impl<P: Persistent> Lsm<P> {
                 })
                 .await;
         })
+    }
+
+    pub async fn put_batch(&self, batch: &[WriteBatchRecord]) -> anyhow::Result<()> {
+        self.state.put_batch(batch).await
+    }
+
+    pub async fn scan<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> anyhow::Result<LsmIterator<'a>> {
+        self.state.scan(lower, upper).await
     }
 }
 

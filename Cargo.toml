@@ -52,6 +52,7 @@ derive_more = { version = "1.0.0", features = ["full"] }
 tracing-futures = { version = "0.2.5", features = ["futures-03"] }
 num-traits = "0.2.19"
 maplit = "1.0.2"
+rocksdb = { version = "0.22" }
 
 [dev-dependencies]
 tempfile = "3"
@@ -63,7 +64,7 @@ maplit = "1.0.2"
 unsafe_code = "forbid"
 
 [[bench]]
-name = "ycsb"
+name = "benches_against_rocksdb"
 harness = false
 
 [profile.test]

@@ -1,9 +1,10 @@
 use crate::block::BlockCache;
 use crate::entry::Entry;
+use crate::iterators::lsm::LsmIterator;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::mvcc::core::LsmMvccInner;
-use crate::mvcc::iterator::LockedTxnIterWithTxn;
+use crate::mvcc::iterator::TxnIter;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::common::force_compact;
@@ -164,14 +165,16 @@ where
         self.sst_id.next_sst_id()
     }
 
-    pub fn scan<'a>(
+    pub async fn scan<'a>(
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> LockedTxnIterWithTxn<'a, P> {
+    ) -> anyhow::Result<LsmIterator<'a>> {
         // todo: remove unwrap
         let txn = self.new_txn().unwrap();
-        LockedTxnIterWithTxn::new_(txn, lower, upper)
+        let txn = TxnIter::try_build(txn, lower, upper).await?;
+        let iter = Box::new(txn) as _;
+        Ok(iter)
     }
 }
 
@@ -379,6 +382,7 @@ mod test {
     use futures::{stream, Stream, StreamExt};
     use std::collections::Bound;
     use std::ops::Bound::{Excluded, Included, Unbounded};
+
     use tempfile::{tempdir, TempDir};
 
     use crate::entry::{Entry, InnerEntry};
@@ -552,24 +556,26 @@ mod test {
         storage.put_for_test(b"3", b"233333").await.unwrap();
 
         {
-            let guard = storage.scan(Bound::Unbounded, Bound::Unbounded);
+            let iter = storage
+                .scan(Unbounded, Unbounded)
+                .await
+                .unwrap()
+                .map(Result::unwrap);
             assert!(
                 eq(
-                    guard.iter().await.unwrap().map(Result::unwrap),
+                    iter,
                     build_stream([("1", "233333"), ("3", "233333"), ("4", "23333"),])
                 )
                 .await
             );
         }
         {
-            let guard = storage.scan(Bound::Included(b"2"), Bound::Included(b"3"));
-            assert!(
-                eq(
-                    guard.iter().await.unwrap().map(Result::unwrap),
-                    build_stream([("3", "233333")])
-                )
+            let iter = storage
+                .scan(Included(b"2"), Included(b"3"))
                 .await
-            );
+                .unwrap()
+                .map(Result::unwrap);
+            assert!(eq(iter, build_stream([("3", "233333")])).await);
         }
     }
 
@@ -626,9 +632,8 @@ mod test {
             assert_eq!(inner.imm_memtables().len(), 2);
         }
         {
-            let guard = storage.scan(Unbounded, Unbounded);
-            let iter = guard
-                .iter()
+            let iter = storage
+                .scan(Unbounded, Unbounded)
                 .await
                 .unwrap()
                 .map(Result::unwrap)
@@ -646,29 +651,23 @@ mod test {
         }
 
         {
-            let iter = storage.scan(Bound::Included(b"1"), Bound::Included(b"2"));
-            assert_stream_eq(
-                iter.iter()
-                    .await
-                    .unwrap()
-                    .map(Result::unwrap)
-                    .map(Entry::into_tuple),
-                build_tuple_stream([("2", "2333")]),
-            )
-            .await;
+            let iter = storage
+                .scan(Included(b"1"), Included(b"2"))
+                .await
+                .unwrap()
+                .map(Result::unwrap)
+                .map(Entry::into_tuple);
+            assert_stream_eq(iter, build_tuple_stream([("2", "2333")])).await;
         }
 
         {
-            let iter = storage.scan(Bound::Excluded(b"1"), Bound::Excluded(b"3"));
-            assert_stream_eq(
-                iter.iter()
-                    .await
-                    .unwrap()
-                    .map(Result::unwrap)
-                    .map(Entry::into_tuple),
-                build_tuple_stream([("2", "2333")]),
-            )
-            .await;
+            let iter = storage
+                .scan(Excluded(b"1"), Excluded(b"3"))
+                .await
+                .unwrap()
+                .map(Result::unwrap)
+                .map(Entry::into_tuple);
+            assert_stream_eq(iter, build_tuple_stream([("2", "2333")])).await;
         }
     }
 
@@ -1193,10 +1192,14 @@ mod test {
         drop(txn3);
 
         {
-            let guard = storage.scan(Unbounded, Unbounded);
-            let iter = guard.iter().await.unwrap();
+            let iter = storage
+                .scan(Unbounded, Unbounded)
+                .await
+                .unwrap()
+                .map(Result::unwrap)
+                .map(Entry::into_tuple);
             assert_stream_eq(
-                iter.map(Result::unwrap).map(Entry::into_tuple),
+                iter,
                 build_tuple_stream([("test1", "233"), ("test2", "233")]),
             )
             .await;
@@ -1256,13 +1259,13 @@ mod test {
         upper: Bound<&[u8]>,
         expected: impl IntoIterator<Item = (&'static str, &'static str)>,
     ) {
-        let guard = snapshot.scan(lower, upper);
-        let iter = guard.iter().await.unwrap();
-        assert_stream_eq(
-            iter.map(Result::unwrap).map(Entry::into_tuple),
-            build_tuple_stream(expected),
-        )
-        .await;
+        let iter = snapshot
+            .scan(lower, upper)
+            .await
+            .unwrap()
+            .map(Result::unwrap)
+            .map(Entry::into_tuple);
+        assert_stream_eq(iter, build_tuple_stream(expected)).await;
     }
 
     async fn assert_mvcc_compaction_iter(
@@ -1365,8 +1368,7 @@ mod test {
         txn1.commit().await.unwrap();
 
         {
-            let guard = txn2.scan(Unbounded, Unbounded);
-            let mut iter = guard.iter().await.unwrap();
+            let mut iter = txn2.scan(Unbounded, Unbounded).await.unwrap();
             while let Some(entry) = iter.next().await {
                 // todo: check entry
                 let _entry = entry.unwrap();
@@ -1401,8 +1403,7 @@ mod test {
         txn2.get_for_test(b"key1").await.unwrap().unwrap();
 
         {
-            let guard = txn2.scan(Unbounded, Unbounded);
-            let mut iter = guard.iter().await.unwrap();
+            let mut iter = txn2.scan(Unbounded, Unbounded).await.unwrap();
             while let Some(entry) = iter.next().await {
                 // todo: check entry
                 let _entry = entry.unwrap();

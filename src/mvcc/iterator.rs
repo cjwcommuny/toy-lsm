@@ -3,10 +3,11 @@ use crate::entry::{Entry, InnerEntry, Keyed};
 use crate::iterators::inspect::{InspectIter, InspectIterImpl};
 use crate::iterators::lsm::LsmIterator;
 use crate::iterators::no_deleted::new_no_deleted_iter;
-use crate::iterators::{create_two_merge_iter, LockedLsmIter};
+use crate::iterators::{create_two_merge_iter, LsmWithRange};
 use crate::key::KeyBytes;
 use crate::mvcc::transaction::{RWSet, Transaction};
 use crate::persistent::Persistent;
+use crate::state::LsmStorageStateInner;
 use crate::utils::scoped::ScopedMutex;
 use async_iter_ext::StreamTools;
 use bytes::Bytes;
@@ -17,48 +18,109 @@ use num_traits::Bounded;
 use ouroboros::self_referencing;
 use std::future::ready;
 use std::ops::Bound;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
-struct TxnWithBound<'a, P: Persistent> {
+#[self_referencing]
+pub struct TxnIter<'a, P: Persistent> {
+    txn: TxnWithRange<'a, P>,
+
+    #[borrows(txn)]
+    #[covariant]
+    iter: TxnRefIter<'this, P>,
+}
+
+impl<'a, P: Persistent> TxnIter<'a, P> {
+    pub async fn try_build(
+        txn: Transaction<'a, P>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> anyhow::Result<Self> {
+        let txn = TxnWithRange { txn, lower, upper };
+        Self::try_new_async(txn, |txn| Box::pin(txn.iter())).await
+    }
+}
+
+impl<'a, P: Persistent> Stream for TxnIter<'a, P> {
+    type Item = anyhow::Result<Entry>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = Pin::into_inner(self);
+
+        this.with_iter_mut(|iter| {
+            let pinned = Pin::new(iter);
+            pinned.poll_next(cx)
+        })
+    }
+}
+
+pub struct TxnWithRange<'a, P: Persistent> {
     txn: Transaction<'a, P>,
     lower: Bound<&'a [u8]>,
     upper: Bound<&'a [u8]>,
 }
 
-#[self_referencing]
-pub struct LockedTxnIterWithTxn<'a, P: Persistent> {
-    txn: TxnWithBound<'a, P>,
-
-    #[borrows(txn)]
-    #[covariant]
-    iter: LockedTxnIter<'this, P>,
+impl<'a, P: Persistent> TxnWithRange<'a, P> {
+    async fn iter(&'a self) -> anyhow::Result<TxnRefIter<'a, P>> {
+        TxnRefIter::try_build(&self.txn, self.lower, self.upper).await
+    }
 }
 
-impl<'a, P: Persistent> LockedTxnIterWithTxn<'a, P> {
-    pub fn new_(txn: Transaction<'a, P>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
-        Self::new(TxnWithBound { txn, lower, upper }, |txn| {
-            txn.txn.scan(txn.lower, txn.upper)
-        })
-    }
+#[self_referencing]
+pub struct TxnRefIter<'a, P: Persistent> {
+    state: TxnLsmWithRange<'a, P>,
 
-    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
-        self.with_iter(|iter| iter.iter()).await
+    #[borrows(state)]
+    #[covariant]
+    iter: LsmIterator<'this>,
+}
+
+impl<'a, P: Persistent> TxnRefIter<'a, P> {
+    pub async fn try_build(
+        txn: &'a Transaction<'a, P>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> anyhow::Result<Self> {
+        let state = txn.state.inner.load_full();
+        let lsm_range = LsmWithRange::new(state, lower, upper, txn.read_ts);
+        let state = TxnLsmWithRange::new(
+            lsm_range,
+            txn.local_storage.as_ref(),
+            txn.key_hashes.as_ref(),
+        );
+        Self::try_new_async_send(state, |state| Box::pin(state.iter())).await
+    }
+}
+
+// todo: reduce redundancy
+impl<'a, P: Persistent> Stream for TxnRefIter<'a, P> {
+    type Item = anyhow::Result<Entry>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = Pin::into_inner(self);
+
+        this.with_iter_mut(|iter| {
+            let pinned = Pin::new(iter);
+            pinned.poll_next(cx)
+        })
     }
 }
 
 #[derive(new)]
-pub struct LockedTxnIter<'a, P: Persistent> {
+pub struct TxnLsmWithRange<'a, P: Persistent> {
+    lsm_range: LsmWithRange<'a, Arc<LsmStorageStateInner<P>>>,
     local_storage: &'a SkipMap<Bytes, Bytes>,
-    lsm_iter: LockedLsmIter<'a, P>,
     key_hashes: Option<&'a ScopedMutex<RWSet>>,
 }
 
-impl<'a, P: Persistent> LockedTxnIter<'a, P> {
+impl<'a, P: Persistent> TxnLsmWithRange<'a, P> {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
-        let lsm_iter = self.lsm_iter.iter_with_delete().await?;
+        let lsm_iter = self.lsm_range.iter_with_delete().await?;
         let local_iter = txn_local_iterator(
             self.local_storage,
-            self.lsm_iter.lower.map(Bytes::copy_from_slice),
-            self.lsm_iter.upper.map(Bytes::copy_from_slice),
+            self.lsm_range.lower.map(Bytes::copy_from_slice),
+            self.lsm_range.upper.map(Bytes::copy_from_slice),
         );
         let merged = create_two_merge_iter(local_iter, lsm_iter).await?;
         let iter = new_no_deleted_iter(merged);
