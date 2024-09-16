@@ -1,0 +1,45 @@
+# Do not run this workflow on pull request since this workflow has permission to modify contents.
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  # deployments permission to deploy GitHub pages website
+  deployments: write
+  # contents permission to update benchmark contents in gh-pages branch
+  contents: write
+
+name: Bench
+
+jobs:
+  bench:
+    name: Build and Bench
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout 🛎️
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench
+      - uses: actions-rs/toolchain@v1
+        name: Setup Cargo Toolchain 🛎️
+        with:
+          toolchain: nightly
+          default: true
+      - name: Benchmark 🚀
+        run: cargo +nightly bench --all-features --workspace --bench benches_against_rocksdb -- --output-format bencher | tee output.txt
+      - uses: benchmark-action/github-action-benchmark@v1
+        name: Store benchmark result
+        with:
+          name: Benchmark with RocksDB
+          tool: "cargo"
+          output-file-path: output.txt
+          # Access token to deploy GitHub Pages branch
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Push and deploy GitHub pages branch automatically
+          auto-push: true
