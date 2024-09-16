@@ -19,6 +19,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
+use crate::iterators::lsm::LsmIterator;
 
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
@@ -91,13 +92,12 @@ impl<P: Persistent> Lsm<P> {
         self.state.put_batch(batch).await
     }
 
-    pub fn scan<'a>(
+    pub async fn scan<'a>(
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> LsmIter<'a, P, Arc<LsmStorageStateInner<P>>> {
-        let iter = self.state.scan(lower, upper);
-        LsmIter::new(self, iter)
+    ) -> anyhow::Result<LsmIterator<'a>> {
+        self.state.scan(lower, upper).await
     }
 }
 
