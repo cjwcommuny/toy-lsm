@@ -1,6 +1,9 @@
 mod common;
 
-use crate::common::{build_rocks_db, Database};
+use crate::common::{build_rocks_db, Database, MyDbWithRuntime};
+use better_mini_lsm::lsm::core::Lsm;
+use better_mini_lsm::persistent::LocalFs;
+use better_mini_lsm::sst::SstOptions;
 use common::{iterate, populate, randread, remove_files};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
@@ -153,10 +156,34 @@ fn bench_rocks(c: &mut Criterion) {
     bench(c, "rocks", |dir| build_rocks_db(&opts, dir));
 }
 
-criterion_group! {
-  name = benches_agate_rocks;
-  config = Criterion::default();
-  targets = bench_rocks
+fn bench_mydb(c: &mut Criterion) {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let runtime = Arc::new(runtime);
+    let options = SstOptions::builder()
+        .target_sst_size(1024 * 1024 * 2)
+        .block_size(4096)
+        .num_memtable_limit(1000)
+        .compaction_option(Default::default())
+        .enable_wal(false)
+        .enable_mvcc(true)
+        .build();
+
+    bench(c, "mydb", |dir| {
+        let options = options.clone();
+        let path = Arc::new(dir.path().to_path_buf());
+        runtime.block_on(async {
+            let persistent = LocalFs::new(path);
+            let db = Lsm::new(options, persistent).await.unwrap();
+            let db = MyDbWithRuntime::new(db, runtime.clone());
+            Arc::new(db)
+        })
+    })
 }
 
-criterion_main!(benches_agate_rocks);
+criterion_group! {
+  name = bench_against_rocks;
+  config = Criterion::default();
+  targets = bench_mydb
+}
+
+criterion_main!(bench_against_rocks);
