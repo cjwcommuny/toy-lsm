@@ -65,10 +65,6 @@ where
     }
 }
 
-trait AssertUnpin: Unpin {}
-
-impl<'a, S> AssertUnpin for LsmIter<'a, S> {}
-
 impl<'a, S, P> Stream for LsmIter<'a, S>
 where
     S: Deref<Target = LsmStorageStateInner<P>>,

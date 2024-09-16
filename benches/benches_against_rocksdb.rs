@@ -12,7 +12,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
-use tokio::runtime::Handle;
 
 // We will process `CHUNK_SIZE` items in a thread, and in one certain thread,
 // we will process `BATCH_SIZE` items in a transaction or write batch.
@@ -179,14 +178,12 @@ fn bench_mydb(c: &mut Criterion) {
             Arc::new(db)
         })
     })
-
-
 }
 
 criterion_group! {
   name = bench_against_rocks;
   config = Criterion::default();
-  targets = bench_mydb
+  targets = bench_mydb, bench_rocks
 }
 
 criterion_main!(bench_against_rocks);

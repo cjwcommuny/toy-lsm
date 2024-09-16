@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use better_mini_lsm::entry::Entry;
 use better_mini_lsm::iterators::lsm::LsmIterator;
 use better_mini_lsm::lsm::core::Lsm;
@@ -5,9 +6,8 @@ use better_mini_lsm::persistent::LocalFs;
 use better_mini_lsm::state::write_batch::WriteBatchRecord;
 use better_mini_lsm::state::Map;
 use bytes::{Bytes, BytesMut};
-use derive_new::new;
 use futures::StreamExt;
-use rand::{distributions::Alphanumeric, Rng};
+use rand::Rng;
 use rocksdb::{DBRawIteratorWithThreadMode, WriteOptions, DB};
 use std::fmt::Debug;
 use std::fs::File;
@@ -16,19 +16,8 @@ use std::{
     fs::{read_dir, remove_file},
     path::Path,
     sync::Arc,
-    time::UNIX_EPOCH,
 };
-use anyhow::anyhow;
-use criterion::async_executor::AsyncExecutor;
-use tokio::runtime::{Handle, Runtime};
-
-pub fn rand_value() -> String {
-    let v = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .collect::<Vec<_>>();
-    String::from_utf8(v).unwrap()
-}
+use tokio::runtime::Runtime;
 
 pub fn gen_kv_pair(key: u64, value_size: usize) -> (Bytes, Bytes) {
     let key = Bytes::from(format!("vsz={:05}-k={:010}", value_size, key));
@@ -37,13 +26,6 @@ pub fn gen_kv_pair(key: u64, value_size: usize) -> (Bytes, Bytes) {
     value.resize(value_size, 0);
 
     (key, value.freeze())
-}
-
-pub fn unix_time() -> u64 {
-    UNIX_EPOCH
-        .elapsed()
-        .expect("Time went backwards")
-        .as_millis() as u64
 }
 
 pub fn remove_files(path: &Path) {
@@ -77,7 +59,10 @@ pub struct MyDbWithRuntime {
 
 impl MyDbWithRuntime {
     pub fn new(db: Lsm<LocalFs>, runtime: Arc<Runtime>) -> Self {
-        Self {db: Some(db), handle: runtime }
+        Self {
+            db: Some(db),
+            handle: runtime,
+        }
     }
 }
 
@@ -94,7 +79,7 @@ impl Database for MyDbWithRuntime {
 
     fn write_batch(&self, kvs: impl Iterator<Item = (Bytes, Bytes)>) -> Result<(), Self::Error> {
         let Some(db) = self.db.as_ref() else {
-            return Err(anyhow!("no db"))
+            return Err(anyhow!("no db"));
         };
         self.handle.block_on(async {
             let batch: Vec<_> = kvs
@@ -108,7 +93,7 @@ impl Database for MyDbWithRuntime {
 
     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>, Self::Error> {
         let Some(db) = self.db.as_ref() else {
-            return Err(anyhow!("no db"))
+            return Err(anyhow!("no db"));
         };
         let key = key.as_ref();
         let value = self.handle.block_on(async { db.get(key).await })?;
@@ -120,7 +105,7 @@ impl Database for MyDbWithRuntime {
         begin: &'a [u8],
     ) -> Result<impl Iterator<Item = Result<(Bytes, Bytes), Self::Error>> + 'a, Self::Error> {
         let Some(db) = self.db.as_ref() else {
-            return Err(anyhow!("no db"))
+            return Err(anyhow!("no db"));
         };
 
         let iter = self
