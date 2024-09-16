@@ -1,3 +1,4 @@
+pub mod deref;
 pub mod num;
 pub mod option;
 pub mod range;

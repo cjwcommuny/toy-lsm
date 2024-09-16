@@ -379,7 +379,7 @@ mod test {
     use futures::{stream, Stream, StreamExt};
     use std::collections::Bound;
     use std::ops::Bound::{Excluded, Included, Unbounded};
-    
+
     use tempfile::{tempdir, TempDir};
 
     use crate::entry::{Entry, InnerEntry};

@@ -23,6 +23,7 @@ use crate::persistent::Persistent;
 use crate::sst::iterator::MergedSstIterator;
 use crate::state::LsmStorageStateInner;
 
+// todo: change it to use<'a>
 pub type LsmIterator<'a> = Box<dyn Stream<Item = anyhow::Result<Entry>> + Unpin + Send + 'a>;
 
 #[allow(dead_code)]
@@ -77,7 +78,7 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = Pin::into_inner(self);
-        
+
         this.with_iter_mut(|iter| {
             let pinned = Pin::new(iter);
             pinned.poll_next(cx)
