@@ -18,7 +18,9 @@ use num_traits::Bounded;
 use ouroboros::self_referencing;
 use std::future::ready;
 use std::ops::{Bound, Deref};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 struct TxnWithBound<'a, P: Persistent> {
     txn: Transaction<'a, P>,
@@ -49,6 +51,20 @@ impl<'a, P: Persistent> TxnLsmIter<'a, P> {
             txn.key_hashes.as_ref(),
         );
         Self::try_new_async(state, |state| Box::pin(state.iter())).await
+    }
+}
+
+// todo: reduce redundancy
+impl<'a, P: Persistent> Stream for TxnLsmIter<'a, P> {
+    type Item = anyhow::Result<Entry>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = Pin::into_inner(self);
+
+        this.with_iter_mut(|iter| {
+            let pinned = Pin::new(iter);
+            pinned.poll_next(cx)
+        })
     }
 }
 
