@@ -48,6 +48,19 @@ impl<'a, P: Persistent> TxnLsmIterWrapper<'a, P> {
     }
 }
 
+impl<'a, P: Persistent> Stream for TxnLsmIterWrapper<'a, P> {
+    type Item = anyhow::Result<Entry>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = Pin::into_inner(self);
+
+        this.with_iter_mut(|iter| {
+            let pinned = Pin::new(iter);
+            pinned.poll_next(cx)
+        })
+    }
+}
+
 pub struct TxnWithRange3<'a, P: Persistent> {
     txn: Transaction<'a, P>,
     lower: Bound<&'a [u8]>,

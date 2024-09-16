@@ -3,7 +3,7 @@ use crate::entry::Entry;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::mvcc::core::LsmMvccInner;
-use crate::mvcc::iterator::LockedTxnIterWithTxn;
+use crate::mvcc::iterator::{LockedTxnIterWithTxn, TxnLsmIterWrapper};
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::common::force_compact;
