@@ -95,7 +95,7 @@ impl<'a, P: Persistent> TxnLsmIter<'a, P> {
             txn.local_storage.as_ref(),
             txn.key_hashes.as_ref(),
         );
-        Self::try_new_async(state, |state| Box::pin(state.iter())).await
+        Self::try_new_async_send(state, |state| Box::pin(state.iter())).await
     }
 }
 
@@ -110,30 +110,6 @@ impl<'a, P: Persistent> Stream for TxnLsmIter<'a, P> {
             let pinned = Pin::new(iter);
             pinned.poll_next(cx)
         })
-    }
-}
-
-#[self_referencing]
-pub struct LockedTxnIterWithTxn<'a, P: Persistent, S: 'a> {
-    txn: TxnWithBound<'a, P>,
-
-    #[borrows(txn)]
-    #[covariant]
-    iter: TxnWithRange<'this, S>,
-}
-
-impl<'a, P> LockedTxnIterWithTxn<'a, P, Arc<LsmStorageStateInner<P>>>
-where
-    P: Persistent,
-{
-    pub fn new_(txn: Transaction<'a, P>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
-        Self::new(TxnWithBound { txn, lower, upper }, |txn| {
-            txn.txn.scan(txn.lower, txn.upper)
-        })
-    }
-
-    pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
-        self.with_iter(|iter| iter.iter()).await
     }
 }
 

@@ -8,13 +8,14 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use crate::entry::Entry;
-use crate::iterators::LsmWithRange;
+use crate::iterators::lsm::LsmIterator;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
-use crate::mvcc::iterator::TxnWithRange;
+use crate::mvcc::iterator::TxnLsmIter;
 use crate::persistent::Persistent;
 use crate::state::write_batch::WriteBatchRecord;
-use crate::state::{LsmStorageState, LsmStorageStateInner, Map};
+use crate::state::{LsmStorageState, Map};
 use crate::utils::scoped::ScopedMutex;
+use crate::utils::send::assert_send;
 
 #[derive(Debug, Default)]
 pub struct RWSet {
@@ -51,9 +52,7 @@ impl<'a, P: Persistent> Map for Transaction<'a, P> {
     type Error = anyhow::Error;
 
     async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
-        let guard = self.scan(Bound::Included(key), Bound::Included(key));
-        let output = guard
-            .iter()
+        let output = assert_send(self.scan(Bound::Included(key), Bound::Included(key)))
             .await?
             .next()
             .await
@@ -122,15 +121,14 @@ impl<'a, P: Persistent> Transaction<'a, P> {
     }
 
     // todo: no need for Result?
-    pub fn scan(
+    pub async fn scan(
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> TxnWithRange<'a, Arc<LsmStorageStateInner<P>>> {
-        let inner = self.state.inner.load_full();
-        let inner_iter = LsmWithRange::new(inner, lower, upper, self.read_ts);
-        let guard = TxnWithRange::new(&self.local_storage, inner_iter, self.key_hashes.as_ref());
-        guard
+    ) -> anyhow::Result<LsmIterator<'a>> {
+        let iter = TxnLsmIter::try_build(self, lower, upper).await?;
+        let iter = Box::new(iter) as _;
+        Ok(iter)
     }
 
     // todo: 区分 snapshot isolation vs serializable isolation

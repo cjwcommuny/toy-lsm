@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use crate::lsm::iter::LsmIter;
+use crate::iterators::lsm::LsmIterator;
 use crate::persistent::Persistent;
 use crate::sst::SstOptions;
 use crate::state::write_batch::WriteBatchRecord;
-use crate::state::{LsmStorageState, LsmStorageStateInner, Map};
+use crate::state::{LsmStorageState, Map};
 use futures::{FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
 use tokio::runtime::Handle;
@@ -19,7 +19,6 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
-use crate::iterators::lsm::LsmIterator;
 
 pub struct Lsm<P: Persistent> {
     state: Arc<LsmStorageState<P>>,
