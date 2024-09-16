@@ -1,12 +1,18 @@
+use better_mini_lsm::entry::Entry;
+use better_mini_lsm::iterators::lsm::LsmIterator;
 use better_mini_lsm::lsm::core::Lsm;
 use better_mini_lsm::persistent::LocalFs;
+use better_mini_lsm::state::write_batch::WriteBatchRecord;
 use better_mini_lsm::state::Map;
 use bytes::{Bytes, BytesMut};
+use futures::StreamExt;
 use parking_lot::RwLock;
 use rand::{distributions::Alphanumeric, Rng};
 use rocksdb::{DBRawIteratorWithThreadMode, WriteOptions, DB};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::fs::File;
+use std::ops::Bound::{Included, Unbounded};
 use std::{
     fs::{read_dir, remove_file},
     path::Path,
@@ -53,36 +59,73 @@ pub fn sync_dir(path: &impl AsRef<Path>) -> anyhow::Result<()> {
 }
 
 pub trait Database: Send + Sync + 'static {
-    type Error: std::error::Error;
+    type Error: Debug;
 
     fn write_batch(&self, kvs: impl Iterator<Item = (Bytes, Bytes)>) -> Result<(), Self::Error>;
     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>, Self::Error>;
-    fn iter(
-        &self,
-        begin: impl AsRef<[u8]>,
-    ) -> impl Iterator<Item = Result<(Bytes, Bytes), Self::Error>>;
+    fn iter<'a>(
+        &'a self,
+        begin: &'a [u8],
+    ) -> Result<impl Iterator<Item = Result<(Bytes, Bytes), Self::Error>> + 'a, Self::Error>;
 }
 
 pub struct MyDbWithRuntime {
     db: Lsm<LocalFs>,
-    runtime: Runtime,
+    runtime: Arc<Runtime>,
 }
 
-// impl Database for MyDbWithRuntime {
-//     type Error = ();
-//
-//     fn write_batch(&self, kvs: impl Iterator<Item=(Bytes, Bytes)>) -> Result<(), Self::Error> {
-//         todo!()
-//     }
-//
-//     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>, Self::Error> {
-//         todo!()
-//     }
-//
-//     fn iter(&self, begin: impl AsRef<[u8]>) -> impl Iterator<Item=Result<(Bytes, Bytes), Self::Error>> {
-//         todo!()
-//     }
-// }
+impl Database for MyDbWithRuntime {
+    type Error = anyhow::Error;
+
+    fn write_batch(&self, kvs: impl Iterator<Item = (Bytes, Bytes)>) -> Result<(), Self::Error> {
+        self.runtime.block_on(async {
+            let batch: Vec<_> = kvs
+                .into_iter()
+                .map(|(key, value)| WriteBatchRecord::Put(key, value))
+                .collect();
+            self.db.put_batch(&batch).await?;
+            Ok(())
+        })
+    }
+
+    fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>, Self::Error> {
+        let key = key.as_ref();
+        let value = self.runtime.block_on(async { self.db.get(key).await })?;
+        Ok(value.map(Into::into))
+    }
+
+    fn iter<'a>(
+        &'a self,
+        begin: &'a [u8],
+    ) -> Result<impl Iterator<Item = Result<(Bytes, Bytes), Self::Error>> + 'a, Self::Error> {
+        let iter = self
+            .runtime
+            .block_on(async move { self.db.scan(Included(begin), Unbounded).await })?;
+        let iter = LsmIterWithRuntime {
+            iter,
+            runtime: self.runtime.clone(),
+        };
+        Ok(iter)
+    }
+}
+
+pub struct LsmIterWithRuntime<'a> {
+    iter: LsmIterator<'a>,
+    runtime: Arc<Runtime>,
+}
+
+impl<'a> Iterator for LsmIterWithRuntime<'a> {
+    type Item = anyhow::Result<(Bytes, Bytes)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.runtime.block_on(async {
+            self.iter
+                .next()
+                .await
+                .map(|entry| entry.map(Entry::into_tuple))
+        })
+    }
+}
 
 pub struct MyDbWithMap {
     db: Lsm<LocalFs>,
@@ -153,11 +196,12 @@ impl Database for RocksdbWithWriteOpt {
         self.db.get(key)
     }
 
-    fn iter(
-        &self,
-        begin: impl AsRef<[u8]>,
-    ) -> impl Iterator<Item = Result<(Bytes, Bytes), Self::Error>> {
-        RocksdbIter::new(&self.db, begin)
+    fn iter<'a>(
+        &'a self,
+        begin: &'a [u8],
+    ) -> Result<impl Iterator<Item = Result<(Bytes, Bytes), Self::Error>> + 'a, Self::Error> {
+        let iter = RocksdbIter::new(&self.db, begin);
+        Ok(iter)
     }
 }
 
@@ -219,11 +263,6 @@ pub fn populate<D: Database>(
     value_size: usize,
     seq: bool,
 ) {
-    // let mut write_options = rocksdb::WriteOptions::default();
-    // write_options.set_sync(true);
-    // write_options.disable_wal(false);
-    // let write_options = Arc::new(write_options);
-
     let mut handles = vec![];
 
     for chunk_start in (0..key_nums).step_by(chunk_size as usize) {
@@ -292,7 +331,7 @@ pub fn iterate<D: Database>(db: Arc<D>, key_nums: u64, chunk_size: u64, value_si
         let (key, _) = gen_kv_pair(chunk_start, value_size);
 
         handles.push(std::thread::spawn(move || {
-            let iter = db.iter(&key);
+            let iter = db.iter(key.as_ref()).unwrap();
 
             for entry in iter.take(chunk_size as usize) {
                 let (_, value) = entry.unwrap();

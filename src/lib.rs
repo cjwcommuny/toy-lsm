@@ -2,8 +2,8 @@
 
 mod block;
 mod bound;
-mod entry;
-mod iterators;
+pub mod entry;
+pub mod iterators;
 mod key;
 mod memtable;
 pub mod persistent;
