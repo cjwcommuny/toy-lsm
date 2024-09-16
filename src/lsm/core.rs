@@ -10,7 +10,7 @@ use crate::lsm::iter::LsmIter;
 use crate::persistent::Persistent;
 use crate::sst::SstOptions;
 use crate::state::write_batch::WriteBatchRecord;
-use crate::state::{LsmStorageState, Map};
+use crate::state::{LsmStorageState, LsmStorageStateInner, Map};
 use futures::{FutureExt, StreamExt};
 use futures_concurrency::stream::Merge;
 use tokio::runtime::Handle;
@@ -91,7 +91,11 @@ impl<P: Persistent> Lsm<P> {
         self.state.put_batch(batch).await
     }
 
-    pub fn scan<'a>(&'a self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> LsmIter<'a, P> {
+    pub fn scan<'a>(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> LsmIter<'a, P, Arc<LsmStorageStateInner<P>>> {
         let iter = self.state.scan(lower, upper);
         LsmIter::new(self, iter)
     }

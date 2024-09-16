@@ -168,7 +168,7 @@ where
         &'a self,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
-    ) -> LockedTxnIterWithTxn<'a, P> {
+    ) -> LockedTxnIterWithTxn<'a, P, Arc<LsmStorageStateInner<P>>> {
         // todo: remove unwrap
         let txn = self.new_txn().unwrap();
         LockedTxnIterWithTxn::new_(txn, lower, upper)
@@ -379,6 +379,7 @@ mod test {
     use futures::{stream, Stream, StreamExt};
     use std::collections::Bound;
     use std::ops::Bound::{Excluded, Included, Unbounded};
+    use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
 
     use crate::entry::{Entry, InnerEntry};

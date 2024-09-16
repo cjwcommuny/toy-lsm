@@ -7,6 +7,7 @@ use crate::iterators::{create_two_merge_iter, LsmWithRange};
 use crate::key::KeyBytes;
 use crate::mvcc::transaction::{RWSet, Transaction};
 use crate::persistent::Persistent;
+use crate::state::LsmStorageStateInner;
 use crate::utils::scoped::ScopedMutex;
 use async_iter_ext::StreamTools;
 use bytes::Bytes;
@@ -16,7 +17,8 @@ use futures::{stream, Stream, StreamExt, TryStreamExt};
 use num_traits::Bounded;
 use ouroboros::self_referencing;
 use std::future::ready;
-use std::ops::Bound;
+use std::ops::{Bound, Deref};
+use std::sync::Arc;
 
 struct TxnWithBound<'a, P: Persistent> {
     txn: Transaction<'a, P>,
@@ -41,15 +43,18 @@ pub struct TxnLsmIter<'a, P: Persistent> {
 // }
 
 #[self_referencing]
-pub struct LockedTxnIterWithTxn<'a, P: Persistent> {
+pub struct LockedTxnIterWithTxn<'a, P: Persistent, S: 'a> {
     txn: TxnWithBound<'a, P>,
 
     #[borrows(txn)]
     #[covariant]
-    iter: TxnWithRange<'this, P>,
+    iter: TxnWithRange<'this, S>,
 }
 
-impl<'a, P: Persistent> LockedTxnIterWithTxn<'a, P> {
+impl<'a, P> LockedTxnIterWithTxn<'a, P, Arc<LsmStorageStateInner<P>>>
+where
+    P: Persistent,
+{
     pub fn new_(txn: Transaction<'a, P>, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> Self {
         Self::new(TxnWithBound { txn, lower, upper }, |txn| {
             txn.txn.scan(txn.lower, txn.upper)
@@ -73,15 +78,18 @@ pub struct TxnWithRange2<'a, P: Persistent> {
 //     }
 // }
 
-
 #[derive(new)]
-pub struct TxnWithRange<'a, P: Persistent> {
+pub struct TxnWithRange<'a, S: 'a> {
     local_storage: &'a SkipMap<Bytes, Bytes>,
-    lsm_iter: LsmWithRange<'a, P>,
+    lsm_iter: LsmWithRange<'a, S>,
     key_hashes: Option<&'a ScopedMutex<RWSet>>,
 }
 
-impl<'a, P: Persistent> TxnWithRange<'a, P> {
+impl<'a, S, P> TxnWithRange<'a, S>
+where
+    S: Deref<Target = LsmStorageStateInner<P>> + Sync,
+    P: Persistent,
+{
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
         let lsm_iter = self.lsm_iter.iter_with_delete().await?;
         let local_iter = txn_local_iterator(

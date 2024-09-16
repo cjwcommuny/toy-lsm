@@ -1,15 +1,15 @@
 use bytes::Bytes;
 use std::collections::Bound;
 
+use derive_new::new;
+use futures::{stream, Stream, StreamExt};
+use num_traits::Bounded;
+use ouroboros::self_referencing;
 use std::iter;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use derive_new::new;
-use futures::{stream, Stream, StreamExt};
-use num_traits::Bounded;
-use ouroboros::self_referencing;
 use tracing::error;
 
 use crate::entry::{Entry, InnerEntry, Keyed};
@@ -34,21 +34,25 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
 >;
 
 #[self_referencing]
-pub struct LsmIterImpl<'a, P: Persistent> {
-    state: LsmWithRange<'a, P>,
+pub struct LsmIterImpl<'a, S: 'a> {
+    state: LsmWithRange<'a, S>,
 
     #[borrows(state)]
     #[covariant]
     iter: LsmIterator<'this>,
 }
 
-impl<'a, P: Persistent> LsmIterImpl<'a, P> {
+impl<'a, S, P> LsmIterImpl<'a, S>
+where
+    S: Deref<Target = LsmStorageStateInner<P>> + Send + 'a,
+    P: Persistent,
+{
     pub async fn try_build(
-        state: Arc<LsmStorageStateInner<P>>,
+        state: S,
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
         timestamp: u64,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<LsmIterator<'a>> {
         let guard = LsmWithRange {
             state,
             lower,
@@ -56,15 +60,20 @@ impl<'a, P: Persistent> LsmIterImpl<'a, P> {
             timestamp,
         };
 
-        LsmIterImpl::try_new_async(guard, |guard| Box::pin(guard.iter())).await
+        let iter = LsmIterImpl::try_new_async(guard, |guard| Box::pin(guard.iter())).await?;
+        Ok(Box::new(iter))
     }
 }
 
 trait AssertUnpin: Unpin {}
 
-impl<'a, P: Persistent> AssertUnpin for LsmIterImpl<'a, P> {}
+impl<'a, S> AssertUnpin for LsmIterImpl<'a, S> {}
 
-impl<'a, P: Persistent> Stream for LsmIterImpl<'a, P> {
+impl<'a, S, P> Stream for LsmIterImpl<'a, S>
+where
+    S: Deref<Target = LsmStorageStateInner<P>>,
+    P: Persistent,
+{
     type Item = anyhow::Result<Entry>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -78,8 +87,8 @@ impl<'a, P: Persistent> Stream for LsmIterImpl<'a, P> {
 }
 
 #[derive(new)]
-pub struct LsmWithRange<'a, P: Persistent> {
-    state: Arc<LsmStorageStateInner<P>>,
+pub struct LsmWithRange<'a, S> {
+    state: S,
     pub(crate) lower: Bound<&'a [u8]>,
     pub(crate) upper: Bound<&'a [u8]>,
     timestamp: u64,
@@ -91,8 +100,9 @@ fn assert_tuple_stream(_s: &impl Stream<Item = anyhow::Result<(Keyed<Bytes, Byte
 
 fn assert_result_stream(_s: &impl Stream<Item = anyhow::Result<Keyed<Bytes, Bytes>>>) {}
 
-impl<'a, P> LsmWithRange<'a, P>
+impl<'a, S, P> LsmWithRange<'a, S>
 where
+    S: Deref<Target = LsmStorageStateInner<P>>,
     P: Persistent,
 {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {

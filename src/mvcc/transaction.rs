@@ -3,18 +3,18 @@ use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use std::collections::{Bound, HashSet};
 use std::ops::Bound::Excluded;
+use std::ops::Deref;
 use std::slice;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use crate::entry::Entry;
-use crate::iterators::lsm::{LsmIterImpl, LsmIterator};
 use crate::iterators::LsmWithRange;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
 use crate::mvcc::iterator::TxnWithRange;
 use crate::persistent::Persistent;
 use crate::state::write_batch::WriteBatchRecord;
-use crate::state::{LsmStorageState, Map};
+use crate::state::{LsmStorageState, LsmStorageStateInner, Map};
 use crate::utils::scoped::ScopedMutex;
 
 #[derive(Debug, Default)]
@@ -123,7 +123,11 @@ impl<'a, P: Persistent> Transaction<'a, P> {
     }
 
     // todo: no need for Result?
-    pub fn scan(&'a self, lower: Bound<&'a [u8]>, upper: Bound<&'a [u8]>) -> TxnWithRange<'a, P> {
+    pub fn scan(
+        &'a self,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> TxnWithRange<'a, Arc<LsmStorageStateInner<P>>> {
         let inner = self.state.inner.load_full();
         let inner_iter = LsmWithRange::new(inner, lower, upper, self.read_ts);
         let guard = TxnWithRange::new(&self.local_storage, inner_iter, self.key_hashes.as_ref());
