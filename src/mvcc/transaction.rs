@@ -3,7 +3,6 @@ use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use std::collections::{Bound, HashSet};
 use std::ops::Bound::Excluded;
-use std::ops::Deref;
 use std::slice;
 use std::sync::Arc;
 use tokio_stream::StreamExt;

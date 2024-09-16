@@ -1,9 +1,8 @@
 use better_mini_lsm::lsm::core::Lsm;
 use better_mini_lsm::persistent::LocalFs;
-use better_mini_lsm::state::write_batch::WriteBatchRecord;
 use better_mini_lsm::state::Map;
 use bytes::{Bytes, BytesMut};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use rand::{distributions::Alphanumeric, Rng};
 use rocksdb::{DBRawIteratorWithThreadMode, WriteOptions, DB};
 use std::collections::HashMap;

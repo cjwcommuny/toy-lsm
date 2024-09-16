@@ -1,7 +1,7 @@
 use crate::bound::BoundRange;
 use crate::entry::{Entry, InnerEntry, Keyed};
 use crate::iterators::inspect::{InspectIter, InspectIterImpl};
-use crate::iterators::lsm::{LsmIterImpl, LsmIterator};
+use crate::iterators::lsm::LsmIterator;
 use crate::iterators::no_deleted::new_no_deleted_iter;
 use crate::iterators::{create_two_merge_iter, LsmWithRange};
 use crate::key::KeyBytes;

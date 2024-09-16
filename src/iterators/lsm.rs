@@ -3,7 +3,6 @@ use std::collections::Bound;
 
 use derive_new::new;
 use futures::{stream, Stream, StreamExt};
-use num_traits::Bounded;
 use ouroboros::self_referencing;
 use std::iter;
 use std::ops::Deref;
@@ -19,7 +18,7 @@ use crate::iterators::{
 };
 use crate::key::Key;
 use crate::memtable::MemTableIterator;
-use crate::mvcc::iterator::{build_time_dedup_iter, transform_bound, TxnWithRange};
+use crate::mvcc::iterator::{build_time_dedup_iter, transform_bound};
 use crate::persistent::Persistent;
 use crate::sst::iterator::MergedSstIterator;
 use crate::state::LsmStorageStateInner;
@@ -78,11 +77,11 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = Pin::into_inner(self);
-        let result = this.with_iter_mut(|iter| {
+        
+        this.with_iter_mut(|iter| {
             let pinned = Pin::new(iter);
             pinned.poll_next(cx)
-        });
-        result
+        })
     }
 }
 
