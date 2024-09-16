@@ -10,7 +10,7 @@ use tokio_stream::StreamExt;
 use crate::entry::Entry;
 use crate::iterators::lsm::LsmIterator;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
-use crate::mvcc::iterator::TxnLsmIter;
+use crate::mvcc::iterator::TxnRefIter;
 use crate::persistent::Persistent;
 use crate::state::write_batch::WriteBatchRecord;
 use crate::state::{LsmStorageState, Map};
@@ -126,7 +126,7 @@ impl<'a, P: Persistent> Transaction<'a, P> {
         lower: Bound<&'a [u8]>,
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<LsmIterator<'a>> {
-        let iter = TxnLsmIter::try_build(self, lower, upper).await?;
+        let iter = TxnRefIter::try_build(self, lower, upper).await?;
         let iter = Box::new(iter) as _;
         Ok(iter)
     }

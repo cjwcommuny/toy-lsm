@@ -4,7 +4,7 @@ use crate::iterators::lsm::LsmIterator;
 use crate::manifest::{Flush, Manifest, ManifestRecord};
 use crate::memtable::MemTable;
 use crate::mvcc::core::LsmMvccInner;
-use crate::mvcc::iterator::TxnLsmIterWrapper;
+use crate::mvcc::iterator::TxnIter;
 use crate::mvcc::transaction::Transaction;
 use crate::persistent::Persistent;
 use crate::sst::compact::common::force_compact;
@@ -172,7 +172,7 @@ where
     ) -> anyhow::Result<LsmIterator<'a>> {
         // todo: remove unwrap
         let txn = self.new_txn().unwrap();
-        let txn = TxnLsmIterWrapper::try_build(txn, lower, upper).await?;
+        let txn = TxnIter::try_build(txn, lower, upper).await?;
         let iter = Box::new(txn) as _;
         Ok(iter)
     }

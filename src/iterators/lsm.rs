@@ -34,7 +34,7 @@ type LsmIteratorInner<'a, File> = TwoMergeIterator<
 >;
 
 #[self_referencing]
-pub struct LsmIterImpl<'a, S: 'a> {
+pub struct LsmIter<'a, S: 'a> {
     state: LsmWithRange<'a, S>,
 
     #[borrows(state)]
@@ -42,7 +42,7 @@ pub struct LsmIterImpl<'a, S: 'a> {
     iter: LsmIterator<'this>,
 }
 
-impl<'a, S, P> LsmIterImpl<'a, S>
+impl<'a, S, P> LsmIter<'a, S>
 where
     S: Deref<Target = LsmStorageStateInner<P>> + Send + 'a,
     P: Persistent,
@@ -60,16 +60,16 @@ where
             timestamp,
         };
 
-        let iter = LsmIterImpl::try_new_async(guard, |guard| Box::pin(guard.iter())).await?;
+        let iter = LsmIter::try_new_async(guard, |guard| Box::pin(guard.iter())).await?;
         Ok(Box::new(iter))
     }
 }
 
 trait AssertUnpin: Unpin {}
 
-impl<'a, S> AssertUnpin for LsmIterImpl<'a, S> {}
+impl<'a, S> AssertUnpin for LsmIter<'a, S> {}
 
-impl<'a, S, P> Stream for LsmIterImpl<'a, S>
+impl<'a, S, P> Stream for LsmIter<'a, S>
 where
     S: Deref<Target = LsmStorageStateInner<P>>,
     P: Persistent,
