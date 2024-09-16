@@ -29,6 +29,38 @@ struct TxnWithBound<'a, P: Persistent> {
 }
 
 #[self_referencing]
+pub struct TxnLsmIterWrapper<'a, P: Persistent> {
+    txn: TxnWithRange3<'a, P>,
+
+    #[borrows(txn)]
+    #[covariant]
+    iter: TxnLsmIter<'this, P>,
+}
+
+impl<'a, P: Persistent> TxnLsmIterWrapper<'a, P> {
+    pub async fn try_build(
+        txn: Transaction<'a, P>,
+        lower: Bound<&'a [u8]>,
+        upper: Bound<&'a [u8]>,
+    ) -> anyhow::Result<Self> {
+        let txn = TxnWithRange3 { txn, lower, upper };
+        Self::try_new_async(txn, |txn| Box::pin(txn.iter())).await
+    }
+}
+
+pub struct TxnWithRange3<'a, P: Persistent> {
+    txn: Transaction<'a, P>,
+    lower: Bound<&'a [u8]>,
+    upper: Bound<&'a [u8]>,
+}
+
+impl<'a, P: Persistent> TxnWithRange3<'a, P> {
+    async fn iter(&'a self) -> anyhow::Result<TxnLsmIter<'a, P>> {
+        TxnLsmIter::try_build(&self.txn, self.lower, self.upper).await
+    }
+}
+
+#[self_referencing]
 pub struct TxnLsmIter<'a, P: Persistent> {
     state: TxnWithRange2<'a, P>,
 
