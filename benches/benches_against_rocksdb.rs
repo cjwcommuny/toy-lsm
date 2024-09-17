@@ -111,24 +111,27 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         b.iter(|| iterate(db.clone(), KEY_NUMS, CHUNK_SIZE, SMALL_VALUE_SIZE));
     });
 
-    c.bench_function("rocks sequentially populate large value", |b| {
-        let dir = tempfile::Builder::new()
-            .prefix(&format!("{}-bench-seq-populate-large-value", name))
-            .tempdir()
-            .unwrap();
-        let db = build_db(&dir);
+    c.bench_function(
+        &format!("{} sequentially populate large value", name),
+        |b| {
+            let dir = tempfile::Builder::new()
+                .prefix(&format!("{}-bench-seq-populate-large-value", name))
+                .tempdir()
+                .unwrap();
+            let db = build_db(&dir);
 
-        b.iter(|| {
-            populate(
-                db.clone(),
-                KEY_NUMS,
-                CHUNK_SIZE,
-                BATCH_SIZE,
-                LARGE_VALUE_SIZE,
-                true,
-            );
-        });
-    });
+            b.iter(|| {
+                populate(
+                    db.clone(),
+                    KEY_NUMS,
+                    CHUNK_SIZE,
+                    BATCH_SIZE,
+                    LARGE_VALUE_SIZE,
+                    true,
+                );
+            });
+        },
+    );
 
     c.bench_function(&format!("{} randomly populate large value", name), |b| {
         let dir = tempfile::Builder::new()
