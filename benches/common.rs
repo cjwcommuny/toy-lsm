@@ -12,13 +12,8 @@ use itertools::Itertools;
 use rand::Rng;
 use rocksdb::{DBRawIteratorWithThreadMode, WriteOptions, DB};
 use std::fmt::Debug;
-use std::fs::File;
 use std::ops::Bound::{Included, Unbounded};
-use std::{
-    fs::{read_dir, remove_file},
-    path::Path,
-    sync::Arc,
-};
+use std::{path::Path, sync::Arc};
 use tokio::runtime::Runtime;
 
 pub fn gen_kv_pair(key: u64, value_size: usize) -> (Bytes, Bytes) {
@@ -28,19 +23,6 @@ pub fn gen_kv_pair(key: u64, value_size: usize) -> (Bytes, Bytes) {
     value.resize(value_size, 0);
 
     (key, value.freeze())
-}
-
-pub fn remove_files(path: &Path) {
-    read_dir(path).unwrap().for_each(|entry| {
-        let entry = entry.unwrap();
-        remove_file(entry.path()).unwrap();
-    });
-    sync_dir(&path).unwrap();
-}
-
-pub fn sync_dir(path: &impl AsRef<Path>) -> anyhow::Result<()> {
-    File::open(path.as_ref())?.sync_all()?;
-    Ok(())
 }
 
 pub trait Database: Send + Sync + 'static {
