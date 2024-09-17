@@ -1,6 +1,6 @@
 mod common;
 
-use crate::common::{build_rocks_db, Database, MyDbWithRuntime};
+use crate::common::{build_rocks_db, Database, DbPair, MyDbWithRuntime};
 use better_mini_lsm::lsm::core::Lsm;
 use better_mini_lsm::persistent::LocalFs;
 use better_mini_lsm::sst::SstOptions;
@@ -32,7 +32,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
     let mut c = c.benchmark_group("group");
 
     c.sample_size(SAMPLE_SIZE).bench_function(
-        &format!("{} sequentially populate small value", name),
+        format!("{} sequentially populate small value", name),
         |b| {
             b.iter_custom(|iters| {
                 let mut total = Duration::new(0, 0);
@@ -51,41 +51,46 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         },
     );
 
-    c.sample_size(SAMPLE_SIZE).bench_function(&format!("{} randomly populate small value", name), |b| {
-        b.iter_custom(|iters| {
-            let mut total = Duration::new(0, 0);
+    c.sample_size(SAMPLE_SIZE).bench_function(
+        format!("{} randomly populate small value", name),
+        |b| {
+            b.iter_custom(|iters| {
+                let mut total = Duration::new(0, 0);
 
-            (0..iters).for_each(|_| {
-                remove_files(dir_path);
-                let db = build_db(&dir);
+                (0..iters).for_each(|_| {
+                    remove_files(dir_path);
+                    let db = build_db(&dir);
 
-                let now = Instant::now();
-                populate(
-                    db,
-                    KEY_NUMS,
-                    CHUNK_SIZE,
-                    BATCH_SIZE,
-                    SMALL_VALUE_SIZE,
-                    false,
-                );
-                total = total.add(now.elapsed());
+                    let now = Instant::now();
+                    populate(
+                        db,
+                        KEY_NUMS,
+                        CHUNK_SIZE,
+                        BATCH_SIZE,
+                        SMALL_VALUE_SIZE,
+                        false,
+                    );
+                    total = total.add(now.elapsed());
+                });
+
+                total
             });
-
-            total
-        });
-    });
+        },
+    );
 
     let db = build_db(&dir);
 
-    c.sample_size(SAMPLE_SIZE).bench_function(&format!("{} randread small value", name), |b| {
-        b.iter(|| {
-            randread(db.clone(), KEY_NUMS, CHUNK_SIZE, SMALL_VALUE_SIZE);
+    c.sample_size(SAMPLE_SIZE)
+        .bench_function(format!("{} randread small value", name), |b| {
+            b.iter(|| {
+                randread(db.clone(), KEY_NUMS, CHUNK_SIZE, SMALL_VALUE_SIZE);
+            });
         });
-    });
 
-    c.sample_size(SAMPLE_SIZE).bench_function(&format!("{} iterate small value", name), |b| {
-        b.iter(|| iterate(db.clone(), KEY_NUMS, CHUNK_SIZE, SMALL_VALUE_SIZE));
-    });
+    c.sample_size(SAMPLE_SIZE)
+        .bench_function(format!("{} iterate small value", name), |b| {
+            b.iter(|| iterate(db.clone(), KEY_NUMS, CHUNK_SIZE, SMALL_VALUE_SIZE));
+        });
 
     // let dir = tempfile::Builder::new()
     //     .prefix(&format!("{}-bench-large-value", name))
@@ -150,24 +155,15 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
 }
 
 fn bench_rocks(c: &mut Criterion) {
-    let mut opts = rocksdb::Options::default();
-    opts.create_if_missing(true);
-    opts.set_compression_type(rocksdb::DBCompressionType::None);
+    let opts = build_rocks_options();
 
-    bench(c, "rocks", |dir| build_rocks_db(&opts, dir));
+    bench(c, "rocks", |dir| Arc::new(build_rocks_db(&opts, dir)));
 }
 
 fn bench_mydb(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let runtime = Arc::new(runtime);
-    let options = SstOptions::builder()
-        .target_sst_size(1024 * 1024 * 2)
-        .block_size(4096)
-        .num_memtable_limit(1000)
-        .compaction_option(Default::default())
-        .enable_wal(false)
-        .enable_mvcc(true)
-        .build();
+    let options = get_sst_options();
 
     bench(c, "mydb", |dir| {
         let options = options.clone();
@@ -181,10 +177,49 @@ fn bench_mydb(c: &mut Criterion) {
     })
 }
 
+fn build_rocks_options() -> rocksdb::Options {
+    let mut opts = rocksdb::Options::default();
+    opts.create_if_missing(true);
+    opts.set_compression_type(rocksdb::DBCompressionType::None);
+    opts
+}
+
+fn get_sst_options() -> SstOptions {
+    SstOptions::builder()
+        .target_sst_size(1024 * 1024 * 2)
+        .block_size(4096)
+        .num_memtable_limit(1000)
+        .compaction_option(Default::default())
+        .enable_wal(false)
+        .enable_mvcc(true)
+        .build()
+}
+
+fn pair_test(c: &mut Criterion) {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let runtime = Arc::new(runtime);
+    let options = get_sst_options();
+    let opts = build_rocks_options();
+
+    bench(c, "pair_db", |dir| {
+        let options = options.clone();
+        let path = Arc::new(dir.path().join("mydb").to_path_buf());
+        let my_db = runtime.block_on(async {
+            let persistent = LocalFs::new(path);
+            let db = Lsm::new(options, persistent).await.unwrap();
+
+            MyDbWithRuntime::new(db, runtime.clone())
+        });
+        let rocksdb = build_rocks_db(&opts, dir.path().join("rocksdb"));
+        let pair_db = DbPair::new(my_db, rocksdb);
+        Arc::new(pair_db)
+    })
+}
+
 criterion_group! {
   name = bench_against_rocks;
   config = Criterion::default();
-  targets = bench_mydb
+  targets = pair_test
 }
 
 criterion_main!(bench_against_rocks);
