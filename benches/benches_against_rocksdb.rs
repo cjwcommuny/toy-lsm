@@ -274,7 +274,7 @@ fn pair_test(c: &mut Criterion) {
 criterion_group! {
   name = bench_against_rocks;
   config = Criterion::default();
-  targets = bench_rocks
+  targets = bench_rocks, bench_mydb, pair_test
 }
 
 criterion_main!(bench_against_rocks);
