@@ -2,6 +2,7 @@ use crate::entry::Entry;
 use crate::iterators::lsm::LsmIterator;
 use crate::lsm::core::Lsm;
 use crate::persistent::LocalFs;
+use crate::sst::SstOptions;
 use crate::state::write_batch::WriteBatchRecord;
 use crate::state::Map;
 use crate::test_utils::integration::common::Database;
@@ -11,7 +12,6 @@ use futures::StreamExt;
 use std::ops::Bound::{Included, Unbounded};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use crate::sst::SstOptions;
 
 pub struct MyDbWithRuntime {
     db: Option<Lsm<LocalFs>>,

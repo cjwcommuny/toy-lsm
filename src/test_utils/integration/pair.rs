@@ -49,29 +49,32 @@ impl Database for DbPair {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-    use tokio::runtime::Runtime;
     use crate::lsm::core::Lsm;
     use crate::persistent::LocalFs;
-    use crate::test_utils::integration::common::populate;
+    use crate::test_utils::integration::common::{iterate, populate, randread};
     use crate::test_utils::integration::mydb::{build_sst_options, MyDbWithRuntime};
     use crate::test_utils::integration::pair::DbPair;
     use crate::test_utils::integration::rocksdb::{build_rocks_db, build_rocks_options};
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
 
     #[test]
     fn test_with_rocksdb() {
+        for _ in 0..1 {
+            test_with_rocksdb_single_round();
+        }
+    }
+
+    fn test_with_rocksdb_single_round() {
         let runtime = Arc::new(Runtime::new().unwrap());
         let rocksdb_dir = tempfile::Builder::new()
             .prefix("rocksdb")
             .tempdir()
             .unwrap();
-        let mydb_dir = tempfile::Builder::new()
-            .prefix("mydb")
-            .tempdir()
-            .unwrap();
-        let persistent = LocalFs::new(mydb_dir.path());
+        let mydb_dir = tempfile::Builder::new().prefix("mydb").tempdir().unwrap();
+        let persistent = LocalFs::new(mydb_dir.path().to_path_buf());
 
-        let pair_db = {
+        let db = {
             let rocksdb = build_rocks_db(&build_rocks_options(), &rocksdb_dir);
             let my_db = {
                 let options = build_sst_options();
@@ -81,8 +84,15 @@ mod test {
             Arc::new(DbPair::new(my_db, rocksdb))
         };
 
-        populate(pair_db.clone(), 16_000, 1000, 100, 64, true);
-        populate(pair_db.clone(), 16_000, 1000, 100, 64, false);
-        
+        populate(db.clone(), 16_000, 1000, 100, 64, true);
+
+        for _ in 0..10 {
+            populate(db.clone(), 16_000, 1000, 100, 64, false);
+        }
+
+        for _ in 0..1000 {
+            randread(db.clone(), 16_000, 1000, 64);
+            iterate(db.clone(), 16_000, 1000, 64);
+        }
     }
 }

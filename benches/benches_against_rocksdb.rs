@@ -1,6 +1,5 @@
 use better_mini_lsm::lsm::core::Lsm;
 use better_mini_lsm::persistent::LocalFs;
-use better_mini_lsm::sst::SstOptions;
 use better_mini_lsm::test_utils::integration::common::{iterate, populate, randread, Database};
 use better_mini_lsm::test_utils::integration::mydb::{build_sst_options, MyDbWithRuntime};
 use better_mini_lsm::test_utils::integration::pair::DbPair;
