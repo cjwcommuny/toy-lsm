@@ -1,10 +1,10 @@
-mod common;
-
-use crate::common::{build_rocks_db, Database, DbPair, MyDbWithRuntime};
 use better_mini_lsm::lsm::core::Lsm;
 use better_mini_lsm::persistent::LocalFs;
 use better_mini_lsm::sst::SstOptions;
-use common::{iterate, populate, randread};
+use better_mini_lsm::test_utils::integration::common::{iterate, populate, randread, Database};
+use better_mini_lsm::test_utils::integration::mydb::MyDbWithRuntime;
+use better_mini_lsm::test_utils::integration::pair::DbPair;
+use better_mini_lsm::test_utils::integration::rocksdb::build_rocks_db;
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
 use tempfile::TempDir;
