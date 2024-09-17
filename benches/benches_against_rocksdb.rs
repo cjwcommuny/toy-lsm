@@ -15,12 +15,13 @@ use tempfile::TempDir;
 
 // We will process `CHUNK_SIZE` items in a thread, and in one certain thread,
 // we will process `BATCH_SIZE` items in a transaction or write batch.
-const KEY_NUMS: u64 = 160_000;
-const CHUNK_SIZE: u64 = 10_000;
+const KEY_NUMS: u64 = 160_00;
+const CHUNK_SIZE: u64 = 10_00;
 const BATCH_SIZE: u64 = 100;
 
 const SMALL_VALUE_SIZE: usize = 32;
 const LARGE_VALUE_SIZE: usize = 4096;
+const SAMPLE_SIZE: usize = 10;
 
 fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir) -> Arc<D>) {
     let dir = tempfile::Builder::new()
@@ -28,8 +29,9 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         .tempdir()
         .unwrap();
     let dir_path = dir.path();
+    let mut c = c.benchmark_group("group");
 
-    c.bench_function(
+    c.sample_size(SAMPLE_SIZE).bench_function(
         &format!("{} sequentially populate small value", name),
         |b| {
             b.iter_custom(|iters| {
@@ -49,7 +51,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         },
     );
 
-    c.bench_function(&format!("{} randomly populate small value", name), |b| {
+    c.sample_size(SAMPLE_SIZE).bench_function(&format!("{} randomly populate small value", name), |b| {
         b.iter_custom(|iters| {
             let mut total = Duration::new(0, 0);
 
@@ -75,75 +77,74 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
 
     let db = build_db(&dir);
 
-    c.bench_function(&format!("{} randread small value", name), |b| {
+    c.sample_size(SAMPLE_SIZE).bench_function(&format!("{} randread small value", name), |b| {
         b.iter(|| {
             randread(db.clone(), KEY_NUMS, CHUNK_SIZE, SMALL_VALUE_SIZE);
         });
     });
 
-    c.bench_function(&format!("{} iterate small value", name), |b| {
+    c.sample_size(SAMPLE_SIZE).bench_function(&format!("{} iterate small value", name), |b| {
         b.iter(|| iterate(db.clone(), KEY_NUMS, CHUNK_SIZE, SMALL_VALUE_SIZE));
     });
 
-    dir.close().unwrap();
-    let dir = tempfile::Builder::new()
-        .prefix(&format!("{}-bench-large-value", name))
-        .tempdir()
-        .unwrap();
-    let dir_path = dir.path();
+    // let dir = tempfile::Builder::new()
+    //     .prefix(&format!("{}-bench-large-value", name))
+    //     .tempdir()
+    //     .unwrap();
+    // let dir_path = dir.path();
+    //
+    // c.bench_function("rocks sequentially populate large value", |b| {
+    //     b.iter_custom(|iters| {
+    //         let mut total = Duration::new(0, 0);
+    //
+    //         (0..iters).for_each(|_| {
+    //             remove_files(dir_path);
+    //             let db = build_db(&dir);
+    //
+    //             let now = Instant::now();
+    //             populate(db, KEY_NUMS, CHUNK_SIZE, BATCH_SIZE, LARGE_VALUE_SIZE, true);
+    //             total = total.add(now.elapsed());
+    //         });
+    //
+    //         total
+    //     });
+    // });
 
-    c.bench_function("rocks sequentially populate large value", |b| {
-        b.iter_custom(|iters| {
-            let mut total = Duration::new(0, 0);
-
-            (0..iters).for_each(|_| {
-                remove_files(dir_path);
-                let db = build_db(&dir);
-
-                let now = Instant::now();
-                populate(db, KEY_NUMS, CHUNK_SIZE, BATCH_SIZE, LARGE_VALUE_SIZE, true);
-                total = total.add(now.elapsed());
-            });
-
-            total
-        });
-    });
-
-    c.bench_function(&format!("{} randomly populate large value", name), |b| {
-        b.iter_custom(|iters| {
-            let mut total = Duration::new(0, 0);
-
-            (0..iters).for_each(|_| {
-                remove_files(dir_path);
-                let db = build_db(&dir);
-
-                let now = Instant::now();
-                populate(
-                    db,
-                    KEY_NUMS,
-                    CHUNK_SIZE,
-                    BATCH_SIZE,
-                    LARGE_VALUE_SIZE,
-                    false,
-                );
-                total = total.add(now.elapsed());
-            });
-
-            total
-        });
-    });
-
-    let db = build_db(&dir);
-
-    c.bench_function(&format!("{} randread large value", name), |b| {
-        b.iter(|| {
-            randread(db.clone(), KEY_NUMS, CHUNK_SIZE, LARGE_VALUE_SIZE);
-        });
-    });
-
-    c.bench_function(&format!("{} iterate large value", name), |b| {
-        b.iter(|| iterate(db.clone(), KEY_NUMS, CHUNK_SIZE, LARGE_VALUE_SIZE));
-    });
+    // c.bench_function(&format!("{} randomly populate large value", name), |b| {
+    //     b.iter_custom(|iters| {
+    //         let mut total = Duration::new(0, 0);
+    //
+    //         (0..iters).for_each(|_| {
+    //             remove_files(dir_path);
+    //             let db = build_db(&dir);
+    //
+    //             let now = Instant::now();
+    //             populate(
+    //                 db,
+    //                 KEY_NUMS,
+    //                 CHUNK_SIZE,
+    //                 BATCH_SIZE,
+    //                 LARGE_VALUE_SIZE,
+    //                 false,
+    //             );
+    //             total = total.add(now.elapsed());
+    //         });
+    //
+    //         total
+    //     });
+    // });
+    //
+    // let db = build_db(&dir);
+    //
+    // c.bench_function(&format!("{} randread large value", name), |b| {
+    //     b.iter(|| {
+    //         randread(db.clone(), KEY_NUMS, CHUNK_SIZE, LARGE_VALUE_SIZE);
+    //     });
+    // });
+    //
+    // c.bench_function(&format!("{} iterate large value", name), |b| {
+    //     b.iter(|| iterate(db.clone(), KEY_NUMS, CHUNK_SIZE, LARGE_VALUE_SIZE));
+    // });
 
     dir.close().unwrap();
 }
@@ -183,7 +184,7 @@ fn bench_mydb(c: &mut Criterion) {
 criterion_group! {
   name = bench_against_rocks;
   config = Criterion::default();
-  targets = bench_mydb, bench_rocks
+  targets = bench_mydb
 }
 
 criterion_main!(bench_against_rocks);
