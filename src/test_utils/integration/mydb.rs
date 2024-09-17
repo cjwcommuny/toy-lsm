@@ -11,10 +11,22 @@ use futures::StreamExt;
 use std::ops::Bound::{Included, Unbounded};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use crate::sst::SstOptions;
 
 pub struct MyDbWithRuntime {
     db: Option<Lsm<LocalFs>>,
     handle: Arc<Runtime>,
+}
+
+pub fn build_sst_options() -> SstOptions {
+    SstOptions::builder()
+        .target_sst_size(1024 * 1024 * 2)
+        .block_size(4096)
+        .num_memtable_limit(1000)
+        .compaction_option(Default::default())
+        .enable_wal(false)
+        .enable_mvcc(true)
+        .build()
 }
 
 impl MyDbWithRuntime {

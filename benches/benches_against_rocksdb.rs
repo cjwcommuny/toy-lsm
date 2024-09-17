@@ -2,9 +2,9 @@ use better_mini_lsm::lsm::core::Lsm;
 use better_mini_lsm::persistent::LocalFs;
 use better_mini_lsm::sst::SstOptions;
 use better_mini_lsm::test_utils::integration::common::{iterate, populate, randread, Database};
-use better_mini_lsm::test_utils::integration::mydb::MyDbWithRuntime;
+use better_mini_lsm::test_utils::integration::mydb::{build_sst_options, MyDbWithRuntime};
 use better_mini_lsm::test_utils::integration::pair::DbPair;
-use better_mini_lsm::test_utils::integration::rocksdb::build_rocks_db;
+use better_mini_lsm::test_utils::integration::rocksdb::{build_rocks_db, build_rocks_options};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -215,7 +215,7 @@ fn bench_rocks(c: &mut Criterion) {
 fn bench_mydb(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let runtime = Arc::new(runtime);
-    let options = get_sst_options();
+    let options = build_sst_options();
 
     bench(c, "mydb", |dir| {
         let options = options.clone();
@@ -229,29 +229,11 @@ fn bench_mydb(c: &mut Criterion) {
     })
 }
 
-fn build_rocks_options() -> rocksdb::Options {
-    let mut opts = rocksdb::Options::default();
-    opts.create_if_missing(true);
-    opts.set_compression_type(rocksdb::DBCompressionType::None);
-    opts
-}
-
-fn get_sst_options() -> SstOptions {
-    SstOptions::builder()
-        .target_sst_size(1024 * 1024 * 2)
-        .block_size(4096)
-        .num_memtable_limit(1000)
-        .compaction_option(Default::default())
-        .enable_wal(false)
-        .enable_mvcc(true)
-        .build()
-}
-
 #[allow(dead_code)]
 fn pair_test(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let runtime = Arc::new(runtime);
-    let options = get_sst_options();
+    let options = build_sst_options();
     let opts = build_rocks_options();
 
     bench(c, "pair_db", |dir| {

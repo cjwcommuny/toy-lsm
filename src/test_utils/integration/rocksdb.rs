@@ -8,6 +8,13 @@ pub struct RocksdbWithWriteOpt {
     write_options: WriteOptions,
 }
 
+pub fn build_rocks_options() -> rocksdb::Options {
+    let mut opts = rocksdb::Options::default();
+    opts.create_if_missing(true);
+    opts.set_compression_type(rocksdb::DBCompressionType::None);
+    opts
+}
+
 pub fn build_rocks_db(opts: &rocksdb::Options, dir: impl AsRef<Path>) -> RocksdbWithWriteOpt {
     let write_options = {
         let mut write_options = rocksdb::WriteOptions::default();
