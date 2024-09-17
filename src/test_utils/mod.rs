@@ -7,6 +7,7 @@ use crate::state::Map;
 #[cfg(test)]
 pub mod iterator;
 
+pub mod integration;
 pub mod workload;
 
 #[cfg(test)]

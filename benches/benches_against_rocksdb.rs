@@ -1,10 +1,9 @@
-mod common;
-
-use crate::common::{build_rocks_db, Database, DbPair, MyDbWithRuntime};
 use better_mini_lsm::lsm::core::Lsm;
 use better_mini_lsm::persistent::LocalFs;
-use better_mini_lsm::sst::SstOptions;
-use common::{iterate, populate, randread};
+use better_mini_lsm::test_utils::integration::common::{iterate, populate, randread, Database};
+use better_mini_lsm::test_utils::integration::mydb::{build_sst_options, MyDbWithRuntime};
+use better_mini_lsm::test_utils::integration::pair::DbPair;
+use better_mini_lsm::test_utils::integration::rocksdb::{build_rocks_db, build_rocks_options};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -20,29 +19,29 @@ const LARGE_VALUE_SIZE: usize = 4096;
 const SAMPLE_SIZE: usize = 10;
 
 fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir) -> Arc<D>) {
-    let mut c = c.benchmark_group("group");
-    c.sample_size(SAMPLE_SIZE);
+    c.bench_function(
+        &format!("{} sequentially populate small value", name),
+        |b| {
+            let dir = tempfile::Builder::new()
+                .prefix(&format!("{}-bench-seq-populate-small-value", name))
+                .tempdir()
+                .unwrap();
+            let db = build_db(&dir);
 
-    c.bench_function(format!("{} sequentially populate small value", name), |b| {
-        let dir = tempfile::Builder::new()
-            .prefix(&format!("{}-bench-seq-populate-small-value", name))
-            .tempdir()
-            .unwrap();
-        let db = build_db(&dir);
+            b.iter(|| {
+                populate(
+                    db.clone(),
+                    KEY_NUMS,
+                    CHUNK_SIZE,
+                    BATCH_SIZE,
+                    SMALL_VALUE_SIZE,
+                    true,
+                );
+            });
+        },
+    );
 
-        b.iter(|| {
-            populate(
-                db.clone(),
-                KEY_NUMS,
-                CHUNK_SIZE,
-                BATCH_SIZE,
-                SMALL_VALUE_SIZE,
-                true,
-            );
-        });
-    });
-
-    c.bench_function(format!("{} randomly populate small value", name), |b| {
+    c.bench_function(&format!("{} randomly populate small value", name), |b| {
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-bench-rand-populate-small-value", name))
             .tempdir()
@@ -60,7 +59,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         });
     });
 
-    c.bench_function(format!("{} randread small value", name), |b| {
+    c.bench_function(&format!("{} randread small value", name), |b| {
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-bench-rand-read-small-value", name))
             .tempdir()
@@ -87,7 +86,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         });
     });
 
-    c.bench_function(format!("{} iterate small value", name), |b| {
+    c.bench_function(&format!("{} iterate small value", name), |b| {
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-bench-iter-small-value", name))
             .tempdir()
@@ -131,7 +130,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         });
     });
 
-    c.bench_function(format!("{} randomly populate large value", name), |b| {
+    c.bench_function(&format!("{} randomly populate large value", name), |b| {
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-bench-rand-populate-large-value", name))
             .tempdir()
@@ -150,7 +149,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         });
     });
 
-    c.bench_function(format!("{} randread large value", name), |b| {
+    c.bench_function(&format!("{} randread large value", name), |b| {
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-bench-rand-read-large-value", name))
             .tempdir()
@@ -179,7 +178,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
         });
     });
 
-    c.bench_function(format!("{} iterate large value", name), |b| {
+    c.bench_function(&format!("{} iterate large value", name), |b| {
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-bench-rand-iter-large-value", name))
             .tempdir()
@@ -215,7 +214,7 @@ fn bench_rocks(c: &mut Criterion) {
 fn bench_mydb(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let runtime = Arc::new(runtime);
-    let options = get_sst_options();
+    let options = build_sst_options();
 
     bench(c, "mydb", |dir| {
         let options = options.clone();
@@ -229,29 +228,11 @@ fn bench_mydb(c: &mut Criterion) {
     })
 }
 
-fn build_rocks_options() -> rocksdb::Options {
-    let mut opts = rocksdb::Options::default();
-    opts.create_if_missing(true);
-    opts.set_compression_type(rocksdb::DBCompressionType::None);
-    opts
-}
-
-fn get_sst_options() -> SstOptions {
-    SstOptions::builder()
-        .target_sst_size(1024 * 1024 * 2)
-        .block_size(4096)
-        .num_memtable_limit(1000)
-        .compaction_option(Default::default())
-        .enable_wal(false)
-        .enable_mvcc(true)
-        .build()
-}
-
 #[allow(dead_code)]
 fn pair_test(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let runtime = Arc::new(runtime);
-    let options = get_sst_options();
+    let options = build_sst_options();
     let opts = build_rocks_options();
 
     bench(c, "pair_db", |dir| {
@@ -274,7 +255,7 @@ fn pair_test(c: &mut Criterion) {
 
 criterion_group! {
   name = bench_against_rocks;
-  config = Criterion::default();
+  config = Criterion::default().sample_size(SAMPLE_SIZE);
   targets = bench_rocks, bench_mydb
 }
 
