@@ -6,6 +6,7 @@ use better_mini_lsm::test_utils::integration::pair::DbPair;
 use better_mini_lsm::test_utils::integration::rocksdb::{build_rocks_db, build_rocks_options};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
+use pprof::criterion::{Output, PProfProfiler};
 use tempfile::TempDir;
 
 // We will process `CHUNK_SIZE` items in a thread, and in one certain thread,
@@ -258,7 +259,7 @@ fn pair_test(c: &mut Criterion) {
 
 criterion_group! {
   name = bench_against_rocks;
-  config = Criterion::default().sample_size(SAMPLE_SIZE);
+  config = Criterion::default().sample_size(SAMPLE_SIZE).with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
   targets = bench_rocks, bench_mydb
 }
 
