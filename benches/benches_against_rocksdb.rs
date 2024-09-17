@@ -11,7 +11,7 @@ use tempfile::TempDir;
 
 // We will process `CHUNK_SIZE` items in a thread, and in one certain thread,
 // we will process `BATCH_SIZE` items in a transaction or write batch.
-const KEY_NUMS: u64 = 160_00;
+const KEY_NUMS: u64 = 16_000;
 const CHUNK_SIZE: u64 = 10_00;
 const BATCH_SIZE: u64 = 100;
 
@@ -247,6 +247,7 @@ fn get_sst_options() -> SstOptions {
         .build()
 }
 
+#[allow(dead_code)]
 fn pair_test(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let runtime = Arc::new(runtime);
@@ -274,7 +275,7 @@ fn pair_test(c: &mut Criterion) {
 criterion_group! {
   name = bench_against_rocks;
   config = Criterion::default();
-  targets = bench_rocks, bench_mydb, pair_test
+  targets = bench_rocks, bench_mydb
 }
 
 criterion_main!(bench_against_rocks);
