@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1726580215345,
+  "lastUpdate": 1726672753565,
   "repoUrl": "https://github.com/cjwcommuny/toy-lsm",
   "entries": {
     "Benchmark with RocksDB": [
@@ -119,6 +119,126 @@ window.BENCHMARK_DATA = {
             "name": "mydb iterate large value",
             "value": 15491214,
             "range": "± 156509",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "cjwcommuny@outlook.com",
+            "name": "cjw",
+            "username": "cjwcommuny"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8543300cdbb17c6b49365427e479e153d9f1e960",
+          "message": "fix: SST deletion (#95)",
+          "timestamp": "2024-09-18T23:04:23+08:00",
+          "tree_id": "f0436ce3c96d19a3a0a75b2abc3737bacc8e5f25",
+          "url": "https://github.com/cjwcommuny/toy-lsm/commit/8543300cdbb17c6b49365427e479e153d9f1e960"
+        },
+        "date": 1726672753279,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "rocks sequentially populate small value",
+            "value": 30084467,
+            "range": "± 226875301",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randomly populate small value",
+            "value": 27407983,
+            "range": "± 1851187",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randread small value",
+            "value": 7210334,
+            "range": "± 634586",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks iterate small value",
+            "value": 1781340,
+            "range": "± 9348",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks sequentially populate large value",
+            "value": 303730445,
+            "range": "± 2805871",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randomly populate large value",
+            "value": 294475440,
+            "range": "± 4081753",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randread large value",
+            "value": 29365850,
+            "range": "± 3122705",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks iterate large value",
+            "value": 32349824,
+            "range": "± 3570215",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb sequentially populate small value",
+            "value": 124739591,
+            "range": "± 4570304",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randomly populate small value",
+            "value": 131616257,
+            "range": "± 6313231",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randread small value",
+            "value": 42611925,
+            "range": "± 636247",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb iterate small value",
+            "value": 13551923,
+            "range": "± 155665",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb sequentially populate large value",
+            "value": 679393625,
+            "range": "± 6799178",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randomly populate large value",
+            "value": 668623720,
+            "range": "± 4895243",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randread large value",
+            "value": 231366658,
+            "range": "± 6404802",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb iterate large value",
+            "value": 16180207,
+            "range": "± 212792",
             "unit": "ns/iter"
           }
         ]
