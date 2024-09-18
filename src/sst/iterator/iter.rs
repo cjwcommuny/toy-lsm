@@ -119,14 +119,14 @@ where
 }
 
 #[pin_project]
-pub struct SsTableIterator<'a, File> {
+pub struct SsTableIterator<'a, File: SstHandle> {
     table: &'a SsTable<File>,
     #[pin]
     inner: InnerIter<'a>,
     bloom: Option<&'a Bloom>,
 }
 
-impl<'a, File> SsTableIterator<'a, File> {
+impl<'a, File: SstHandle> SsTableIterator<'a, File> {
     pub fn may_contain(&self, key: &[u8]) -> bool {
         bloom::may_contain(self.bloom, key)
     }
@@ -161,7 +161,7 @@ where
 }
 
 // todo: 感觉没必要 impl Stream，使用 (Bloom, InnerIter) 比较好？
-impl<'a, File> Stream for SsTableIterator<'a, File> {
+impl<'a, File: SstHandle> Stream for SsTableIterator<'a, File> {
     type Item = anyhow::Result<InnerEntry>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

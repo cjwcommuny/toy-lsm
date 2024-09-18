@@ -17,7 +17,7 @@ use crate::utils::range::MinMax;
 
 /// An SSTable.
 #[derive(TypedBuilder, Getters)]
-pub struct SsTable<File> {
+pub struct SsTable<File: SstHandle> {
     /// The actual storage unit of SsTable, the format is as above.
     pub(crate) file: File,
     /// The meta blocks that hold info for data blocks.
@@ -31,6 +31,15 @@ pub struct SsTable<File> {
     pub(crate) bloom: Option<Bloom>,
     /// The maximum timestamp stored in this SST, implemented in week 3.
     pub max_ts: u64, // todo: use Option?
+
+    #[builder(default)]
+    state: SstState,
+}
+
+impl<File: SstHandle> Drop for SsTable<File> {
+    fn drop(&mut self) {
+        todo!()
+    }
 }
 
 impl SsTable<()> {
@@ -45,6 +54,7 @@ impl SsTable<()> {
             last_key: KeyBytes::new(Bytes::copy_from_slice(last_key.as_bytes()), 0),
             bloom: None,
             max_ts: 0,
+            state: SstState::Active,
         }
     }
 }
@@ -60,7 +70,7 @@ impl<File: SstHandle> Debug for SsTable<File> {
     }
 }
 
-impl<File> SsTable<File> {
+impl<File: SstHandle> SsTable<File> {
     pub fn get_key_range(&self) -> MinMax<KeyBytes> {
         MinMax {
             min: self.first_key.clone(),
@@ -126,6 +136,7 @@ impl<File: SstHandle> SsTable<File> {
             last_key,
             bloom: Some(bloom),
             max_ts,
+            state: SstState::Active
         };
         Ok(table)
     }
@@ -198,4 +209,11 @@ impl<File: SstHandle> SsTable<File> {
     pub fn table_size(&self) -> u64 {
         self.file.size()
     }
+}
+
+#[derive(Debug, Default)]
+pub enum SstState {
+    #[default]
+    Active,
+    ToDelete,
 }

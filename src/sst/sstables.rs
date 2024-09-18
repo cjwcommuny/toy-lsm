@@ -27,7 +27,7 @@ use crate::sst::SsTable;
 use crate::utils::range::MinMax;
 
 #[derive(Default)]
-pub struct Sstables<File> {
+pub struct Sstables<File: SstHandle> {
     /// L0 SSTs, from latest to earliest.
     pub(super) l0_sstables: Vec<usize>,
     /// SsTables sorted by key range; L1 - L_max for leveled compaction, or tiers for tiered
@@ -39,7 +39,7 @@ pub struct Sstables<File> {
     pub(super) sstables: HashMap<usize, Arc<SsTable<File>>>,
 }
 
-impl<File> Clone for Sstables<File> {
+impl<File: SstHandle> Clone for Sstables<File> {
     fn clone(&self) -> Self {
         Self {
             l0_sstables: self.l0_sstables.clone(),
@@ -59,7 +59,7 @@ impl<File: SstHandle> Debug for Sstables<File> {
     }
 }
 
-impl<File> Sstables<File> {
+impl<File: SstHandle> Sstables<File> {
     pub fn sst_ids(&self) -> impl Iterator<Item = usize> + '_ {
         self.l0_sstables
             .iter()
@@ -69,7 +69,7 @@ impl<File> Sstables<File> {
 }
 
 #[cfg(test)]
-impl<File> Sstables<File> {
+impl<File: SstHandle> Sstables<File> {
     pub fn l0_sstables(&self) -> &[usize] {
         &self.l0_sstables
     }
@@ -80,7 +80,7 @@ impl<File> Sstables<File> {
 }
 
 // only for test
-impl<File> Sstables<File> {
+impl<File: SstHandle> Sstables<File> {
     pub fn sstables(&self) -> &HashMap<usize, Arc<SsTable<File>>> {
         &self.sstables
     }
@@ -106,7 +106,7 @@ impl<File> Sstables<File> {
     }
 }
 
-impl<File> Sstables<File> {
+impl<File: SstHandle> Sstables<File> {
     pub fn get_l0_key_minmax(&self) -> Option<MinMax<KeyBytes>> {
         self.tables(0).fold(None, |range, table| {
             let table_range = table.get_key_range();
@@ -241,7 +241,7 @@ where
     }
 }
 
-fn filter_sst_by_bloom<File>(
+fn filter_sst_by_bloom<File: SstHandle>(
     _table: &SsTable<File>,
     lower: Bound<KeySlice>,
     upper: Bound<KeySlice>,
@@ -260,7 +260,7 @@ pub fn build_next_sst_id(a: &AtomicUsize) -> impl Fn() -> usize + Sized + '_ {
     || a.fetch_add(1, Relaxed)
 }
 
-pub fn fold_flush_manifest<File>(
+pub fn fold_flush_manifest<File: SstHandle>(
     imm_memtables: &mut Vec<Arc<ImmutableMemTable>>,
     sstables: &mut Sstables<File>,
     Flush(id): Flush,

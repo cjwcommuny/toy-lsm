@@ -166,7 +166,7 @@ pub fn generate_tasks<File: SstHandle>(
     }
 }
 
-fn generate_tasks_for_other_level<'a, File>(
+fn generate_tasks_for_other_level<'a, File: SstHandle>(
     source_level: usize,
     sstables: &'a Sstables<File>,
     tables_in_compaction: &'a mut HashSet<usize>,
@@ -203,7 +203,7 @@ fn generate_tasks_for_other_level<'a, File>(
         .flatten()
 }
 
-fn generate_task_for_l0<'a, File>(
+fn generate_task_for_l0<'a, File: SstHandle>(
     source_level: usize,
     sstables: &'a Sstables<File>,
     target_sizes: &[u64],
@@ -258,7 +258,7 @@ pub async fn compact_task<'a, P: Persistent>(
     .await
 }
 
-fn generate_next_level_table_ids<File>(
+fn generate_next_level_table_ids<File: SstHandle>(
     tables_in_compaction: &mut HashSet<usize>,
     sstables: &Sstables<File>,
     source_key_range: &MinMax<KeyBytes>,
