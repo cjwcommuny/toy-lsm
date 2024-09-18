@@ -1,9 +1,12 @@
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
-
 use anyhow::{anyhow, Result};
+use atomic_enum::atomic_enum;
 use bytes::{Buf, Bytes};
 use derive_getters::Getters;
+use std::fmt::{Debug, Formatter};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use tokio::runtime::Handle;
+use tracing::error;
 use typed_builder::TypedBuilder;
 
 use crate::block::{Block, BlockCache, BlockIterator};
@@ -17,7 +20,7 @@ use crate::utils::range::MinMax;
 
 /// An SSTable.
 #[derive(TypedBuilder, Getters)]
-pub struct SsTable<File> {
+pub struct SsTable<File: SstHandle> {
     /// The actual storage unit of SsTable, the format is as above.
     pub(crate) file: File,
     /// The meta blocks that hold info for data blocks.
@@ -31,6 +34,22 @@ pub struct SsTable<File> {
     pub(crate) bloom: Option<Bloom>,
     /// The maximum timestamp stored in this SST, implemented in week 3.
     pub max_ts: u64, // todo: use Option?
+
+    #[builder(default)]
+    state: AtomicSstStateWrapper,
+}
+
+impl<File: SstHandle> Drop for SsTable<File> {
+    fn drop(&mut self) {
+        if self.state.0.load(Ordering::Relaxed) == SstState::ToDelete {
+            let result = tokio::task::block_in_place(|| {
+                Handle::current().block_on(async { self.file.delete().await })
+            });
+            if let Err(e) = result {
+                error!(error = ?e);
+            }
+        }
+    }
 }
 
 impl SsTable<()> {
@@ -45,6 +64,7 @@ impl SsTable<()> {
             last_key: KeyBytes::new(Bytes::copy_from_slice(last_key.as_bytes()), 0),
             bloom: None,
             max_ts: 0,
+            state: Default::default(),
         }
     }
 }
@@ -60,7 +80,7 @@ impl<File: SstHandle> Debug for SsTable<File> {
     }
 }
 
-impl<File> SsTable<File> {
+impl<File: SstHandle> SsTable<File> {
     pub fn get_key_range(&self) -> MinMax<KeyBytes> {
         MinMax {
             min: self.first_key.clone(),
@@ -126,6 +146,7 @@ impl<File: SstHandle> SsTable<File> {
             last_key,
             bloom: Some(bloom),
             max_ts,
+            state: Default::default(),
         };
         Ok(table)
     }
@@ -197,5 +218,24 @@ impl<File: SstHandle> SsTable<File> {
 
     pub fn table_size(&self) -> u64 {
         self.file.size()
+    }
+
+    pub fn set_to_delete(&self) {
+        self.state.0.store(SstState::ToDelete, Ordering::Relaxed);
+    }
+}
+
+#[atomic_enum]
+#[derive(PartialEq)]
+pub enum SstState {
+    Active = 0,
+    ToDelete,
+}
+
+pub struct AtomicSstStateWrapper(AtomicSstState);
+
+impl Default for AtomicSstStateWrapper {
+    fn default() -> Self {
+        Self(AtomicSstState::new(SstState::Active))
     }
 }

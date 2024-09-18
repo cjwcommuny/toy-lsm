@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait Persistent: Send + Sync + Clone + 'static {
@@ -30,16 +29,8 @@ pub trait SstHandle: Send + Sync + 'static {
         -> impl Future<Output = anyhow::Result<Vec<u8>>> + Send;
 
     fn size(&self) -> u64;
-}
 
-impl<T: SstHandle> SstHandle for Arc<T> {
-    async fn read(&self, offset: u64, len: usize) -> anyhow::Result<Vec<u8>> {
-        self.as_ref().read(offset, len).await
-    }
-
-    fn size(&self) -> u64 {
-        self.as_ref().size()
-    }
+    fn delete(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
 pub trait WalHandle: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static {

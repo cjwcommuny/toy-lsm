@@ -25,7 +25,7 @@ impl LocalFs {
         Self { dir: dir.into() }
     }
 
-    fn build_sst_path(&self, id: usize) -> PathBuf {
+    pub fn build_sst_path(&self, id: usize) -> PathBuf {
         self.dir.join(format!("{}.sst", id))
     }
 
@@ -47,14 +47,18 @@ impl Persistent for LocalFs {
     async fn create_sst(&self, id: usize, data: Vec<u8>) -> anyhow::Result<Self::SstHandle> {
         let size = data.len().try_into()?;
         let path = self.build_sst_path(id);
-        let file = spawn_blocking(move || {
-            std::fs::write(&path, &data)?;
-            File::open(&path)?.sync_all()?;
-            let file = File::options().read(true).append(true).open(&path)?;
-            Ok::<_, anyhow::Error>(Arc::new(file))
-        })
-        .await??;
-        let handle = FileObject { file, size };
+        let file = {
+            let path = path.clone();
+            spawn_blocking(move || {
+                // todo: avoid clone
+                std::fs::write(&path, &data)?;
+                File::open(&path)?.sync_all()?;
+                let file = File::options().read(true).append(true).open(&path)?;
+                Ok::<_, anyhow::Error>(Arc::new(file))
+            })
+            .await??
+        };
+        let handle = FileObject { file, size, path };
         Ok(handle)
     }
 
@@ -68,7 +72,7 @@ impl Persistent for LocalFs {
                 .with_context(|| format!("id: {}, path: {:?}", id, &path))?;
             let file = Arc::new(file);
             let size = file.metadata()?.len();
-            let handle = FileObject { file, size };
+            let handle = FileObject { file, size, path };
             Ok::<_, anyhow::Error>(handle)
         })
         .await??;
@@ -110,6 +114,7 @@ impl Persistent for LocalFs {
 /// A file object.
 pub struct FileObject {
     file: Arc<File>,
+    path: PathBuf,
     size: u64,
 }
 
@@ -128,6 +133,11 @@ impl SstHandle for FileObject {
 
     fn size(&self) -> u64 {
         self.size
+    }
+
+    async fn delete(&self) -> anyhow::Result<()> {
+        tokio::fs::remove_file(&self.path).await?;
+        Ok(())
     }
 }
 

@@ -1,3 +1,4 @@
+pub mod dummy;
 pub mod file_object;
 pub mod interface;
 mod manifest_handle;
