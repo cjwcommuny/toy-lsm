@@ -5,8 +5,8 @@ use better_mini_lsm::test_utils::integration::mydb::{build_sst_options, MyDbWith
 use better_mini_lsm::test_utils::integration::pair::DbPair;
 use better_mini_lsm::test_utils::integration::rocksdb::{build_rocks_db, build_rocks_options};
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::sync::Arc;
 use pprof::criterion::{Output, PProfProfiler};
+use std::sync::Arc;
 use tempfile::TempDir;
 
 // We will process `CHUNK_SIZE` items in a thread, and in one certain thread,
@@ -23,6 +23,7 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
     c.bench_function(
         &format!("{} sequentially populate small value", name),
         |b| {
+            println!("begin sequentially populate small value!!");
             let dir = tempfile::Builder::new()
                 .prefix(&format!("{}-bench-seq-populate-small-value", name))
                 .tempdir()
@@ -257,10 +258,16 @@ fn pair_test(c: &mut Criterion) {
     })
 }
 
+fn build_criterion_config() -> Criterion {
+    Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)))
+}
+
 criterion_group! {
-  name = bench_against_rocks;
-  config = Criterion::default().sample_size(SAMPLE_SIZE).with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
-  targets = bench_rocks, bench_mydb
+    name = bench_against_rocks;
+    config = build_criterion_config();
+    targets = bench_rocks, bench_mydb
 }
 
 criterion_main!(bench_against_rocks);
