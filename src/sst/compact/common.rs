@@ -133,48 +133,6 @@ where
     }
 }
 
-// pub async fn compact_with_task<P: Persistent>(
-//     sstables: &mut Sstables<P::SstHandle>,
-//     next_sst_id: SstIdGeneratorImpl,
-//     options: Arc<SstOptions>,
-//     persistent: P,
-//     task: &CompactionTask,
-//     watermark: Option<u64>,
-// ) -> anyhow::Result<Vec<usize>> {
-//     let source = task.source();
-//     let source_level: Vec<_> = match task.source_index() {
-//         SourceIndex::Index { index } => {
-//             let source_id = *sstables.table_ids(source).get(index).unwrap();
-//             let source_level = sstables.sstables.get(&source_id).unwrap().as_ref();
-//             let source = iter::once(source_level);
-//             source.collect()
-//         }
-//         SourceIndex::Full { .. } => {
-//             let source = sstables.tables(source);
-//             source.collect()
-//         }
-//     };
-//
-//     let destination = task.destination();
-//
-//     let new_sst = assert_send(compact_generate_new_sst(
-//         source_level,
-//         sstables.tables(destination),
-//         next_sst_id,
-//         options,
-//         persistent,
-//         watermark,
-//     ))
-//     .await?;
-//
-//     let new_sst_ids: Vec<_> = new_sst.iter().map(|table| table.id()).copied().collect();
-//
-//     sstables.apply_compaction_sst(new_sst, task);
-//     sstables.apply_compaction_sst_ids(task, new_sst_ids.clone());
-//
-//     Ok(new_sst_ids)
-// }
-
 pub async fn force_compact<P: Persistent + Clone>(
     old_sstables: Arc<Sstables<P::SstHandle>>,
     sstables: &mut Sstables<P::SstHandle>,
@@ -240,6 +198,9 @@ pub async fn force_compact<P: Persistent + Clone>(
             .iter()
             .chain(record.task.destination_ids.iter())
         {
+            if let Some(sst) = sstables.sstables.get(old_id) {
+                sst.set_to_delete();
+            }
             sstables.sstables.remove(old_id);
         }
     }

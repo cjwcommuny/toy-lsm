@@ -4,6 +4,8 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use bytes::{Buf, Bytes};
 use derive_getters::Getters;
+use tokio::runtime::Handle;
+use tracing::error;
 use typed_builder::TypedBuilder;
 
 use crate::block::{Block, BlockCache, BlockIterator};
@@ -14,6 +16,7 @@ use crate::sst::bloom::Bloom;
 use crate::sst::iterator::BlockFallibleIter;
 use crate::sst::BlockMeta;
 use crate::utils::range::MinMax;
+use crate::utils::scoped::ScopedMutex;
 
 /// An SSTable.
 #[derive(TypedBuilder, Getters)]
@@ -33,12 +36,23 @@ pub struct SsTable<File: SstHandle> {
     pub max_ts: u64, // todo: use Option?
 
     #[builder(default)]
-    state: SstState,
+    // todo: use atomic
+    state: ScopedMutex<SstState>,
 }
 
 impl<File: SstHandle> Drop for SsTable<File> {
     fn drop(&mut self) {
-        todo!()
+        let to_delete = self
+            .state
+            .lock_with(|state| matches!(*state, SstState::ToDelete));
+        if to_delete {
+            let result = tokio::task::block_in_place(|| {
+                Handle::current().block_on(async { self.file.delete().await })
+            });
+            if let Err(e) = result {
+                error!(error = ?e);
+            }
+        }
     }
 }
 
@@ -54,7 +68,7 @@ impl SsTable<()> {
             last_key: KeyBytes::new(Bytes::copy_from_slice(last_key.as_bytes()), 0),
             bloom: None,
             max_ts: 0,
-            state: SstState::Active,
+            state: ScopedMutex::default(),
         }
     }
 }
@@ -136,7 +150,7 @@ impl<File: SstHandle> SsTable<File> {
             last_key,
             bloom: Some(bloom),
             max_ts,
-            state: SstState::Active
+            state: ScopedMutex::default(),
         };
         Ok(table)
     }
@@ -208,6 +222,11 @@ impl<File: SstHandle> SsTable<File> {
 
     pub fn table_size(&self) -> u64 {
         self.file.size()
+    }
+
+    pub fn set_to_delete(&self) {
+        self.state
+            .lock_with(|mut state| *state = SstState::ToDelete);
     }
 }
 
