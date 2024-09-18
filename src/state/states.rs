@@ -974,7 +974,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_task3_mvcc_compaction() {
         use crate::state::write_batch::WriteBatchRecord::{Del, Put};
 

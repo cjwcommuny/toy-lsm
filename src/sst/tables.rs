@@ -1,9 +1,10 @@
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
-
 use anyhow::{anyhow, Result};
+use atomic_enum::atomic_enum;
 use bytes::{Buf, Bytes};
 use derive_getters::Getters;
+use std::fmt::{Debug, Formatter};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tokio::runtime::Handle;
 use tracing::error;
 use typed_builder::TypedBuilder;
@@ -16,7 +17,6 @@ use crate::sst::bloom::Bloom;
 use crate::sst::iterator::BlockFallibleIter;
 use crate::sst::BlockMeta;
 use crate::utils::range::MinMax;
-use crate::utils::scoped::ScopedMutex;
 
 /// An SSTable.
 #[derive(TypedBuilder, Getters)]
@@ -36,16 +36,12 @@ pub struct SsTable<File: SstHandle> {
     pub max_ts: u64, // todo: use Option?
 
     #[builder(default)]
-    // todo: use atomic
-    state: ScopedMutex<SstState>,
+    state: AtomicSstStateWrapper,
 }
 
 impl<File: SstHandle> Drop for SsTable<File> {
     fn drop(&mut self) {
-        let to_delete = self
-            .state
-            .lock_with(|state| matches!(*state, SstState::ToDelete));
-        if to_delete {
+        if self.state.0.load(Ordering::Relaxed) == SstState::ToDelete {
             let result = tokio::task::block_in_place(|| {
                 Handle::current().block_on(async { self.file.delete().await })
             });
@@ -68,7 +64,7 @@ impl SsTable<()> {
             last_key: KeyBytes::new(Bytes::copy_from_slice(last_key.as_bytes()), 0),
             bloom: None,
             max_ts: 0,
-            state: ScopedMutex::default(),
+            state: Default::default(),
         }
     }
 }
@@ -150,7 +146,7 @@ impl<File: SstHandle> SsTable<File> {
             last_key,
             bloom: Some(bloom),
             max_ts,
-            state: ScopedMutex::default(),
+            state: Default::default(),
         };
         Ok(table)
     }
@@ -225,14 +221,21 @@ impl<File: SstHandle> SsTable<File> {
     }
 
     pub fn set_to_delete(&self) {
-        self.state
-            .lock_with(|mut state| *state = SstState::ToDelete);
+        self.state.0.store(SstState::ToDelete, Ordering::Relaxed);
     }
 }
 
-#[derive(Debug, Default)]
+#[atomic_enum]
+#[derive(PartialEq)]
 pub enum SstState {
-    #[default]
-    Active,
+    Active = 0,
     ToDelete,
+}
+
+pub struct AtomicSstStateWrapper(AtomicSstState);
+
+impl Default for AtomicSstStateWrapper {
+    fn default() -> Self {
+        Self(AtomicSstState::new(SstState::Active))
+    }
 }

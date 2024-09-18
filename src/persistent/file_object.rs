@@ -25,7 +25,7 @@ impl LocalFs {
         Self { dir: dir.into() }
     }
 
-    fn build_sst_path(&self, id: usize) -> PathBuf {
+    pub fn build_sst_path(&self, id: usize) -> PathBuf {
         self.dir.join(format!("{}.sst", id))
     }
 
@@ -136,8 +136,7 @@ impl SstHandle for FileObject {
     }
 
     async fn delete(&self) -> anyhow::Result<()> {
-        let path = self.path.clone();
-        spawn_blocking(|| std::fs::remove_file(path)).await??;
+        tokio::fs::remove_file(&self.path).await?;
         Ok(())
     }
 }
