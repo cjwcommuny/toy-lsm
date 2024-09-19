@@ -31,6 +31,7 @@ jobs:
         with:
           toolchain: nightly
           default: true
+      - uses: Swatinem/rust-cache@v2
       - name: Benchmark 🚀
         run: cargo +nightly bench --all-features --workspace --bench benches_against_rocksdb -- --output-format bencher | tee output.txt
       - uses: benchmark-action/github-action-benchmark@v1
