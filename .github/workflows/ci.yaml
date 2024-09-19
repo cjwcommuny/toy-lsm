@@ -23,6 +23,8 @@ jobs:
       - name: Install stable toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: cargo build
         run: cargo b --workspace --all-targets --all-features
 
@@ -38,6 +40,8 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Rustfmt Check
         run: cargo fmt --all --check
@@ -55,6 +59,8 @@ jobs:
         with:
           components: clippy
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Clippy Check
         run: cargo clippy --workspace --all-targets --all-features -- -Dwarnings 
 
@@ -68,6 +74,8 @@ jobs:
 
       - name: Install stable toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Cargo test
         run: cargo test --workspace --all-targets --all-features
