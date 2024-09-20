@@ -21,6 +21,8 @@ use std::ops::Bound;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use tracing::info_span;
+use tracing_futures::Instrument;
 
 #[self_referencing]
 pub struct TxnIter<'a, P: Persistent> {
@@ -117,12 +119,17 @@ pub struct TxnLsmWithRange<'a, P: Persistent> {
 
 impl<'a, P: Persistent> TxnLsmWithRange<'a, P> {
     pub async fn iter(&'a self) -> anyhow::Result<LsmIterator<'a>> {
-        let lsm_iter = self.lsm_range.iter_with_delete().await?;
+        let lsm_iter = self
+            .lsm_range
+            .iter_with_delete()
+            .await?
+            .instrument(info_span!("lsm_iter"));
         let local_iter = txn_local_iterator(
             self.local_storage,
             self.lsm_range.lower.map(Bytes::copy_from_slice),
             self.lsm_range.upper.map(Bytes::copy_from_slice),
-        );
+        )
+        .instrument(info_span!("txn_local_iter"));
         let merged = create_two_merge_iter(local_iter, lsm_iter).await?;
         let iter = new_no_deleted_iter(merged);
         let iter = InspectIterImpl::inspect_stream(iter, |entry| {
@@ -133,6 +140,7 @@ impl<'a, P: Persistent> TxnLsmWithRange<'a, P> {
             let key = entry.key.as_ref();
             key_hashes.lock_with(|mut set| set.add_read_key(key));
         });
+        let iter = iter.instrument(info_span!("txn_iter"));
         let iter = Box::new(iter) as _;
         Ok(iter)
     }

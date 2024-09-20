@@ -9,7 +9,8 @@ use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tracing::error;
+use tracing::{error, info_span};
+use tracing_futures::Instrument;
 
 use crate::entry::{Entry, InnerEntry, Keyed};
 use crate::iterators::no_deleted::new_no_deleted_iter;
@@ -111,15 +112,22 @@ where
     pub async fn iter_with_delete(
         &self,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Entry>> + Unpin + Send + '_> {
-        let a = self.build_memtable_iter().await;
+        let a = self
+            .build_memtable_iter()
+            .await
+            .instrument(info_span!("memtable_iter"));
         assert_raw_stream(&a);
-        let b = self.build_sst_iter().await?;
+        let b = self
+            .build_sst_iter()
+            .await?
+            .instrument(info_span!("sst_iter"));
         assert_raw_stream(&b);
         let merge = create_two_merge_iter(a, b).await?;
         assert_raw_stream(&merge);
         let merge = merge.map(|entry| entry.map(Keyed::into_timed_tuple));
         assert_tuple_stream(&merge);
-        let time_dedup = build_time_dedup_iter(merge, self.timestamp);
+        let time_dedup =
+            build_time_dedup_iter(merge, self.timestamp).instrument(info_span!("time_dedup_iter"));
         assert_result_stream(&time_dedup);
         Ok(time_dedup)
     }
@@ -150,7 +158,9 @@ where
         create_merge_iter_from_non_empty_iters(iters).await
     }
 
-    pub async fn build_sst_iter(&self) -> anyhow::Result<MergedSstIterator<P::SstHandle>> {
+    pub async fn build_sst_iter(
+        &self,
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin> {
         let (lower, upper) = transform_bound(self.lower, self.upper, self.timestamp);
         let lower = lower.map(Key::from);
         let upper = upper.map(Key::from);

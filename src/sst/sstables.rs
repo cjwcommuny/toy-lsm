@@ -5,13 +5,13 @@ use std::fmt::{Debug, Formatter};
 
 use std::iter::repeat;
 
-use futures::stream;
+use crate::entry::InnerEntry;
+use futures::{stream, Stream};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use tracing::error;
-
-use crate::entry::InnerEntry;
+use tracing::{error, info_span};
+use tracing_futures::Instrument;
 
 use crate::iterators::{create_merge_iter, create_two_merge_iter, MergeIterator};
 use crate::key::{KeyBytes, KeySlice};
@@ -21,7 +21,7 @@ use crate::persistent::SstHandle;
 use crate::sst::compact::common::{apply_compaction_v2, NewCompactionRecord, NewCompactionTask};
 use crate::sst::compact::CompactionOptions;
 use crate::sst::iterator::concat::SstConcatIterator;
-use crate::sst::iterator::{scan_sst_concat, MergedSstIterator, SsTableIterator};
+use crate::sst::iterator::{scan_sst_concat, SsTableIterator};
 use crate::sst::option::SstOptions;
 use crate::sst::SsTable;
 use crate::utils::range::MinMax;
@@ -156,9 +156,15 @@ where
         &'a self,
         lower: Bound<KeySlice<'a>>,
         upper: Bound<KeySlice<'a>>,
-    ) -> anyhow::Result<MergedSstIterator<'a, File>> {
-        let l0 = self.scan_l0(lower, upper).await;
-        let levels = self.scan_levels(lower, upper).await;
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<InnerEntry>> + Send + Unpin> {
+        let l0 = self
+            .scan_l0(lower, upper)
+            .await
+            .instrument(info_span!("scan_l0"));
+        let levels = self
+            .scan_levels(lower, upper)
+            .await
+            .instrument(info_span!("scan_levels"));
 
         create_two_merge_iter(l0, levels).await
     }

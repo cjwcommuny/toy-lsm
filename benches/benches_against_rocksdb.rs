@@ -4,11 +4,11 @@ use better_mini_lsm::test_utils::integration::common::{iterate, populate, randre
 use better_mini_lsm::test_utils::integration::mydb::{build_sst_options, MyDbWithRuntime};
 use better_mini_lsm::test_utils::integration::pair::DbPair;
 use better_mini_lsm::test_utils::integration::rocksdb::{build_rocks_db, build_rocks_options};
+use better_mini_lsm::test_utils::tracing::setup_global_subscriber;
 use criterion::{criterion_group, criterion_main, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 use std::sync::Arc;
 use tempfile::TempDir;
-use better_mini_lsm::test_utils::tracing::setup_global_subscriber;
 
 // We will process `CHUNK_SIZE` items in a thread, and in one certain thread,
 // we will process `BATCH_SIZE` items in a transaction or write batch.

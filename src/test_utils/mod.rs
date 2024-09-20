@@ -8,8 +8,8 @@ use crate::state::Map;
 pub mod iterator;
 
 pub mod integration;
-pub mod workload;
 pub mod tracing;
+pub mod workload;
 
 #[cfg(test)]
 pub async fn insert_sst<M: Map<Error = anyhow::Error>>(
