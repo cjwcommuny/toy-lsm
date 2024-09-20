@@ -77,6 +77,7 @@ pub struct TxnRefIter<'a, P: Persistent> {
 }
 
 impl<'a, P: Persistent> TxnRefIter<'a, P> {
+    #[tracing::instrument(skip_all)]
     pub async fn try_build(
         txn: &'a Transaction<'a, P>,
         lower: Bound<&'a [u8]>,

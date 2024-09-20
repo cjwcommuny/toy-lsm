@@ -6,7 +6,8 @@ use std::ops::Bound::Excluded;
 use std::slice;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-
+use tracing::{info_span};
+use tracing_futures::Instrument;
 use crate::entry::Entry;
 use crate::iterators::lsm::LsmIterator;
 use crate::mvcc::core::{CommittedTxnData, LsmMvccInner};
@@ -51,6 +52,7 @@ pub struct Transaction<'a, P: Persistent> {
 impl<'a, P: Persistent> Map for Transaction<'a, P> {
     type Error = anyhow::Error;
 
+    #[tracing::instrument(skip_all)]
     async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         let output = assert_send(self.scan(Bound::Included(key), Bound::Included(key)))
             .await?
@@ -105,6 +107,7 @@ impl<'a, P: Persistent> Transaction<'a, P> {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn write_batch(&self, batch: &[WriteBatchRecord]) {
         if let Some(key_hashes) = self.key_hashes.as_ref() {
             key_hashes.lock_with(|mut set| {
@@ -127,11 +130,13 @@ impl<'a, P: Persistent> Transaction<'a, P> {
         upper: Bound<&'a [u8]>,
     ) -> anyhow::Result<LsmIterator<'a>> {
         let iter = TxnRefIter::try_build(self, lower, upper).await?;
+        let iter = iter.instrument(info_span!("txn_ref_iter"));
         let iter = Box::new(iter) as _;
         Ok(iter)
     }
 
     // todo: 区分 snapshot isolation vs serializable isolation
+    #[tracing::instrument(skip_all)]
     pub async fn commit(mut self) -> anyhow::Result<()> {
         let mut commit_guard = self.mvcc.committed_txns.lock().await;
 

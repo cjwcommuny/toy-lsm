@@ -87,10 +87,12 @@ impl<P: Persistent> Lsm<P> {
         })
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn put_batch(&self, batch: &[WriteBatchRecord]) -> anyhow::Result<()> {
         self.state.put_batch(batch).await
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn scan<'a>(
         &'a self,
         lower: Bound<&'a [u8]>,
@@ -106,6 +108,7 @@ where
 {
     type Error = anyhow::Error;
 
+    #[tracing::instrument(skip_all)]
     fn get(&self, key: &[u8]) -> impl Future<Output = Result<Option<Bytes>, Self::Error>> + Send {
         self.state.get(key)
     }

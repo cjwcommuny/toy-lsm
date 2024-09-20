@@ -8,6 +8,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 use std::sync::Arc;
 use tempfile::TempDir;
+use better_mini_lsm::test_utils::tracing::setup_global_subscriber;
 
 // We will process `CHUNK_SIZE` items in a thread, and in one certain thread,
 // we will process `BATCH_SIZE` items in a transaction or write batch.
@@ -216,6 +217,8 @@ fn bench_rocks(c: &mut Criterion) {
 }
 
 fn bench_mydb(c: &mut Criterion) {
+    let _tracing_guard = setup_global_subscriber();
+
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let runtime = Arc::new(runtime);
     let options = build_sst_options();

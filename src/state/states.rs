@@ -147,6 +147,7 @@ where
         txn.commit().await
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn write_batch(&self, entries: &[Entry], timestamp: u64) -> anyhow::Result<()> {
         let guard = self.inner.load();
         guard

@@ -9,6 +9,7 @@ pub mod iterator;
 
 pub mod integration;
 pub mod workload;
+pub mod tracing;
 
 #[cfg(test)]
 pub async fn insert_sst<M: Map<Error = anyhow::Error>>(
