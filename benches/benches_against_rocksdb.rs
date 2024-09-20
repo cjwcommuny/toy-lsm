@@ -23,7 +23,6 @@ fn bench<D: Database>(c: &mut Criterion, name: &str, build_db: impl Fn(&TempDir)
     c.bench_function(
         &format!("{} sequentially populate small value", name),
         |b| {
-            println!("begin sequentially populate small value!!");
             let dir = tempfile::Builder::new()
                 .prefix(&format!("{}-bench-seq-populate-small-value", name))
                 .tempdir()
@@ -261,7 +260,7 @@ fn pair_test(c: &mut Criterion) {
 fn build_criterion_config() -> Criterion {
     Criterion::default()
         .sample_size(SAMPLE_SIZE)
-        .with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)))
+        .with_profiler(PProfProfiler::new(10, Output::Flamegraph(None)))
 }
 
 criterion_group! {
