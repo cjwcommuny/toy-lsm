@@ -5,6 +5,7 @@ use better_mini_lsm::test_utils::integration::mydb::{build_sst_options, MyDbWith
 use better_mini_lsm::test_utils::integration::pair::DbPair;
 use better_mini_lsm::test_utils::integration::rocksdb::{build_rocks_db, build_rocks_options};
 use criterion::{criterion_group, criterion_main, Criterion};
+use pprof::criterion::{Output, PProfProfiler};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -256,10 +257,16 @@ fn pair_test(c: &mut Criterion) {
     })
 }
 
+fn build_criterion_config() -> Criterion {
+    Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .with_profiler(PProfProfiler::new(10, Output::Flamegraph(None)))
+}
+
 criterion_group! {
-  name = bench_against_rocks;
-  config = Criterion::default().sample_size(SAMPLE_SIZE);
-  targets = bench_rocks, bench_mydb
+    name = bench_against_rocks;
+    config = build_criterion_config();
+    targets = bench_rocks, bench_mydb
 }
 
 criterion_main!(bench_against_rocks);

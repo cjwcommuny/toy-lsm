@@ -59,6 +59,7 @@ atomic_enum = "0.3.0"
 tempfile = "3"
 ycsb = { git = "https://github.com/cjwcommuny/ycsb-rs.git", rev = "b82522d" }
 criterion = { version = "0.5.1", features = ["async_tokio"] }
+pprof = { version = "0.13", features = ["flamegraph", "criterion"] }
 maplit = "1.0.2"
 
 [lints.rust]
