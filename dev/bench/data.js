@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1726726649953,
+  "lastUpdate": 1726843192568,
   "repoUrl": "https://github.com/cjwcommuny/toy-lsm",
   "entries": {
     "Benchmark with RocksDB": [
@@ -359,6 +359,126 @@ window.BENCHMARK_DATA = {
             "name": "mydb iterate large value",
             "value": 15453133,
             "range": "± 166172",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "cjwcommuny@outlook.com",
+            "name": "cjw",
+            "username": "cjwcommuny"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "35686fd4bda3a445f1f266ae7a66519afde566db",
+          "message": "bench: support profiling (#97)",
+          "timestamp": "2024-09-20T22:24:36+08:00",
+          "tree_id": "145ea93c7d454a65d3a5bfab6b44471c63b2c83e",
+          "url": "https://github.com/cjwcommuny/toy-lsm/commit/35686fd4bda3a445f1f266ae7a66519afde566db"
+        },
+        "date": 1726843192302,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "rocks sequentially populate small value",
+            "value": 30795591,
+            "range": "± 28849207",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randomly populate small value",
+            "value": 26446968,
+            "range": "± 2376761",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randread small value",
+            "value": 8513133,
+            "range": "± 438002",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks iterate small value",
+            "value": 1776511,
+            "range": "± 12159",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks sequentially populate large value",
+            "value": 295085864,
+            "range": "± 10201274",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randomly populate large value",
+            "value": 298346713,
+            "range": "± 28245785",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randread large value",
+            "value": 29803386,
+            "range": "± 3319939",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks iterate large value",
+            "value": 34439536,
+            "range": "± 2230794",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb sequentially populate small value",
+            "value": 141785809,
+            "range": "± 6076749",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randomly populate small value",
+            "value": 155688611,
+            "range": "± 23614193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randread small value",
+            "value": 42282370,
+            "range": "± 267384",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb iterate small value",
+            "value": 13665528,
+            "range": "± 141090",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb sequentially populate large value",
+            "value": 700399805,
+            "range": "± 15367548",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randomly populate large value",
+            "value": 676872401,
+            "range": "± 39187335",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randread large value",
+            "value": 221560184,
+            "range": "± 2401863",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb iterate large value",
+            "value": 15890802,
+            "range": "± 299258",
             "unit": "ns/iter"
           }
         ]
