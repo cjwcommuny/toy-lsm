@@ -89,6 +89,7 @@ impl<P: Persistent> Lsm<P> {
 
     #[tracing::instrument(skip_all)]
     pub async fn put_batch(&self, batch: &[WriteBatchRecord]) -> anyhow::Result<()> {
+        // todo: 对于 put batch 可以跳过 memtable 这步直接写 sst？否则可以考虑在 memtable atomic 地攒 batch
         self.state.put_batch(batch).await
     }
 

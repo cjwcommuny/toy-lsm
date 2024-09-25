@@ -25,6 +25,7 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
+use tracing::instrument;
 
 #[derive(Getters)]
 pub struct LsmStorageState<P: Persistent> {
@@ -98,6 +99,7 @@ where
         Ok(this)
     }
 
+    #[instrument(skip_all)]
     pub fn new_txn(&self) -> anyhow::Result<Transaction<P>> {
         // todo: avoid clone?
         let mvcc = self.mvcc.as_ref().ok_or(anyhow!("no mvcc"))?;

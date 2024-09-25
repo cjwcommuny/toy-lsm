@@ -5,22 +5,22 @@ use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use bytemuck::TransparentWrapperAlloc;
-use bytes::Bytes;
-use crossbeam_skiplist::SkipMap;
-use derive_getters::Getters;
-use ref_cast::RefCast;
-
 use crate::bound::BytesBound;
 use crate::entry::Entry;
 use crate::iterators::NonEmptyStream;
-use crate::key::{KeyBytes, KeySlice};
+use crate::key::{Key, KeyBytes, KeySlice};
 use crate::manifest::{Manifest, ManifestRecord, NewMemtable};
 use crate::memtable::immutable::ImmutableMemTable;
 use crate::memtable::iterator::{new_memtable_iter, MaybeEmptyMemTableIterRef};
 use crate::persistent::interface::{ManifestHandle, WalHandle};
 use crate::persistent::Persistent;
 use crate::wal::Wal;
+use bytemuck::TransparentWrapperAlloc;
+use bytes::Bytes;
+use crossbeam_skiplist::SkipMap;
+use derive_getters::Getters;
+use ref_cast::RefCast;
+use tracing::{info_span, instrument};
 
 /// A basic mem-table based on crossbeam-skiplist.
 ///
@@ -147,6 +147,7 @@ impl MemTable {
             .await
     }
 
+    #[instrument(skip_all)]
     pub async fn put_batch<W: WalHandle>(
         &self,
         wal: Option<&Wal<W>>,
@@ -159,17 +160,28 @@ impl MemTable {
         }
 
         let mut size = 0;
-        for entry in entries {
-            let Entry { key, value } = entry;
-            let key = KeyBytes::new(key.clone(), timestamp);
-            let value = value.clone();
+        {
+            let _guard = info_span!("insert_entries").entered();
+            for entry in entries {
+                let Entry { key, value } = entry;
+                let (key, value) = {
+                    let _guard = info_span!("clone_key_value").entered();
+                    (key.clone(), value.clone())
+                };
+                let key = KeyBytes::new(key, timestamp);
 
-            size += key.len() + value.len();
-            self.map.insert(key, value);
+                size += key.len() + value.len();
+                self.insert(key, value);
+            }
         }
         self.approximate_size.fetch_add(size, Ordering::Release);
 
         Ok(())
+    }
+
+    #[instrument(skip_all)]
+    fn insert(&self, key: Key<Bytes>, value: Bytes) {
+        self.map.insert(key, value);
     }
 
     pub async fn scan_with_ts(

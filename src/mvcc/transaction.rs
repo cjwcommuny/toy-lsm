@@ -146,30 +146,36 @@ impl<'a, P: Persistent> Transaction<'a, P> {
             guard.0 + 1
         };
         let key_hashes = self.key_hashes.take().map(ScopedMutex::into_inner);
-        let conflict = if let Some(key_hashes) = key_hashes.as_ref() {
-            let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
-            let read_set = &key_hashes.read_set;
-            commit_guard
-                .range(range)
-                .any(|(_, data)| !data.key_hashes.is_disjoint(read_set))
-        } else {
-            false
+        let conflict = {
+            let _guard = info_span!("check_conflict").entered();
+            if let Some(key_hashes) = key_hashes.as_ref() {
+                let range = (Excluded(self.read_ts), Excluded(expected_commit_ts));
+                let read_set = &key_hashes.read_set;
+                commit_guard
+                    .range(range)
+                    .any(|(_, data)| !data.key_hashes.is_disjoint(read_set))
+            } else {
+                false
+            }
         };
         if conflict {
             return Err(anyhow!("commit conflict"));
         }
 
         // todo: avoid collecting
-        let entries: Vec<_> = self
-            .local_storage
-            .iter()
-            .map(|e| Entry::new(e.key().clone(), e.value().clone()))
-            .collect();
+        let entries: Vec<_> = {
+            let _guard = info_span!("collect_entries").entered();
+            self.local_storage
+                .iter()
+                .map(|e| Entry::new(e.key().clone(), e.value().clone()))
+                .collect()
+        };
         // todo: 如果 write_batch 失败怎么保证 atomicity
         self.state.write_batch(&entries, expected_commit_ts).await?;
         self.mvcc.update_commit_ts(expected_commit_ts);
 
         if let Some(key_hashes) = key_hashes {
+            let _guard = info_span!("handle_key_hashes").entered();
             let committed_data = CommittedTxnData {
                 key_hashes: key_hashes.write_set,
                 read_ts: self.read_ts,

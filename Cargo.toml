@@ -54,7 +54,7 @@ num-traits = "0.2.19"
 maplit = "1.0.2"
 rocksdb = { version = "0.22" }
 atomic_enum = "0.3.0"
-tracing-flame = "0.2.0"
+tracing-flame = { git = "https://github.com/cjwcommuny/tracing-flame-0.2.0-forked.git", rev = "f3e151c"}
 
 [dev-dependencies]
 tempfile = "3"

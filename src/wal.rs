@@ -10,6 +10,8 @@ use crate::persistent::interface::WalHandle;
 use crate::persistent::Persistent;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+use tracing::{info_span, instrument};
+use tracing_futures::Instrument;
 
 pub struct Wal<File> {
     file: Arc<Mutex<File>>,
@@ -69,6 +71,7 @@ impl<File: WalHandle> Wal<File> {
         Ok((wal, map))
     }
 
+    #[instrument(skip_all)]
     pub async fn put_batch(
         &self,
         entries: impl Iterator<Item = Keyed<&[u8], &[u8]>> + Send,
@@ -86,8 +89,8 @@ impl<File: WalHandle> Wal<File> {
             guard.write_u32(value.len() as u32).await?;
             guard.write_all(value).await?;
         }
-        guard.flush().await?;
-        guard.sync_all().await?;
+        guard.flush().instrument(info_span!("flush")).await?;
+        guard.sync_all().instrument(info_span!("sync_all")).await?;
 
         Ok(())
     }

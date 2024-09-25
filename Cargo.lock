@@ -2273,8 +2273,7 @@ dependencies = [
 [[package]]
 name = "tracing-flame"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bae117ee14789185e129aaee5d93750abe67fdc5a9a62650452bfe4e122a3a9"
+source = "git+https://github.com/cjwcommuny/tracing-flame-0.2.0-forked.git?rev=f3e151c#f3e151c2ac7ea323d61aa62c127b20d0c8c20b32"
 dependencies = [
  "lazy_static",
  "tracing",
