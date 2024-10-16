@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729090468909,
+  "lastUpdate": 1729090506236,
   "repoUrl": "https://github.com/cjwcommuny/toy-lsm",
   "entries": {
     "Benchmark with RocksDB": [
@@ -599,6 +599,126 @@ window.BENCHMARK_DATA = {
             "name": "mydb iterate large value",
             "value": 16302248,
             "range": "± 158715",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "cjwcommuny@outlook.com",
+            "name": "cjw",
+            "username": "cjwcommuny"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4660001128bab99dae5f030cb48ba3743e65c63",
+          "message": "Update README.md",
+          "timestamp": "2024-10-16T22:40:09+08:00",
+          "tree_id": "becf4bb19f96c54d0302fe9ee058861a0e872b41",
+          "url": "https://github.com/cjwcommuny/toy-lsm/commit/a4660001128bab99dae5f030cb48ba3743e65c63"
+        },
+        "date": 1729090505781,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "rocks sequentially populate small value",
+            "value": 28781835,
+            "range": "± 6059384",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randomly populate small value",
+            "value": 23090473,
+            "range": "± 1763231",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randread small value",
+            "value": 8354678,
+            "range": "± 875650",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks iterate small value",
+            "value": 1806965,
+            "range": "± 16592",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks sequentially populate large value",
+            "value": 283533483,
+            "range": "± 3131278",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randomly populate large value",
+            "value": 277461973,
+            "range": "± 3272017",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks randread large value",
+            "value": 28839966,
+            "range": "± 3576645",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "rocks iterate large value",
+            "value": 31608545,
+            "range": "± 2891492",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb sequentially populate small value",
+            "value": 90408133,
+            "range": "± 4771222",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randomly populate small value",
+            "value": 95059306,
+            "range": "± 10477149",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randread small value",
+            "value": 38901360,
+            "range": "± 312528",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb iterate small value",
+            "value": 13343535,
+            "range": "± 195238",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb sequentially populate large value",
+            "value": 633116983,
+            "range": "± 5722744",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randomly populate large value",
+            "value": 630791529,
+            "range": "± 9008082",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb randread large value",
+            "value": 218405710,
+            "range": "± 3857786",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "mydb iterate large value",
+            "value": 15866260,
+            "range": "± 141190",
             "unit": "ns/iter"
           }
         ]
