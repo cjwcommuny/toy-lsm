@@ -6,7 +6,7 @@
 - [x] Async IO
 - [x] WAL + Manifest
 - [x] Parallel leveled compaction
-- [x] MVCC
+- [x] MVCC + Optimistic concurrency control
 - [ ] io-uring
 - [ ] Benchmark against RocksDB
 - [ ] Key-value separation
