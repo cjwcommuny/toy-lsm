@@ -2,6 +2,7 @@
 
 ## Features
 
+- [x] Basic Get/Put/Delete/Range iterator
 - [x] Async IO
 - [x] WAL + Manifest
 - [x] Parallel leveled compaction
