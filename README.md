@@ -8,5 +8,5 @@
 - [x] Parallel leveled compaction
 - [x] MVCC
 - [ ] io-uring
-- [ ] Benchmark against RocksDB (working on it...)
-- [ ] Kye-value separation
+- [ ] Benchmark against RocksDB
+- [ ] Key-value separation
